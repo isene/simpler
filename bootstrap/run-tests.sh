@@ -166,6 +166,24 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/smap" "$TMP/smap.c" 2>/dev/null && [ "$("$TMP/smap")" = "$(printf 'alice=1234\nbob=56\n4')" ]; then ok; else nope "Str-valued Map (got: $("$TMP/smap" 2>/dev/null))"; fi
 
+# hardening: a Str-valued map returns "" (not a null pointer) for an absent
+# key, so reading and measuring it is safe rather than a segfault
+printf '%s' 'main(sys) {
+  d : Map[Str] = Map()
+  sys.screen.print("[".concat(d.get("missing")).concat("]"))
+  sys.screen.print(d.get("missing").length.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > mg.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/mg" "$TMP/mg.c" 2>/dev/null && [ "$("$TMP/mg" 2>&1)" = "$(printf '[]\n0')" ]; then ok; else nope "Str-Map absent key (got: $("$TMP/mg" 2>&1))"; fi
+
+# hardening: integer literals are 64-bit, so a product past 2^31 does not
+# overflow (the literals emit with an L suffix, computed in long)
+printf '%s' 'main(sys) { sys.screen.print((1000000 * 1000000).toStr) }' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > big.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/big" "$TMP/big.c" 2>/dev/null && [ "$("$TMP/big")" = "1000000000000" ]; then ok; else nope "64-bit int literals (got: $("$TMP/big" 2>/dev/null))"; fi
+
 # wordfreq.smplr, a real word-frequency tool built by the self-hosted compiler:
 # read + replace + split + Map tally + .keys enumeration, the program a map is
 # for. Exercises the whole text-and-map stack in one binary.

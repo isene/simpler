@@ -135,7 +135,9 @@ them ranked by descending value (a stable sort, so ties keep first-seen order),
 which is how you turn a tally into a ranking. Values are `Int` by default;
 annotate the binding (`dir : Map[Str] = Map()`) for a `Str`-valued map, and
 `get` returns that type, so string methods dispatch on the result. `m.get`
-returns `0` for a key that was never set, so a tally increments without a guard:
+returns a default for a key that was never set, `0` for an `Int` map and the
+empty string for a `Str` map (never a null pointer), so a tally increments
+without a guard:
 
 ```
 counts = Map()

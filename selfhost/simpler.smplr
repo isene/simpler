@@ -213,6 +213,7 @@ main(sys) {
   sys.screen.print("long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }")
   sys.screen.print("long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }")
   sys.screen.print("long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }")
+  sys.screen.print("long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }")
   sys.screen.print("long m_has(long mp, long k) { return m_find(mp, k) >= 0; }")
   sys.screen.print("long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }")
   sys.screen.print("long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }")
@@ -1569,7 +1570,7 @@ armHasBind(arms : List[Arm]) : Bool {
 
 emitExpr(e : Expr, ctx : Ctx) : Str {
   e.match {
-    Num(v) -> v.toStr
+    Num(v) -> v.toStr.concat("L")
     FloatLit(s) -> "d2l(".concat(s).concat(")")
     Var(s) -> emitVar(s, ctx)
     StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
@@ -1930,6 +1931,10 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   }
   if name == "get" {
     r = "m_get(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    // a Str-valued map returns "" for an absent key, never a null pointer
+    if mapValueOf(t) == "Str" {
+      r = "m_gets(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    }
   }
   if name == "has" {
     r = "m_has(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
