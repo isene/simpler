@@ -1,0 +1,5 @@
+// The smallest Simpler program: greet the world through a capability.
+// main receives the world (`sys`); it can touch only what it was handed.
+main(sys) {
+  sys.screen.print("hello, world")
+}

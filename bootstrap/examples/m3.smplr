@@ -1,0 +1,10 @@
+// M3: effects in the signature, capabilities passed down, both checked.
+main(sys) {
+  greet(sys.screen, "world")
+}
+
+// greet may ONLY use the screen it was handed, and must declare !IO.
+greet(screen : Screen, who : Str) !IO {
+  screen.print("hello,")
+  screen.print(who)
+}

@@ -1,0 +1,16 @@
+[package]
+name = "simpler"
+version = "0.0.1"
+edition = "2021"
+authors = ["Geir Isene <g@isene.com>"]
+description = "The Simpler language bootstrap compiler (transpiles to C)."
+license = "Unlicense"
+
+[[bin]]
+name = "simpler"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

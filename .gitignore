@@ -1,0 +1,10 @@
+# Rust build output for the bootstrap compiler
+/bootstrap/target/
+
+# Transpiler artifacts written next to example sources (.c files + binaries);
+# keep only the .smplr sources under version control.
+/bootstrap/examples/*
+!/bootstrap/examples/*.smplr
+
+# Claude Code session/harness state
+/.claude/

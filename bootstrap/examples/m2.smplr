@@ -1,0 +1,14 @@
+// M2: locals, the seven operators, if / else, iteration, typed print.
+main(sys) {
+  total = 0
+  3.times { i in
+    total = total + i
+    sys.screen.print(i)
+  }
+  if total > 2 {
+    sys.screen.print("big")
+  } else {
+    sys.screen.print("small")
+  }
+  sys.screen.print(total)
+}
