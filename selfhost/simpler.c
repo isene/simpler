@@ -20,6 +20,13 @@ long s_toint(long s) { return atol((const char*)(intptr_t)s); }
 long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }
 long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }
 long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }
+typedef struct { long* keys; long* vals; long len; long cap; } SMap;
+long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }
+long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }
+long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }
+long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }
+long m_has(long mp, long k) { return m_find(mp, k) >= 0; }
+long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
@@ -268,6 +275,13 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* keys; long* vals; long len; long cap; } SMap;");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
@@ -1068,6 +1082,9 @@ long callRet(long name, long ctx) {
   long k = 0;
   long m = 0;
   r = (long)(intptr_t)"Int";
+  if (s_eq(name, (long)(intptr_t)"Map")) {
+  r = (long)(intptr_t)"Map";
+  }
   if (hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, name)) {
   r = name;
   }
@@ -1890,6 +1907,9 @@ long emitField(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"args")) {
   r = (long)(intptr_t)"simpler_args(argc, argv)";
   }
+  if (s_eq(fld, (long)(intptr_t)"keys")) {
+  r = s_concat(s_concat((long)(intptr_t)"m_keys(", recvC), (long)(intptr_t)")");
+  }
   }
   return r;
 }
@@ -1932,6 +1952,15 @@ long emitMethod(long recv, long name, long args, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"replace")) {
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)", "), emitExpr(l_at(args, 1), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"set")) {
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)", "), emitExpr(l_at(args, 1), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"get")) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"has")) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)")");
   }
   if (s_eq(name, (long)(intptr_t)"ge")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)")");
@@ -2038,6 +2067,9 @@ long fieldType(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"args")) {
   r = (long)(intptr_t)"List[Str]";
   }
+  if (s_eq(fld, (long)(intptr_t)"keys")) {
+  r = (long)(intptr_t)"List[Str]";
+  }
   if (isRec(t, ctx)) {
   r = recFieldType(t, fld, ctx);
   }
@@ -2098,6 +2130,9 @@ long methodRet(long recv, long name, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"replace")) {
   r = (long)(intptr_t)"Str";
+  }
+  if (s_eq(name, (long)(intptr_t)"has")) {
+  r = (long)(intptr_t)"Bool";
   }
   if (s_eq(name, (long)(intptr_t)"at")) {
   r = (long)(intptr_t)"Str";

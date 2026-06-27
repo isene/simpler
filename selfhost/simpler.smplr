@@ -200,6 +200,13 @@ main(sys) {
   sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }")
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
   sys.screen.print("long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }")
+  sys.screen.print("typedef struct { long* keys; long* vals; long len; long cap; } SMap;")
+  sys.screen.print("long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }")
+  sys.screen.print("long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }")
+  sys.screen.print("long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }")
+  sys.screen.print("long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }")
+  sys.screen.print("long m_has(long mp, long k) { return m_find(mp, k) >= 0; }")
+  sys.screen.print("long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }")
   sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
@@ -913,6 +920,9 @@ inferType(e : Expr, ctx : Ctx) : Str {
 // constructor yields its variant, a function yields its declared return type.
 callRet(name : Str, ctx : Ctx) : Str {
   r = "Int"
+  if name == "Map" {
+    r = "Map"
+  }
   if hasName(ctx.sigs.recNames, name) {
     r = name
   }
@@ -1734,6 +1744,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     if fld == "args" {
       r = "simpler_args(argc, argv)"
     }
+    if fld == "keys" {
+      r = "m_keys(".concat(recvC).concat(")")
+    }
   }
   r
 }
@@ -1777,6 +1790,15 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   }
   if name == "replace" {
     r = "s_replace(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+  }
+  if name == "set" {
+    r = "m_set(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+  }
+  if name == "get" {
+    r = "m_get(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "has" {
+    r = "m_has(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "ge" {
     r = "(".concat(recvC).concat(" >= ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -1883,6 +1905,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   if fld == "args" {
     r = "List[Str]"
   }
+  if fld == "keys" {
+    r = "List[Str]"
+  }
   if isRec(t, ctx) {
     r = recFieldType(t, fld, ctx)
   }
@@ -1936,6 +1961,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str {
   }
   if name == "replace" {
     r = "Str"
+  }
+  if name == "has" {
+    r = "Bool"
   }
   if name == "at" {
     r = "Str"

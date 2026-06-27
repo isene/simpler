@@ -128,6 +128,21 @@ real reporting tool, in the language's own primitives. Both tools report a usage
 error with `fail("...")`, which writes the message to stderr and exits nonzero,
 so they behave in a shell pipeline the way a real command does.
 
+For counting and grouping there is a `Str`-keyed `Map`. `Map()` makes an empty
+one; `m.set(k, v)`, `m.get(k)`, and `m.has(k)` store, read, and test it, and
+`m.keys` enumerates the keys in first-seen order. `m.get` returns `0` for a key
+that was never set, so a tally increments without a guard:
+
+```
+counts = Map()
+words.each { w in counts.set(w, counts.get(w) + 1) }
+counts.keys.each { k in sys.screen.print(k.concat(": ").concat(counts.get(k).toStr)) }
+```
+
+[`selfhost/wordfreq.smplr`](selfhost/wordfreq.smplr) is exactly that: a
+word-frequency counter (`wordfreq <file>`) built from read, `replace`, `split`,
+the `Map`, and `.keys`.
+
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
 and `test`), but the language no longer depends on it:

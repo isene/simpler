@@ -140,6 +140,33 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/cr" "$TMP/cr.c" 2>/dev/null && [ "$("$TMP/cr")" = "$(printf 'yes\nno\na-b-c\nbb\nkeep')" ]; then ok; else nope "Str.contains/replace (got: $("$TMP/cr" 2>/dev/null))"; fi
 
+# Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
+# increments without a guard), and .keys enumerates in first-seen order.
+printf '%s' 'main(sys) {
+  m = Map()
+  "a b a c a b".split(" ").each { w in m.set(w, m.get(w) + 1) }
+  m.keys.each { k in sys.screen.print(k.concat(":").concat(m.get(k).toStr)) }
+  if m.has("a") { sys.screen.print("has a") } else { sys.screen.print("no a") }
+  if m.has("z") { sys.screen.print("has z") } else { sys.screen.print("no z") }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > map.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/map" "$TMP/map.c" 2>/dev/null && [ "$("$TMP/map")" = "$(printf 'a:3\nb:2\nc:1\nhas a\nno z')" ]; then ok; else nope "Str-keyed Map (got: $("$TMP/map" 2>/dev/null))"; fi
+
+# wordfreq.smplr, a real word-frequency tool built by the self-hosted compiler:
+# read + replace + split + Map tally + .keys enumeration, the program a map is
+# for. Exercises the whole text-and-map stack in one binary.
+cp ../selfhost/wordfreq.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > wf.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/wf" "$TMP/wf.c" 2>/dev/null; then
+    printf 'the cat sat\non the mat\nthe cat ran\n' > "$TMP/prose.txt"
+    if [ "$("$TMP/wf" "$TMP/prose.txt")" = "$(printf 'the: 3\ncat: 2\nsat: 1\non: 1\nmat: 1\nran: 1')" ]; then ok; else nope "wordfreq tally"; fi
+    rm -f "$TMP/prose.txt"
+else
+    nope "wordfreq compiles"
+fi
+
 # sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the

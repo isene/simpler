@@ -1,0 +1,29 @@
+// wordfreq: count how often each word appears in a file.
+//
+//     wordfreq <file>
+//
+// Reads <file>, normalizes newlines to spaces, splits on spaces, and
+// tallies each word in a Str-keyed Map. Then it walks the map's keys and
+// prints "word: count", in first-seen order. This is the program a map
+// exists for: counting and grouping by key.
+//
+//     cp wordfreq.smplr input.smplr && ./simpler > t.c && cc t.c -o wordfreq
+//     wordfreq prose.txt
+
+main(sys) {
+  args = sys.args
+  if args.length < 1 {
+    fail("usage: wordfreq <file>")
+  }
+  text = sys.files.read(args.at(0))?
+  counts = Map()
+  words = text.replace("\n", " ").split(" ")
+  words.each { w in
+    if w.length > 0 {
+      counts.set(w, counts.get(w) + 1)
+    }
+  }
+  counts.keys.each { k in
+    sys.screen.print(k.concat(": ").concat(counts.get(k).toStr))
+  }
+}
