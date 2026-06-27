@@ -17,6 +17,7 @@ long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const 
 long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
+long fail(long msg) { fprintf(stderr, "error: %s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 enum { T_Num, T_Var, T_StrLit, T_ListLit, T_Bin, T_Call, T_Match, T_Field, T_Method, T_Each };
 long Num(long v0) { return mk(T_Num, v0, 0, 0); }
 long Var(long v0) { return mk(T_Var, v0, 0, 0); }
@@ -154,6 +155,9 @@ long emitArm(long a, long scrutC, long boxed, long styp, long ctx);
 long payloadType(long tyName, long caseTag, long idx, long ctx);
 long casePayloadType(long t, long caseTag, long idx);
 long boxField(long scrutC, long field);
+long checkExhaustive(long styp, long arms, long ctx);
+long checkCases(long t, long arms);
+long armCovers(long arms, long cname);
 long armHasBind(long arms);
 long emitExpr(long e, long ctx);
 long emitBin(long op, long a, long b, long ctx);
@@ -217,6 +221,7 @@ int main() {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"error: %s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
   for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
   long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
   printf("%s\n", (const char*)(intptr_t)emitType(t));
@@ -1215,6 +1220,7 @@ long emitSwitch(long scrut, long arms, long ctx) {
   boxed = armHasBind(arms);
   scrutC = emitExpr(scrut, ctx);
   styp = exprType(scrut, ctx);
+  checkExhaustive(styp, arms, ctx);
   head = scrutC;
   if (boxed) {
   head = boxField(scrutC, (long)(intptr_t)"tag");
@@ -1286,6 +1292,53 @@ long casePayloadType(long t, long caseTag, long idx) {
 }
 long boxField(long scrutC, long field) {
   return s_concat(s_concat(s_concat((long)(intptr_t)"((Obj*)(intptr_t)", scrutC), (long)(intptr_t)")->"), field);
+}
+long checkExhaustive(long styp, long arms, long ctx) {
+  long types = 0;
+  long k = 0;
+  long m = 0;
+  long t = 0;
+  types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+  k = 0;
+  m = l_len(types);
+  while ((k < m)) {
+  t = l_at(types, k);
+  if (s_eq(((TyDefT*)(intptr_t)t)->name, styp)) {
+  checkCases(t, arms);
+  }
+  k = (k + 1);
+  }
+  return 0;
+}
+long checkCases(long t, long arms) {
+  long k = 0;
+  long m = 0;
+  long c = 0;
+  k = 0;
+  m = l_len(((TyDefT*)(intptr_t)t)->cases);
+  while ((k < m)) {
+  c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
+  if ((!armCovers(arms, ((CaseT*)(intptr_t)c)->cname))) {
+  fail(s_concat(s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((TyDefT*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "), ((CaseT*)(intptr_t)c)->cname));
+  }
+  k = (k + 1);
+  }
+  return 0;
+}
+long armCovers(long arms, long cname) {
+  long found = 0;
+  long k = 0;
+  long m = 0;
+  found = false;
+  k = 0;
+  m = l_len(arms);
+  while ((k < m)) {
+  if (s_eq(((ArmT*)(intptr_t)l_at(arms, k))->tag, cname)) {
+  found = true;
+  }
+  k = (k + 1);
+  }
+  return found;
 }
 long armHasBind(long arms) {
   long has = 0;

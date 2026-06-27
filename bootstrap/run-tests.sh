@@ -66,19 +66,28 @@ cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
 printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp" > "$TMP/emit.c"
 if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
-# the real self-hosted compiler reads a source file (input.smplr) and emits C.
-# Feed it sample.smplr, which exercises the whole subset (recursive multi-payload
+# the real self-hosted compiler is built from its committed C seed (no Rust) and
+# fed sample.smplr, which exercises the whole subset (recursive multi-payload
 # variants with match, enums, records with field access, typed params/returns,
 # Str and List methods, list literals and `.each` loops, if/else, while,
 # comparisons, capabilities, escaped strings). The emitted C compiles and runs,
 # and its output matches what the bootstrap produces running the sample directly.
-# Run a temp copy so the bootstrap's `.c` side output never clobbers the seed.
-cp ../selfhost/simpler.smplr "$TMP/shc.smplr"
-cp ../selfhost/sample.smplr input.smplr
-"$SIMPLER" run "$TMP/shc.smplr" > "$TMP/sh.c" 2>/dev/null
-rm -f input.smplr
+# (simpler.smplr itself now uses `fail`, which the frozen Rust does not know, so
+# the self-host checks build the compiler from the seed instead of via the Rust.)
+SEEDC="$TMP/seedc"
+cc -O2 ../selfhost/simpler.c -o "$SEEDC" 2>/dev/null
+cp ../selfhost/sample.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sh.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
 sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
 if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
+
+# the self-hosted compiler now rejects programs the Rust rejects. A match that
+# misses a case is a compile error.
+printf 'Color = type { Red Green Blue }\nname(c : Color) : Int { c.match { Red -> 1 Green -> 2 } }\nmain(sys) { sys.screen.print(name(Red)) }\n' > "$TMP/input.smplr"
+err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; rc=$?
+rm -f "$TMP/input.smplr"
+if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "non-exhaustive match"; then ok; else nope "self-host: non-exhaustive match not rejected (rc=$rc: $err)"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -199,31 +208,11 @@ out="$("$SIMPLER" test "$TMP/t.smplr" 2>/dev/null)"
 rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else nope "test failure detected"; fi
 
-# --- 4. the self-host fixpoint ------------------------------------------------
-# The compiler, written in Simpler, compiles its OWN source to a byte-stable C
-# output. Three stages: the bootstrap builds the self-hosted compiler (stage1);
-# stage1 compiles simpler.smplr to stage2.c; stage2 compiles it again to
-# stage3.c. stage2.c and stage3.c must be byte-identical. That fixpoint is the
-# proof of self-host.
-# Build in a temp copy so the bootstrap's `.c` output never clobbers the
-# committed seed selfhost/simpler.c.
-cp ../selfhost/simpler.smplr "$TMP/sc.smplr"
-"$SIMPLER" build "$TMP/sc.smplr" >/dev/null 2>&1
-if [ -x "$TMP/sc" ]; then
-    cp "$TMP/sc" "$TMP/stage1"
-    cp ../selfhost/simpler.smplr "$TMP/input.smplr"
-    ( cd "$TMP" && ./stage1 > stage2.c 2>/dev/null )
-    if cc -o "$TMP/stage2" "$TMP/stage2.c" 2>/dev/null; then
-        ( cd "$TMP" && ./stage2 > stage3.c 2>/dev/null )
-        if diff -q "$TMP/stage2.c" "$TMP/stage3.c" >/dev/null 2>&1; then ok; else nope "self-host fixpoint: stage2.c != stage3.c"; fi
-    else
-        nope "self-host fixpoint: emitted C does not compile"
-    fi
-else
-    nope "self-host fixpoint: could not build stage1"
-fi
-
-# --- 5. Rust-free: the committed C seed reproduces itself ---------------------
+# --- 4. the self-host fixpoint, Rust-free -------------------------------------
+# selfhost/simpler.c is the self-hosted compiler transpiled to C, committed so the
+# language builds with no Rust at all. Compile it with cc, point it at its own
+# source, and it must regenerate simpler.c byte-for-byte. This both proves the
+# Rust dependency is gone and keeps the committed C in sync with the source.
 # selfhost/simpler.c is the self-hosted compiler transpiled to C, committed so the
 # language builds with no Rust at all. Compile it with cc, point it at its own
 # source, and it must regenerate simpler.c byte-for-byte. This both proves the

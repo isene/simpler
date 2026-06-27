@@ -156,26 +156,33 @@ first lexer to a compiler that compiles itself:
   - [x] **string re-escaping** literals are re-escaped on emit (`\n`, `\"`, `\\`, `\t`, `\r`), so a string with a newline survives the round trip into valid C
   - [x] **reading its own source** (`sys.files.read`, `?`), typed match bindings, and nested-binding type inference, the last gaps the fixpoint exposed
   - [x] **the three-stage byte-identical fixpoint** ✅ stage2 and stage3 match to the byte
+- [ ] **Beyond the bootstrap** make the self-hosted compiler a strict superset of
+  the Rust: reject every program the Rust rejects, not just compile the valid ones.
+  Once all the checks are folded in, the Rust retires for good. (Adding a check
+  means the compiler now needs to *report* errors, so its source uses a `fail`
+  primitive the frozen Rust does not have; from here it is built only from its own
+  C seed.)
+  - [x] **error reporting** a `fail` primitive: a compile error prints to stderr and stops the compiler
+  - [x] **`match` exhaustiveness** every case of the matched variant must have an arm, else a compile error
+  - [ ] type mismatches (`1 + "a"`, wrong argument, field, and operand types)
+  - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed)
+  - [ ] source locations on errors (`file:line:`)
 
-How to see it for yourself, the three-stage bootstrap:
+See it for yourself, the fixpoint with no Rust at all:
 
 ```bash
-cd bootstrap
-cargo build --release
-./target/release/simpler build ../selfhost/simpler.smplr   # bootstrap builds the compiler (stage1)
-cp ../selfhost/simpler.smplr input.smplr
-../selfhost/simpler > stage2.c        # the Simpler compiler compiles its own source
+cd selfhost
+cc -O2 simpler.c -o simpler   # build the compiler from its committed C seed
+cp simpler.smplr input.smplr
+./simpler > stage2.c          # the Simpler compiler compiles its own source
 cc stage2.c -o stage2
-./stage2 > stage3.c                   # and that compiler compiles it again
-diff stage2.c stage3.c                # identical: the fixpoint
+./stage2 > stage3.c           # and that compiler compiles it again
+diff simpler.c stage2.c       # identical: the fixpoint
 ```
 
 The first brick, [`selfhost/calc.smplr`](selfhost/calc.smplr), is still here too:
 a tiny lex-parse-fold pipeline that reads an expression and emits C, the idea in
 miniature.
-
-Every error reports `file:line:` with the offending line, because the whole
-point of effects-in-the-type is a tight, local feedback loop.
 
 ## Read more
 
