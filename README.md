@@ -5,7 +5,7 @@
 **A programming language whose only goal is to be simple.**
 
 ![Self-host](https://img.shields.io/badge/self--hosted-fixpoint%20reached-2ea44f)
-![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
+![Written in](https://img.shields.io/badge/written%20in-Simpler-blue)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
 ![Stay Amazing](https://img.shields.io/badge/Stay-Amazing-important)
@@ -13,6 +13,13 @@
 Simple to learn, simple to read, simple for an AI to write, simple to install,
 simple to upgrade. Compiled, and fast. Every feature must pay for itself in
 problems solved, or it does not go in.
+
+**Built to be written by an AI.** A model writes good code in a mature language
+by recalling millions of examples; it has seen none of this one. So the whole
+language is small enough to hold in the prompt at once: one grammar production,
+four pieces of punctuation, seven operators, one page of built-in methods.
+[**SPEC.md**](SPEC.md) is the entire language, and it is the corpus, read it
+once and you can write Simpler.
 
 <br clear="left"/>
 
@@ -253,6 +260,18 @@ first lexer to a compiler that compiles itself:
   - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
   - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the enclosing function (the lexer tracks a line per token; the Rust pinpoints the exact expression, this is one notch coarser)
   - [x] **effects** `!IO`/`!Fail` coverage: a function must declare every effect it uses, directly through a capability call (`.print`/`.read`/`.send`) or transitively by calling an effectful function; `main` is exempt. Capabilities are typed (`sys.screen` is a `Screen`, erased to `0` at runtime) so they pass to capability parameters. The one piece left to the C compiler: using a capability that was never handed in is caught as an undefined name, not yet as a Simpler-level error.
+- [x] **A language for real programs** past self-hosting, the pieces an everyday
+  command-line tool needs, each grown with a working example and a regression
+  test:
+  - [x] **I/O**: `sys.files.read`/`write`, `sys.args`, `sys.stdin`, and `fail` to
+    stderr with a non-zero exit, so a program is a real Unix filter
+  - [x] **text**: `split`, `contains`, `replace`, `toInt`/`toFloat`/`toStr` on top
+    of the existing `concat`/`slice`/`at`/`length`
+  - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`
+    ranking) and list `sort`, plus 64-bit `Int` and `Float` with negatives
+  - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
+    `wordfreq`, `sortlines`, `average`, each built by the self-hosted compiler
+    and checked end to end
 
 See it for yourself, the fixpoint with no Rust at all:
 
@@ -272,7 +291,8 @@ miniature.
 
 ## Read more
 
-- **[SPEC.md](SPEC.md)** the language in full
+- **[SPEC.md](SPEC.md)** the entire language in one file, the corpus an AI reads
+  once to write Simpler
 - **[PLAN.md](PLAN.md)** how it gets built, milestone by milestone
 - **[DESIGN.md](DESIGN.md)** the visual and verbal language
 - **[Simpler.pdf](Simpler.pdf)** all of the above as a short book
