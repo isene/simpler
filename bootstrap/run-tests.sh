@@ -63,6 +63,11 @@ cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
 printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp" > "$TMP/emit.c"
 if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
+# the real self-hosted compiler: lex -> parse -> emit C for a variables/print subset,
+# and the C it emits compiles and runs to the right value
+"$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
+if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "20" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
+
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/e.smplr"

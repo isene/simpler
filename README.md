@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Self-host](https://img.shields.io/badge/self--hosting-toolkit-EE6C1A)
+![Self-host](https://img.shields.io/badge/self--hosting-compiling-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -118,20 +118,23 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M5c.3** `match` as a value (recursive evaluators: `Add(a, b) -> eval(a) + eval(b)`)
 - [x] **M5c.4** lists (`[…]`, `push`, `length`, `at`, `each`; elements of any type)
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
-- [ ] **Self-host** rewrite the compiler in Simpler. The whole pipeline already
-  runs end to end in Simpler on a miniature language ([`selfhost/calc.smplr`](selfhost/calc.smplr):
-  lex, parse into a recursive `Expr`, then fold the tree to a value *and* to C
-  that itself compiles and runs). The real compiler is now built one stage at a
-  time, each checked against the bootstrap:
-  - [x] **lexer** ([`selfhost/lexer.smplr`](selfhost/lexer.smplr)): the full Simpler token set, identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
-  - [ ] **parser** the full grammar: functions, types, `match`, sends, effects
-  - [ ] **checker** types, effects, capabilities
-  - [ ] **emitter** C, then the three-stage byte-identical fixpoint
+- [ ] **Self-host** rewrite the compiler in Simpler. The real compiler,
+  [`selfhost/simpler.smplr`](selfhost/simpler.smplr), now exists and runs the whole
+  pipeline, lex to parse to C, on a working subset: integer variables, the
+  arithmetic operators with precedence, and `print`. The C it emits compiles and
+  runs. The subset grows toward the full language, each step checked against the
+  bootstrap:
+  - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
+  - [x] **parser + emitter** for the variables / arithmetic / `print` subset, into an AST and out as C that builds and runs
+  - [ ] grow the grammar: functions, user types, `match`, message sends
+  - [ ] the checker: types, effects, capabilities
+  - [ ] the three-stage byte-identical fixpoint
 
-With recursive types, `match` as a value, lists of any type, and `while`, the
-language can already express its own compiler. The miniature one above reads an
-expression and emits C for it, in Simpler, so self-host is a matter of scale:
-the same folds over a bigger grammar, not a missing feature.
+The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an
+expression and folds it to a value *and* to C, all in Simpler, and the real
+compiler above already turns a small program into a working executable. Self-host
+is now a matter of scale, the same folds over a bigger grammar, not a missing
+feature.
 
 Every error reports `file:line:` with the offending line, because the whole
 point of effects-in-the-type is a tight, local feedback loop.
