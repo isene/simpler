@@ -130,7 +130,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs; it already compiles a recursive tree evaluator
   - [x] **`if`/`else`, `while`, comparisons** with reassignment (locals hoisted so a binding can be reused)
   - [x] **record types and field access** real C structs, resolved through a local type environment (variable to type), the front half of the checker
-  - [ ] grow further: the `Str` and `List` methods the compiler itself leans on, message sends, effects
+  - [x] **typed params/returns and `Str` methods** string literals, `.concat`/`.length`/`.at`/`.code`/`.slice`/`.toStr`, string `==`, and `print` choosing `%s` or `%ld`, all dispatched on inferred types
+  - [ ] grow further: the `List` methods the compiler leans on (`.push`, `.each`, `.at`), message sends, effects
   - [ ] the rest of the checker: effects, capabilities, exhaustiveness
   - [ ] the three-stage byte-identical fixpoint
 
