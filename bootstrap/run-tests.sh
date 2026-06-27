@@ -64,12 +64,12 @@ printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp
 if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
 # the real self-hosted compiler: lex -> parse -> emit C for its subset
-# (recursive multi-payload variants with match, enums, if/else, while with
-# comparisons and reassignment, functions, calls, locals, arithmetic, print),
-# and the C it emits compiles and runs. The program it compiles exercises all
-# of these: a tree evaluator, an enum, a while-sum, and an if-branch.
+# (recursive multi-payload variants with match, enums, record types with field
+# access via a local type environment, if/else, while with comparisons and
+# reassignment, functions, calls, locals, arithmetic, print), and the C it emits
+# compiles and runs. The program it compiles exercises all of these.
 "$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
-if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "27" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
+if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "34" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

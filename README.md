@@ -129,8 +129,9 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **variant types and `match`** payload-less cases as a C enum; payload-bearing cases boxed in a uniform `{tag, slots}` object, so recursive and multi-field cases (`Add(Expr, Expr)`) just work; match bindings read each payload back by position
   - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs; it already compiles a recursive tree evaluator
   - [x] **`if`/`else`, `while`, comparisons** with reassignment (locals hoisted so a binding can be reused)
-  - [ ] grow further: record types, the `Str` and `List` payloads and methods the compiler itself uses, message sends, effects
-  - [ ] the checker: types, effects, capabilities
+  - [x] **record types and field access** real C structs, resolved through a local type environment (variable to type), the front half of the checker
+  - [ ] grow further: the `Str` and `List` methods the compiler itself leans on, message sends, effects
+  - [ ] the rest of the checker: effects, capabilities, exhaustiveness
   - [ ] the three-stage byte-identical fixpoint
 
 The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an
