@@ -1,0 +1,16 @@
+// M3c: value-returning functions, and `?` across a function boundary.
+main(sys) {
+  text = load(sys.files, "examples/report.txt")?
+  sys.screen.print(text)
+  sys.screen.print(twice(3))
+}
+
+// load returns the file's contents, propagating failure upward.
+load(files : Files, path : Str) : Str !IO !Fail {
+  files.read(path)?
+}
+
+// a pure, value-returning function.
+twice(n : Int) : Int {
+  n + n
+}
