@@ -16,6 +16,7 @@ long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s;
 long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }
 long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
+long s_toint(long s) { return atol((const char*)(intptr_t)s); }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
@@ -259,6 +260,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_toint(long s) { return atol((const char*)(intptr_t)s); }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
@@ -1853,6 +1855,9 @@ long emitField(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"toStr")) {
   r = s_concat(s_concat((long)(intptr_t)"i_tostr(", recvC), (long)(intptr_t)")");
+  }
+  if (s_eq(fld, (long)(intptr_t)"toInt")) {
+  r = s_concat(s_concat((long)(intptr_t)"s_toint(", recvC), (long)(intptr_t)")");
   }
   if (s_eq(fld, (long)(intptr_t)"not")) {
   r = s_concat(s_concat((long)(intptr_t)"(!", recvC), (long)(intptr_t)")");

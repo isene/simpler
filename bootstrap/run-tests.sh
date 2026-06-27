@@ -101,6 +101,16 @@ else
     nope "linenum tool compiles"
 fi
 
+# Str.toInt: parse command-line arguments as integers and add them. Proves
+# string-to-int parsing end to end, the thing every numeric tool needs.
+printf '%s' 'main(sys) {
+  a = sys.args
+  sys.screen.print((a.at(0).toInt + a.at(1).toInt).toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > add.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/add" "$TMP/add.c" 2>/dev/null && [ "$("$TMP/add" 40 2)" = "42" ]; then ok; else nope "Str.toInt arg arithmetic"; fi
+
 # the self-hosted compiler now rejects programs the Rust rejects.
 reject() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/input.smplr"

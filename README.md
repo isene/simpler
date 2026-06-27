@@ -114,7 +114,9 @@ main(sys) {
 `number` is a pure `Str -> Str` function, so only `main` ever touches the disk.
 A function that called `.write` without declaring `!IO` would be rejected. The
 command line arrives as `sys.args`, a plain `List[Str]`, so the same list
-methods (`.length`, `.at`, `.each`) work on it.
+methods (`.length`, `.at`, `.each`) work on it. A numeric argument becomes an
+`Int` with `.toInt` (the inverse of `.toStr`), so a tool can do arithmetic on
+what it is given.
 
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`

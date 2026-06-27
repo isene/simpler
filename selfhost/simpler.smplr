@@ -196,6 +196,7 @@ main(sys) {
   sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
   sys.screen.print("long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }")
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
+  sys.screen.print("long s_toint(long s) { return atol((const char*)(intptr_t)s); }")
   sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
@@ -1700,6 +1701,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     }
     if fld == "toStr" {
       r = "i_tostr(".concat(recvC).concat(")")
+    }
+    if fld == "toInt" {
+      r = "s_toint(".concat(recvC).concat(")")
     }
     if fld == "not" {
       r = "(!".concat(recvC).concat(")")
