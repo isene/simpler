@@ -80,6 +80,17 @@ cargo build --release
 Commands: `run`, `build`, `emit`, `fmt` (format in place, canonical and
 comment-preserving), and `test` (run the file's `test_*` functions).
 
+## Development
+
+The compiler has its own regression harness: golden output for every example,
+expected error messages for known-bad programs, `fmt` idempotence, and the
+`test` runner. One command, green or red:
+
+```bash
+cd bootstrap
+./run-tests.sh
+```
+
 ## Status
 
 Early bootstrap. The language grows one runnable milestone at a time:
