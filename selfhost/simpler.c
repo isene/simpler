@@ -166,6 +166,10 @@ long emitBin(long op, long a, long b, long ctx);
 long checkBinOp(long op, long a, long b, long ctx);
 long isArithOp(long op);
 long emitCall(long name, long args, long ctx);
+long checkReturn(long f, long ctx);
+long checkReturnStmt(long s, long ret, long ctx);
+long checkRetExpr(long e, long ret, long ctx);
+long isMatchExpr(long e);
 long checkCall(long name, long args, long ctx);
 long checkArgTypes(long name, long ptypes, long args, long ctx);
 long compatible(long want, long got, long ctx);
@@ -906,6 +910,7 @@ long emitFn(long f, long sigs) {
   }
   ctx = Ctx(env, sigs);
   seedEnv(((FnT*)(intptr_t)f)->body, ctx);
+  checkReturn(f, ctx);
   decls = collectLets(((FnT*)(intptr_t)f)->body);
   d = 0;
   dn = l_len(decls);
@@ -1451,6 +1456,50 @@ long isArithOp(long op) {
 long emitCall(long name, long args, long ctx) {
   checkCall(name, args, ctx);
   return s_concat(s_concat(s_concat(name, (long)(intptr_t)"("), emitArgs(args, ctx)), (long)(intptr_t)")");
+}
+long checkReturn(long f, long ctx) {
+  long n = 0;
+  if ((!isMain(((FnT*)(intptr_t)f)->name))) {
+  n = l_len(((FnT*)(intptr_t)f)->body);
+  if ((n > 0)) {
+  checkReturnStmt(l_at(((FnT*)(intptr_t)f)->body, (n - 1)), ((FnT*)(intptr_t)f)->ret, ctx);
+  }
+  }
+  return 0;
+}
+long checkReturnStmt(long s, long ret, long ctx) {
+  switch (((Obj*)(intptr_t)s)->tag) {
+  case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return checkRetExpr(e, ret, ctx); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long v = ((Obj*)(intptr_t)s)->v1; return 0; }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return 0; }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return 0; }
+  }
+  return 0;
+}
+long checkRetExpr(long e, long ret, long ctx) {
+  long at = 0;
+  if ((!isMatchExpr(e))) {
+  at = exprType(e, ctx);
+  if ((!compatible(ret, at, ctx))) {
+  fail(s_concat(s_concat(s_concat((long)(intptr_t)"return type mismatch: declared ", ret), (long)(intptr_t)", got "), at));
+  }
+  }
+  return 0;
+}
+long isMatchExpr(long e) {
+  switch (((Obj*)(intptr_t)e)->tag) {
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return true; }
+  case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return false; }
+  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return false; }
+  case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return false; }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return false; }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return false; }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return false; }
+  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return false; }
+  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return false; }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return false; }
+  }
+  return 0;
 }
 long checkCall(long name, long args, long ctx) {
   long fns = 0;

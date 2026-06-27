@@ -771,6 +771,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   }
   ctx = Ctx(env = env, sigs = sigs)
   seedEnv(f.body, ctx)
+  checkReturn(f, ctx)
   decls = collectLets(f.body)
   d = 0
   dn = decls.length
@@ -1316,6 +1317,53 @@ isArithOp(op : Str) : Bool {
 emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
   checkCall(name, args, ctx)
   name.concat("(").concat(emitArgs(args, ctx)).concat(")")
+}
+
+// A function's value (its last bare expression) must match its declared return
+// type. `match` bodies are skipped: their type is not inferred. main has no
+// return type.
+checkReturn(f : Fn, ctx : Ctx) : Int {
+  if isMain(f.name).not {
+    n = f.body.length
+    if n > 0 {
+      checkReturnStmt(f.body.at(n - 1), f.ret, ctx)
+    }
+  }
+  0
+}
+
+checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
+  s.match {
+    Bare(e) -> checkRetExpr(e, ret, ctx)
+    Let(name, v) -> 0
+    If(c, t, el) -> 0
+    While(c, b) -> 0
+  }
+}
+
+checkRetExpr(e : Expr, ret : Str, ctx : Ctx) : Int {
+  if isMatchExpr(e).not {
+    at = exprType(e, ctx)
+    if compatible(ret, at, ctx).not {
+      fail("return type mismatch: declared ".concat(ret).concat(", got ").concat(at))
+    }
+  }
+  0
+}
+
+isMatchExpr(e : Expr) : Bool {
+  e.match {
+    Match(scrut, arms) -> true
+    Num(v) -> false
+    Var(s) -> false
+    StrLit(s) -> false
+    ListLit(es) -> false
+    Bin(op, a, b) -> false
+    Call(name, args) -> false
+    Field(recv, fld) -> false
+    Method(recv, name, args) -> false
+    Each(recv, param, body) -> false
+  }
 }
 
 // A call to a user function checks arguments against the declared parameter

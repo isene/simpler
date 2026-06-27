@@ -110,6 +110,11 @@ reject "field type" \
     'Point = type { x : Int, y : Int }
 main(sys) { p = Point(x = 1, y = "a") sys.screen.print(p.x) }' \
     "expects Int, got Str"
+# a function whose body has the wrong return type
+reject "return type" \
+    'twice(n : Int) : Int { "no" }
+main(sys) { sys.screen.print(twice(2)) }' \
+    "return type mismatch"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
