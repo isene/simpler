@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M3c-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M4-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -77,7 +77,8 @@ cargo build --release
 ./target/release/simpler emit examples/m3.smplr     # show the generated C
 ```
 
-Commands: `run`, `build`, `emit`. (`fmt` and `test` are planned.)
+Commands: `run`, `build`, `emit`, and `fmt` (format a file in place,
+canonical and comment-preserving). `test` is planned.
 
 ## Status
 
@@ -88,7 +89,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M3** effects (`!IO`/`!Fail`), capabilities, user functions, all checked
 - [x] **M3b** `?` failure propagation, the `Files`/`Mail` capabilities, named arguments
 - [x] **M3c** value-returning user functions and cross-function `?`
-- [ ] **M4** the canonical formatter and test runner
+- [x] **M4a** the canonical `fmt` formatter (comment-preserving, idempotent)
+- [ ] **M4b** the `test` runner (needs an `assert` primitive)
 - [ ] **Self-host** rewrite the compiler in Simpler
 
 Every error reports `file:line:` with the offending line, because the whole

@@ -192,20 +192,26 @@ enum Tok {
     Eof,
 }
 
-fn lex(src: &str) -> Result<Vec<(Tok, u32)>, CErr> {
+fn lex(src: &str) -> Result<(Vec<(Tok, u32)>, Vec<Cmt>), CErr> {
     let cs: Vec<char> = src.chars().collect();
     let mut i = 0;
     let mut line: u32 = 1;
     let mut toks: Vec<(Tok, u32)> = Vec::new();
+    let mut comments: Vec<Cmt> = Vec::new();
     while i < cs.len() {
         let c = cs[i];
         match c {
             '\n' => { line += 1; i += 1; }
             ' ' | '\t' | '\r' => i += 1,
             '/' if i + 1 < cs.len() && cs[i + 1] == '/' => {
+                let trailing = toks.last().map_or(false, |t| t.1 == line);
+                i += 2;
+                let start = i;
                 while i < cs.len() && cs[i] != '\n' {
                     i += 1;
                 }
+                let text: String = cs[start..i].iter().collect();
+                comments.push(Cmt { line, trailing, text: text.trim().to_string() });
             }
             '.' => { toks.push((Tok::Dot, line)); i += 1; }
             '(' => { toks.push((Tok::LParen, line)); i += 1; }
@@ -282,7 +288,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, u32)>, CErr> {
         }
     }
     toks.push((Tok::Eof, line));
-    Ok(toks)
+    Ok((toks, comments))
 }
 
 // ----------------------------- Parser --------------------------------------
@@ -1102,6 +1108,208 @@ fn c_escape(s: &str) -> String {
     o
 }
 
+// ----------------------------- Formatter -----------------------------------
+
+/// A captured `//` comment with its source line and whether it trails code.
+#[derive(Debug, Clone)]
+struct Cmt {
+    line: u32,
+    trailing: bool,
+    text: String,
+}
+
+fn ty_name(t: Ty) -> &'static str {
+    match t {
+        Ty::Int => "Int",
+        Ty::Str => "Str",
+        Ty::Bool => "Bool",
+        Ty::Sys => "Sys",
+        Ty::Screen => "Screen",
+        Ty::Files => "Files",
+        Ty::Mail => "Mail",
+    }
+}
+
+fn effects_str(e: Effects) -> String {
+    let mut s = String::new();
+    if e.io { s.push_str(" !IO"); }
+    if e.fail { s.push_str(" !Fail"); }
+    s
+}
+
+fn prec(op: BinOp) -> u8 {
+    match op {
+        BinOp::Mul | BinOp::Div => 2,
+        BinOp::Add | BinOp::Sub => 1,
+        BinOp::Eq | BinOp::Lt | BinOp::Gt => 0,
+    }
+}
+
+/// Walks captured comments in source order, emitting each at the right spot.
+struct Cur<'a> {
+    cs: &'a [Cmt],
+    i: usize,
+}
+
+impl<'a> Cur<'a> {
+    fn new(cs: &'a [Cmt]) -> Self { Cur { cs, i: 0 } }
+
+    /// Emit every comment that sits before `before`, as its own line.
+    fn leading(&mut self, before: u32, ind: usize, out: &mut String) {
+        while self.i < self.cs.len() && self.cs[self.i].line < before {
+            out.push_str(&"  ".repeat(ind));
+            out.push_str(&format!("// {}\n", self.cs[self.i].text));
+            self.i += 1;
+        }
+    }
+
+    /// Consume a comment that trails code on exactly `line`, if present.
+    fn trailing(&mut self, line: u32) -> Option<String> {
+        if self.i < self.cs.len() && self.cs[self.i].line == line && self.cs[self.i].trailing {
+            let t = self.cs[self.i].text.clone();
+            self.i += 1;
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    fn rest(&mut self, out: &mut String) {
+        while self.i < self.cs.len() {
+            out.push_str(&format!("// {}\n", self.cs[self.i].text));
+            self.i += 1;
+        }
+    }
+}
+
+/// Pretty-print the whole program to canonical Simpler source, interleaving
+/// the captured comments by source line.
+fn fmt_program(funcs: &[Func], comments: &[Cmt]) -> String {
+    let mut out = String::new();
+    let mut cur = Cur::new(comments);
+    for (idx, f) in funcs.iter().enumerate() {
+        if idx > 0 {
+            out.push('\n'); // blank line between functions, before any doc comment
+        }
+        cur.leading(f.line, 0, &mut out);
+        format_fn(f, &mut cur, &mut out);
+    }
+    cur.rest(&mut out);
+    out
+}
+
+fn format_fn(f: &Func, cur: &mut Cur, out: &mut String) {
+    let params = f
+        .params
+        .iter()
+        .map(|(n, t)| match t {
+            Some(ty) => format!("{} : {}", n, ty_name(*ty)),
+            None => n.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret = match f.ret {
+        Some(t) => format!(" : {}", ty_name(t)),
+        None => String::new(),
+    };
+    out.push_str(&format!("{}({}){}{} {{", f.name, params, ret, effects_str(f.effects)));
+    end_line(f.line, cur, out);
+    for st in &f.body {
+        format_stmt(st, 1, cur, out);
+    }
+    out.push_str("}\n");
+}
+
+fn format_stmt(st: &Stmt, ind: usize, cur: &mut Cur, out: &mut String) {
+    cur.leading(st.line, ind, out);
+    let pad = "  ".repeat(ind);
+    match &st.kind {
+        SKind::Bind { name, ty, value } => {
+            match ty {
+                Some(t) => out.push_str(&format!("{}{} : {} = {}", pad, name, ty_name(*t), fmt_expr(value))),
+                None => out.push_str(&format!("{}{} = {}", pad, name, fmt_expr(value))),
+            }
+            end_line(st.line, cur, out);
+        }
+        SKind::If { cond, then, els } => {
+            out.push_str(&format!("{}if {} {{", pad, fmt_expr(cond)));
+            end_line(st.line, cur, out);
+            for s in then {
+                format_stmt(s, ind + 1, cur, out);
+            }
+            if els.is_empty() {
+                out.push_str(&format!("{}}}\n", pad));
+            } else {
+                out.push_str(&format!("{}}} else {{\n", pad));
+                for s in els {
+                    format_stmt(s, ind + 1, cur, out);
+                }
+                out.push_str(&format!("{}}}\n", pad));
+            }
+        }
+        SKind::Expr(Expr::Send { recv, name, block: Some(blk), .. }) if name == "times" => {
+            let p = blk.param.clone().unwrap_or_else(|| "_".into());
+            out.push_str(&format!("{}{}.times {{ {} in", pad, fmt_expr(recv), p));
+            end_line(st.line, cur, out);
+            for s in &blk.body {
+                format_stmt(s, ind + 1, cur, out);
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        SKind::Expr(e) => {
+            out.push_str(&format!("{}{}", pad, fmt_expr(e)));
+            end_line(st.line, cur, out);
+        }
+    }
+}
+
+/// Append an optional trailing comment for `line`, then a newline.
+fn end_line(line: u32, cur: &mut Cur, out: &mut String) {
+    if let Some(tc) = cur.trailing(line) {
+        out.push_str(&format!("  // {}", tc));
+    }
+    out.push('\n');
+}
+
+fn fmt_expr(e: &Expr) -> String {
+    fmt_prec(e, 0)
+}
+
+fn fmt_prec(e: &Expr, min: u8) -> String {
+    match e {
+        Expr::Int(n) => n.to_string(),
+        Expr::Str(s) => format!("\"{}\"", c_escape(s)),
+        Expr::Var(n) => n.clone(),
+        Expr::Bin { op, lhs, rhs } => {
+            let p = prec(*op);
+            let s = format!("{} {} {}", fmt_prec(lhs, p), op_sym(*op), fmt_prec(rhs, p + 1));
+            if p < min { format!("({})", s) } else { s }
+        }
+        Expr::Call { name, args } => format!("{}({})", name, fmt_args(args)),
+        Expr::Send { recv, name, args, parens, block } => {
+            let r = fmt_prec(recv, 100);
+            if block.is_some() {
+                format!("{}.{}", r, name) // trailing-block sends print as statements
+            } else if *parens {
+                format!("{}.{}({})", r, name, fmt_args(args))
+            } else {
+                format!("{}.{}", r, name)
+            }
+        }
+        Expr::Try(inner) => format!("{}?", fmt_prec(inner, 100)),
+    }
+}
+
+fn fmt_args(args: &[Arg]) -> String {
+    args.iter()
+        .map(|a| match &a.name {
+            Some(n) => format!("{} = {}", n, fmt_expr(&a.value)),
+            None => fmt_expr(&a.value),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 // ----------------------------- Driver / CLI --------------------------------
 
 fn main() {
@@ -1121,8 +1329,18 @@ fn main() {
                 exit(1);
             }
         }
-        cmd @ ("fmt" | "test") => {
-            eprintln!("simpler: `{}` is not implemented yet (planned for M4)", cmd);
+        "fmt" => {
+            let Some(file) = args.get(2) else {
+                eprintln!("simpler: `fmt` needs an input file");
+                exit(2);
+            };
+            if let Err(e) = fmt_file(file) {
+                eprintln!("simpler: {}", e);
+                exit(1);
+            }
+        }
+        "test" => {
+            eprintln!("simpler: `test` is not implemented yet (needs an `assert` primitive)");
             exit(2);
         }
         "-h" | "--help" | "help" => usage(),
@@ -1141,14 +1359,26 @@ fn usage() {
          \x20 simpler run   <file.smplr>   build and run\n\
          \x20 simpler build <file.smplr>   transpile to C and compile\n\
          \x20 simpler emit  <file.smplr>   print the generated C\n\
-         \x20 simpler fmt   <file.smplr>   (M4) not yet\n\
-         \x20 simpler test  <file.smplr>   (M4) not yet"
+         \x20 simpler fmt   <file.smplr>   format in place (canonical)\n\
+         \x20 simpler test  <file.smplr>   (next) not yet"
     );
+}
+
+/// Format a file in place to canonical Simpler source, comments preserved.
+fn fmt_file(file: &str) -> Result<(), String> {
+    let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
+    let (toks, comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
+    let mut p = Parser { toks, pos: 0, no_block: false };
+    let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
+    let formatted = fmt_program(&funcs, &comments);
+    fs::write(file, &formatted).map_err(|e| format!("cannot write {}: {}", file, e))?;
+    println!("formatted {}", file);
+    Ok(())
 }
 
 fn drive(cmd: &str, file: &str) -> Result<(), String> {
     let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
-    let toks = lex(&src).map_err(|e| diag(file, &src, &e))?;
+    let (toks, _comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
     let mut p = Parser { toks, pos: 0, no_block: false };
     let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
     let c = emit(&funcs).map_err(|e| diag(file, &src, &e))?;
