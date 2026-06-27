@@ -57,9 +57,14 @@ else
     nope "self-hosted lexer (got: $lout)"
 fi
 
-# the self-hosted parser (lex -> parse -> eval) respects precedence and parens
+# the self-hosted calc (lex -> parse -> {eval, emit C}) respects precedence
 cout="$("$SIMPLER" run ../selfhost/calc.smplr 2>/dev/null)"
-[ "$cout" = "25" ] && ok || nope "self-hosted calc parser (got: $cout)"
+cval="$(printf '%s\n' "$cout" | sed -n 1p)"
+cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
+[ "$cval" = "25" ] && ok || nope "self-hosted calc eval (got: $cval)"
+# the C it emits compiles and computes the same value: the self-host loop, in miniature
+printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp" > "$TMP/emit.c"
+if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

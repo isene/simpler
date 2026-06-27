@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Self-host](https://img.shields.io/badge/self--hosting-parser-EE6C1A)
+![Self-host](https://img.shields.io/badge/self--hosting-toolkit-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -118,15 +118,17 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M5c.3** `match` as a value (recursive evaluators: `Add(a, b) -> eval(a) + eval(b)`)
 - [x] **M5c.4** lists (`[…]`, `push`, `length`, `at`, `each`; elements of any type)
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
-- [ ] **Self-host** rewrite the compiler in Simpler, verified against the bootstrap:
-  - [x] **lexer** ([`selfhost/lexer.smplr`](selfhost/lexer.smplr), real Simpler, compiled by the bootstrap)
-  - [x] **parser** ([`selfhost/calc.smplr`](selfhost/calc.smplr)): recursive descent into a recursive `Expr`, evaluated with `match`
-  - [ ] **checker** a fold over the tree
-  - [ ] **emitter** C, then the fixpoint test
+- [ ] **Self-host** rewrite the compiler in Simpler. The whole pipeline now runs
+  end to end on a miniature language, written in Simpler itself:
+  - [x] **lex** ([`selfhost/lexer.smplr`](selfhost/lexer.smplr)): source text to a token list
+  - [x] **parse** ([`selfhost/calc.smplr`](selfhost/calc.smplr)): recursive descent into a recursive `Expr`
+  - [x] **emit** (same file): the tree folded to C that itself compiles and runs, the loop closed
+  - [ ] **scale up** each stage to Simpler's own grammar, add the checker, then prove the byte-identical fixpoint
 
 With recursive types, `match` as a value, lists of any type, and `while`, the
-language can now express its own compiler. Self-host is a rewrite, not a missing
-feature: the lexer above is the first stage, and it already runs.
+language can already express its own compiler. `selfhost/calc.smplr` reads an
+expression and emits C for it, in Simpler, so self-host is now a matter of
+scale: the same folds over a bigger grammar, not a missing feature.
 
 Every error reports `file:line:` with the offending line, because the whole
 point of effects-in-the-type is a tight, local feedback loop.

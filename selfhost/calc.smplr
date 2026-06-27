@@ -1,10 +1,16 @@
-// A parser, written in Simpler.
+// A miniature compiler, written in Simpler.
 //
-// The second self-hosted stage. It scans an arithmetic expression into
-// tokens, parses them with precedence into a recursive `Expr` tree, then
-// evaluates the tree. This is the whole self-host toolkit on one small
-// grammar: a token cursor, recursive descent, a recursive type, and
-// `match` as a value. Compile and run it with the bootstrap:
+// It scans an arithmetic expression into tokens, parses them with
+// precedence into a recursive `Expr` tree, then folds that tree two
+// ways: `eval` to a value, and `emit` to a C expression. The second
+// fold is the whole point of self-host in miniature: Simpler reading
+// source and emitting C, written in Simpler itself.
+//
+// This is the entire self-host toolkit on one small grammar: a token
+// cursor, recursive descent, a recursive type, and `match` as a value.
+// A compiler stage is just a fold over the tree, and `eval`/`emit`
+// below are the same fold producing different things. Run it with the
+// bootstrap:
 //
 //     bootstrap/target/release/simpler run selfhost/calc.smplr
 
@@ -32,6 +38,7 @@ main(sys) {
   toks = lex("1 + 2 * 3 + (4 + 5) * 2")
   p = parseExpr(toks, 0)
   sys.screen.print(eval(p.node).toStr)
+  sys.screen.print(emit(p.node))
 }
 
 // --- lex: source text to a list of tokens, ending in TEnd ---------------
@@ -119,6 +126,16 @@ eval(e : Expr) : Int {
     Num(v) -> v
     Add(a, b) -> eval(a) + eval(b)
     Mul(a, b) -> eval(a) * eval(b)
+  }
+}
+
+// --- emit: the same fold, producing a C expression instead of a value ---
+
+emit(e : Expr) : Str {
+  e.match {
+    Num(v) -> v.toStr
+    Add(a, b) -> "(".concat(emit(a)).concat(" + ").concat(emit(b)).concat(")")
+    Mul(a, b) -> "(".concat(emit(a)).concat(" * ").concat(emit(b)).concat(")")
   }
 }
 
