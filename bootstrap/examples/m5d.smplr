@@ -1,0 +1,27 @@
+// M5c.2: recursive variants, heap-boxed. An expression tree.
+Expr = type {
+  Lit(Int)
+  Add(Expr, Expr)
+  Mul(Expr, Expr)
+}
+
+main(sys) {
+  // 2 + (3 * 4): print the leaves left to right
+  e = Add(Lit(2), Mul(Lit(3), Lit(4)))
+  leaves(sys.screen, e)
+}
+
+// a recursive type, walked by a recursive function via match
+leaves(screen : Screen, e : Expr) !IO {
+  e.match {
+    Lit(n) -> screen.print(n)
+    Add(a, b) -> {
+      leaves(screen, a)
+      leaves(screen, b)
+    }
+    Mul(a, b) -> {
+      leaves(screen, a)
+      leaves(screen, b)
+    }
+  }
+}

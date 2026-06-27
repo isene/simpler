@@ -151,7 +151,7 @@ struct Block {
 #[derive(Debug, Clone)]
 struct MatchArm {
     case: String,
-    binding: Option<String>,
+    bindings: Vec<String>,
     body: Vec<Stmt>,
     line: u32,
 }
@@ -194,11 +194,11 @@ enum TypeBody {
     Variant(Vec<Case>),
 }
 
-/// One case of a variant: a name and an optional single payload (M5b).
+/// One case of a variant: a name and zero or more positional payloads.
 #[derive(Debug, Clone)]
 struct Case {
     name: String,
-    payload: Option<Ty>,
+    payloads: Vec<Ty>,
 }
 
 /// A top-level item, kept in source order so the formatter can preserve it.
@@ -238,12 +238,12 @@ fn record_fields(name: &str) -> Option<&'static [(String, Ty)]> {
 
 /// Which variant a case belongs to: (variant name, tag, payload type).
 /// Case names are global and unique across variants.
-fn find_case(name: &str) -> Option<(&'static str, usize, Option<Ty>)> {
+fn find_case(name: &str) -> Option<(&'static str, usize, &'static [Ty])> {
     for t in types() {
         if let TypeBody::Variant(cases) = &t.body {
             for (i, c) in cases.iter().enumerate() {
                 if c.name == name {
-                    return Some((t.name, i, c.payload));
+                    return Some((t.name, i, c.payloads.as_slice()));
                 }
             }
         }
@@ -481,11 +481,7 @@ impl Parser {
             while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
                 let fname = self.ident()?;
                 self.eat(&Tok::Colon)?;
-                let fl = self.cur_line();
                 let ft = self.parse_type()?;
-                if !matches!(ft, Ty::Int | Ty::Str | Ty::Bool) {
-                    return Err(ce(fl, "record fields must be Int, Str, or Bool for now (nested types come later)"));
-                }
                 fields.push((fname, ft));
                 if *self.peek() == Tok::Comma {
                     self.pos += 1;
@@ -496,19 +492,18 @@ impl Parser {
             let mut cases = Vec::new();
             while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
                 let cname = self.ident()?;
-                let payload = if *self.peek() == Tok::LParen {
+                let mut payloads = Vec::new();
+                if *self.peek() == Tok::LParen {
                     self.pos += 1;
-                    let pl = self.cur_line();
-                    let pt = self.parse_type()?;
-                    if !matches!(pt, Ty::Int | Ty::Str | Ty::Bool) {
-                        return Err(ce(pl, "variant payloads must be Int, Str, or Bool for now"));
+                    if *self.peek() != Tok::RParen {
+                        loop {
+                            payloads.push(self.parse_type()?);
+                            if *self.peek() == Tok::Comma { self.pos += 1; } else { break; }
+                        }
                     }
                     self.eat(&Tok::RParen)?;
-                    Some(pt)
-                } else {
-                    None
-                };
-                cases.push(Case { name: cname, payload });
+                }
+                cases.push(Case { name: cname, payloads });
                 if *self.peek() == Tok::Comma {
                     self.pos += 1;
                 }
@@ -755,21 +750,24 @@ impl Parser {
         while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
             let line = self.cur_line();
             let case = self.ident()?;
-            let binding = if *self.peek() == Tok::LParen {
+            let mut bindings = Vec::new();
+            if *self.peek() == Tok::LParen {
                 self.pos += 1;
-                let b = self.ident()?;
+                if *self.peek() != Tok::RParen {
+                    loop {
+                        bindings.push(self.ident()?);
+                        if *self.peek() == Tok::Comma { self.pos += 1; } else { break; }
+                    }
+                }
                 self.eat(&Tok::RParen)?;
-                Some(b)
-            } else {
-                None
-            };
+            }
             self.eat(&Tok::Arrow)?;
             let body = if *self.peek() == Tok::LBrace {
                 self.stmt_block()?
             } else {
                 vec![self.stmt()?]
             };
-            arms.push(MatchArm { case, binding, body, line });
+            arms.push(MatchArm { case, bindings, body, line });
             if *self.peek() == Tok::Comma {
                 self.pos += 1;
             }
@@ -967,35 +965,76 @@ fn prepare(items: &[Item]) -> (Vec<&Func>, Vec<&TypeDef>) {
     (funcs, tdefs)
 }
 
+/// User types are heap-boxed: `Name` is a pointer to a `NameObj` struct. This
+/// makes recursive types (a case whose payload is its own type) representable,
+/// and immutable records/variants keep value-semantic behaviour. Emitted in
+/// three passes so types may refer to each other: forward typedefs, struct
+/// bodies, then constructors.
 fn emit_typedefs(tdefs: &[&TypeDef], out: &mut String) {
+    if tdefs.is_empty() {
+        return;
+    }
+    for t in tdefs {
+        out.push_str(&format!("typedef struct {0}Obj {0}Obj;\ntypedef {0}Obj *{0};\n", t.name));
+    }
+    out.push('\n');
     for t in tdefs {
         match &t.body {
             TypeBody::Record(fields) => {
-                out.push_str("typedef struct { ");
+                out.push_str(&format!("struct {}Obj {{ ", t.name));
                 for (fname, ft) in fields {
                     out.push_str(&format!("{} {}; ", cty(*ft), fname));
                 }
-                out.push_str(&format!("}} {};\n", t.name));
+                out.push_str("};\n");
             }
             TypeBody::Variant(cases) => {
-                // A tagged union: an int tag, plus a union of any payloads.
-                out.push_str("typedef struct { int tag;");
-                if cases.iter().any(|c| c.payload.is_some()) {
+                out.push_str(&format!("struct {}Obj {{ int tag;", t.name));
+                if cases.iter().any(|c| !c.payloads.is_empty()) {
                     out.push_str(" union {");
                     for c in cases {
-                        if let Some(pt) = c.payload {
-                            out.push_str(&format!(" {} {};", cty(pt), c.name));
+                        if !c.payloads.is_empty() {
+                            out.push_str(" struct {");
+                            for (k, pt) in c.payloads.iter().enumerate() {
+                                out.push_str(&format!(" {} f{};", cty(*pt), k));
+                            }
+                            out.push_str(&format!(" }} {};", c.name));
                         }
                     }
                     out.push_str(" } data;");
                 }
-                out.push_str(&format!(" }} {};\n", t.name));
+                out.push_str(" };\n");
             }
         }
     }
-    if !tdefs.is_empty() {
-        out.push('\n');
+    out.push('\n');
+    for t in tdefs {
+        match &t.body {
+            TypeBody::Record(fields) => {
+                let ps: Vec<String> = fields.iter().map(|(n, ft)| format!("{} {}", cty(*ft), n)).collect();
+                let plist = if ps.is_empty() { "void".into() } else { ps.join(", ") };
+                out.push_str(&format!("static {0} simpler_new_{0}({1}) {{\n", t.name, plist));
+                out.push_str(&format!("    {0}Obj *o = ({0}Obj *)malloc(sizeof({0}Obj));\n", t.name));
+                for (n, _) in fields {
+                    out.push_str(&format!("    o->{0} = {0};\n", n));
+                }
+                out.push_str("    return o;\n}\n");
+            }
+            TypeBody::Variant(cases) => {
+                for (tag, c) in cases.iter().enumerate() {
+                    let ps: Vec<String> = c.payloads.iter().enumerate().map(|(k, pt)| format!("{} f{}", cty(*pt), k)).collect();
+                    let plist = if ps.is_empty() { "void".into() } else { ps.join(", ") };
+                    out.push_str(&format!("static {} simpler_{}_{}({}) {{\n", t.name, t.name, c.name, plist));
+                    out.push_str(&format!("    {0}Obj *o = ({0}Obj *)malloc(sizeof({0}Obj));\n", t.name));
+                    out.push_str(&format!("    o->tag = {};\n", tag));
+                    for (k, _) in c.payloads.iter().enumerate() {
+                        out.push_str(&format!("    o->data.{}.f{1} = f{1};\n", c.name, k));
+                    }
+                    out.push_str("    return o;\n}\n");
+                }
+            }
+        }
     }
+    out.push('\n');
 }
 
 fn emit(items: &[Item]) -> Result<String, CErr> {
@@ -1342,21 +1381,19 @@ fn emit_expr_stmt(
                 return Err(ce(line, format!("match on `{}` is missing: {}", tn, missing.join(", "))));
             }
             out.push_str(&format!("{}{{ {} _m = {};\n", pad, tn, rc));
-            out.push_str(&format!("{}switch (_m.tag) {{\n", pad));
+            out.push_str(&format!("{}switch (_m->tag) {{\n", pad));
             for arm in arms {
                 let idx = cases.iter().position(|c| c.name == arm.case).unwrap();
+                let payloads = &cases[idx].payloads;
+                if !arm.bindings.is_empty() && arm.bindings.len() != payloads.len() {
+                    return Err(ce(arm.line, format!("case `{}` has {} payload(s), but {} binding(s)", arm.case, payloads.len(), arm.bindings.len())));
+                }
                 out.push_str(&format!("{}case {}: {{\n", pad, idx));
                 scope.push();
-                match (&arm.binding, cases[idx].payload) {
-                    (Some(b), Some(pt)) => {
-                        scope.declare(b.clone(), pt);
-                        out.push_str(&format!("{}    {} {} = _m.data.{};\n", pad, cty(pt), b, arm.case));
-                    }
-                    (Some(_), None) => {
-                        scope.pop();
-                        return Err(ce(arm.line, format!("case `{}` has no payload to bind", arm.case)));
-                    }
-                    _ => {}
+                for (k, b) in arm.bindings.iter().enumerate() {
+                    let pt = payloads[k];
+                    scope.declare(b.clone(), pt);
+                    out.push_str(&format!("{}    {} {} = _m->data.{}.f{};\n", pad, cty(pt), b, arm.case, k));
                 }
                 for s in &arm.body {
                     emit_stmt(s, scope, out, ind + 2, sigs, used, fret)?;
@@ -1501,11 +1538,11 @@ fn emit_expr(
         Expr::Var(n) => {
             if let Some(t) = scope.lookup(n) {
                 Ok((n.clone(), t))
-            } else if let Some((vname, tag, payload)) = find_case(n) {
-                if payload.is_some() {
-                    return Err(ce(line, format!("case `{}` needs a payload, e.g. {}(...)", n, n)));
+            } else if let Some((vname, _tag, payloads)) = find_case(n) {
+                if !payloads.is_empty() {
+                    return Err(ce(line, format!("case `{}` needs {} payload(s): {}(...)", n, payloads.len(), n)));
                 }
-                Ok((format!("({}){{ .tag = {} }}", vname, tag), Ty::User(vname)))
+                Ok((format!("simpler_{}_{}()", vname, n), Ty::User(vname)))
             } else {
                 Err(ce(line, format!("unknown name `{}`", n)))
             }
@@ -1558,20 +1595,28 @@ fn emit_expr(
                 let v = provided.get(fname.as_str()).ok_or_else(|| {
                     ce(line, format!("missing field `{}` of `{}`", fname, name))
                 })?;
-                parts.push(format!(".{} = ({})", fname, v));
+                parts.push(format!("({})", v));
             }
-            Ok((format!("({}){{ {} }}", tname, parts.join(", ")), Ty::User(tname)))
+            Ok((format!("simpler_new_{}({})", tname, parts.join(", ")), Ty::User(tname)))
         }
-        // variant case construction with a payload: `Ident("x")`
+        // variant case construction with payloads: `Ident("x")`, `Add(l, r)`
         Expr::Call { name, args } if find_case(name).is_some() => {
-            let (vname, tag, payload) = find_case(name).unwrap();
-            let pt = payload.ok_or_else(|| ce(line, format!("case `{}` takes no payload", name)))?;
-            let a = one_positional(args, line, name)?;
-            let (ac, at) = emit_expr(a, scope, line, sigs, used)?;
-            if at != pt {
-                return Err(ce(line, format!("case `{}` carries {:?}, got {:?}", name, pt, at)));
+            let (vname, _tag, payloads) = find_case(name).unwrap();
+            if payloads.is_empty() {
+                return Err(ce(line, format!("case `{}` takes no payload", name)));
             }
-            Ok((format!("({}){{ .tag = {}, .data.{} = ({}) }}", vname, tag, name, ac), Ty::User(vname)))
+            if args.len() != payloads.len() || args.iter().any(|a| a.name.is_some()) {
+                return Err(ce(line, format!("case `{}` takes {} positional payload(s)", name, payloads.len())));
+            }
+            let mut cargs = Vec::new();
+            for (a, pt) in args.iter().zip(payloads) {
+                let (ac, at) = emit_expr(&a.value, scope, line, sigs, used)?;
+                if at != *pt {
+                    return Err(ce(line, format!("case `{}` payload expects {:?}, got {:?}", name, pt, at)));
+                }
+                cargs.push(ac);
+            }
+            Ok((format!("simpler_{}_{}({})", vname, name, cargs.join(", ")), Ty::User(vname)))
         }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
@@ -1595,7 +1640,7 @@ fn emit_expr(
                 if let Ty::User(tn) = rty {
                     if let Some(fields) = record_fields(tn) {
                         if let Some((_, ft)) = fields.iter().find(|(f, _)| f == name) {
-                            return Ok((format!("({}).{}", rc, name), *ft));
+                            return Ok((format!("({})->{}", rc, name), *ft));
                         }
                         return Err(ce(line, format!("`{}` has no field `{}`", tn, name)));
                     }
@@ -1735,9 +1780,11 @@ fn format_typedef(t: &TypeDef, cur: &mut Cur, out: &mut String) {
         }
         TypeBody::Variant(cases) => {
             for c in cases {
-                match c.payload {
-                    Some(pt) => out.push_str(&format!("  {}({})\n", c.name, ty_name(pt))),
-                    None => out.push_str(&format!("  {}\n", c.name)),
+                if c.payloads.is_empty() {
+                    out.push_str(&format!("  {}\n", c.name));
+                } else {
+                    let ps: Vec<&str> = c.payloads.iter().map(|t| ty_name(*t)).collect();
+                    out.push_str(&format!("  {}({})\n", c.name, ps.join(", ")));
                 }
             }
         }
@@ -1800,9 +1847,10 @@ fn format_stmt(st: &Stmt, ind: usize, cur: &mut Cur, out: &mut String) {
             let inner = "  ".repeat(ind + 1);
             for arm in arms {
                 cur.leading(arm.line, ind + 1, out);
-                let p = match &arm.binding {
-                    Some(b) => format!("{}({})", arm.case, b),
-                    None => arm.case.clone(),
+                let p = if arm.bindings.is_empty() {
+                    arm.case.clone()
+                } else {
+                    format!("{}({})", arm.case, arm.bindings.join(", "))
                 };
                 out.push_str(&format!("{}{} -> {{", inner, p));
                 end_line(arm.line, cur, out);

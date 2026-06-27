@@ -43,6 +43,7 @@ check_run m3c   "$(printf 'Quarterly numbers look good.\n\n6')"
 check_run m5a   "$(printf '7\n25\n13')"
 check_run m5b   "$(printf 'hello\n42\ndot')"
 check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
+check_run m5d   "$(printf '2\n3\n4')"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -104,11 +105,15 @@ check_err "unknown field read" \
     'Point = type { x : Int }
 main(sys) { p = Point(x = 1) sys.screen.print(p.z) }' \
     "has no field"
-check_err "nested record field rejected" \
-    'A = type { x : Int }
-B = type { a : A }
-main(sys) { sys.screen.print(1) }' \
-    "must be Int, Str, or Bool"
+check_err "match binding count mismatch" \
+    'Expr = type { Lit(Int) Add(Expr, Expr) }
+main(sys) { eval(sys.screen, Lit(1)) }
+eval(screen : Screen, e : Expr) !IO { e.match { Lit(n) -> screen.print(n) Add(a) -> screen.print(1) } }' \
+    "binding(s)"
+check_err "case payload count mismatch" \
+    'Expr = type { Lit(Int) Add(Expr, Expr) }
+main(sys) { e = Add(Lit(1)) sys.screen.print(1) }' \
+    "positional payload"
 check_err "non-exhaustive match" \
     'Tok = type { A(Str) B }
 main(sys) { show(sys.screen, B) }
