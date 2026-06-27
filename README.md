@@ -134,8 +134,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **`List` methods** list literals, `.push`/`.at`/`.length` (disambiguated from `Str` by receiver type), and `.each { x in ... }` lowered to a counted C loop, over a growable-list runtime
   - [x] **typed record fields** each field's declared type is stored and resolved, so a `Str` field picks `s_eq` and a `List` field picks `l_len`, the way the compiler reads its own AST
   - [x] **capabilities** `main(sys)` becomes C `int main()`, and `sys.screen.print(x)` lowers like the built-in print (the erased capability path drops out, only the print remains)
-  - [ ] last codegen gap: re-escape string literals when emitting C (`\n`, `\"`, `\\`)
-  - [ ] the three-stage byte-identical fixpoint
+  - [x] **string re-escaping** literals are re-escaped on emit (`\n`, `\"`, `\\`, `\t`, `\r`), so a string with a newline survives the round trip into valid C
+  - [ ] the three-stage byte-identical fixpoint: point the compiler at its own source
 
 The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an
 expression and folds it to a value *and* to C, all in Simpler, and the real

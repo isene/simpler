@@ -160,7 +160,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nmain(sys) {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  sys.screen.print(msg)\n  sys.screen.print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
+  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nnl() : Str {\n  \"a\\nb\"\n}\nmain(sys) {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  sys.screen.print(nl())\n  sys.screen.print(msg)\n  sys.screen.print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sigs = buildSigs(prog)
@@ -1056,7 +1056,7 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
   e.match {
     Num(v) -> v.toStr
     Var(s) -> s
-    StrLit(s) -> "(long)(intptr_t)\"".concat(s).concat("\"")
+    StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
     ListLit(es) -> "l_new()"
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
     Call(name, args) -> name.concat("(").concat(emitArgs(args, ctx)).concat(")")
@@ -1136,6 +1136,36 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
     r = "(".concat(recvC).concat(" || ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   r
+}
+
+// Re-escape a string for a C literal: the lexer already turned `\n` into a
+// real newline, so turn it (and quotes and backslashes) back.
+cEscape(s : Str) : Str {
+  out = ""
+  k = 0
+  n = s.length
+  while k < n {
+    c = s.at(k).code
+    piece = s.at(k)
+    if c == 34 {
+      piece = "\\\""
+    }
+    if c == 92 {
+      piece = "\\\\"
+    }
+    if c == 10 {
+      piece = "\\n"
+    }
+    if c == 9 {
+      piece = "\\t"
+    }
+    if c == 13 {
+      piece = "\\r"
+    }
+    out = out.concat(piece)
+    k = k + 1
+  }
+  out
 }
 
 emitArgs(args : List[Expr], ctx : Ctx) : Str {
