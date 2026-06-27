@@ -16,7 +16,7 @@
 //! Earlier milestones still hold: capabilities and effects are compile-time
 //! only, `?` propagates failure, `fmt` is canonical, `test` runs `test_*`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -137,12 +137,22 @@ enum Expr {
         block: Option<Block>,
     },
     Try(Box<Expr>),
+    /// `recv.match { Case(binding) -> body, ... }`
+    Match { recv: Box<Expr>, arms: Vec<MatchArm> },
 }
 
 #[derive(Debug, Clone)]
 struct Block {
     param: Option<String>,
     body: Vec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
+struct MatchArm {
+    case: String,
+    binding: Option<String>,
+    body: Vec<Stmt>,
+    line: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -168,19 +178,33 @@ struct Func {
     line: u32,
 }
 
-/// A record type definition: named fields, in declaration order.
+/// A user type: a record (named fields) or a variant (named cases), told apart
+/// by its contents.
 #[derive(Debug, Clone)]
-struct RecordDef {
+struct TypeDef {
     name: &'static str,
-    fields: Vec<(String, Ty)>,
+    body: TypeBody,
     line: u32,
+}
+
+#[derive(Debug, Clone)]
+enum TypeBody {
+    Record(Vec<(String, Ty)>),
+    Variant(Vec<Case>),
+}
+
+/// One case of a variant: a name and an optional single payload (M5b).
+#[derive(Debug, Clone)]
+struct Case {
+    name: String,
+    payload: Option<Ty>,
 }
 
 /// A top-level item, kept in source order so the formatter can preserve it.
 #[derive(Debug)]
 enum Item {
     Func(Func),
-    Type(RecordDef),
+    Type(TypeDef),
 }
 
 struct Sig {
@@ -190,17 +214,40 @@ struct Sig {
     is_main: bool,
 }
 
-/// The record types of the program being compiled. Set once before emit, then
-/// read by construction and field access, so the type table need not thread
-/// through every emit function.
-static TYPES: OnceLock<Vec<RecordDef>> = OnceLock::new();
+/// The user types of the program being compiled. Set once before emit, then
+/// read by construction, field access, and `match`, so the type table need not
+/// thread through every emit function.
+static TYPES: OnceLock<Vec<TypeDef>> = OnceLock::new();
 
-fn types() -> &'static [RecordDef] {
+fn types() -> &'static [TypeDef] {
     TYPES.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
-fn find_record(name: &str) -> Option<&'static RecordDef> {
-    types().iter().find(|r| r.name == name)
+fn find_type(name: &str) -> Option<&'static TypeDef> {
+    types().iter().find(|t| t.name == name)
+}
+
+/// The fields of `name`, if it is a record type.
+fn record_fields(name: &str) -> Option<&'static [(String, Ty)]> {
+    match &find_type(name)?.body {
+        TypeBody::Record(f) => Some(f),
+        _ => None,
+    }
+}
+
+/// Which variant a case belongs to: (variant name, tag, payload type).
+/// Case names are global and unique across variants.
+fn find_case(name: &str) -> Option<(&'static str, usize, Option<Ty>)> {
+    for t in types() {
+        if let TypeBody::Variant(cases) = &t.body {
+            for (i, c) in cases.iter().enumerate() {
+                if c.name == name {
+                    return Some((t.name, i, c.payload));
+                }
+            }
+        }
+    }
+    None
 }
 
 // ----------------------------- Lexer ---------------------------------------
@@ -221,6 +268,7 @@ enum Tok {
     Colon,
     Bang,
     Question,
+    Arrow, // ->
     Plus,
     Minus,
     Star,
@@ -260,7 +308,15 @@ fn lex(src: &str) -> Result<(Vec<(Tok, u32)>, Vec<Cmt>), CErr> {
             '!' => { toks.push((Tok::Bang, line)); i += 1; }
             '?' => { toks.push((Tok::Question, line)); i += 1; }
             '+' => { toks.push((Tok::Plus, line)); i += 1; }
-            '-' => { toks.push((Tok::Minus, line)); i += 1; }
+            '-' => {
+                if i + 1 < cs.len() && cs[i + 1] == '>' {
+                    toks.push((Tok::Arrow, line));
+                    i += 2;
+                } else {
+                    toks.push((Tok::Minus, line));
+                    i += 1;
+                }
+            }
             '*' => { toks.push((Tok::Star, line)); i += 1; }
             '/' => { toks.push((Tok::Slash, line)); i += 1; }
             '<' => { toks.push((Tok::Lt, line)); i += 1; }
@@ -408,7 +464,7 @@ impl Parser {
     }
 
     /// typedef := ident '=' 'type' '{' (ident ':' Type)* '}'
-    fn typedef(&mut self) -> Result<RecordDef, CErr> {
+    fn typedef(&mut self) -> Result<TypeDef, CErr> {
         let line = self.cur_line();
         let name = self.ident()?;
         self.eat(&Tok::Assign)?;
@@ -417,23 +473,50 @@ impl Parser {
         }
         self.pos += 1;
         self.eat(&Tok::LBrace)?;
-        let mut fields = Vec::new();
-        while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
-            let fname = self.ident()?;
-            self.eat(&Tok::Colon)?;
-            let fl = self.cur_line();
-            let ft = self.parse_type()?;
-            if !matches!(ft, Ty::Int | Ty::Str | Ty::Bool) {
-                return Err(ce(fl, "record fields must be Int, Str, or Bool for now (nested types come later)"));
+        // `name : Type` entries make a record; bare `Case` / `Case(T)` a variant.
+        let is_record = matches!(self.peek(), Tok::Ident(_)) && self.at(1) == Some(&Tok::Colon);
+        let body = if is_record {
+            let mut fields = Vec::new();
+            while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
+                let fname = self.ident()?;
+                self.eat(&Tok::Colon)?;
+                let fl = self.cur_line();
+                let ft = self.parse_type()?;
+                if !matches!(ft, Ty::Int | Ty::Str | Ty::Bool) {
+                    return Err(ce(fl, "record fields must be Int, Str, or Bool for now (nested types come later)"));
+                }
+                fields.push((fname, ft));
+                if *self.peek() == Tok::Comma {
+                    self.pos += 1;
+                }
             }
-            fields.push((fname, ft));
-            if *self.peek() == Tok::Comma {
-                self.pos += 1;
+            TypeBody::Record(fields)
+        } else {
+            let mut cases = Vec::new();
+            while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
+                let cname = self.ident()?;
+                let payload = if *self.peek() == Tok::LParen {
+                    self.pos += 1;
+                    let pl = self.cur_line();
+                    let pt = self.parse_type()?;
+                    if !matches!(pt, Ty::Int | Ty::Str | Ty::Bool) {
+                        return Err(ce(pl, "variant payloads must be Int, Str, or Bool for now"));
+                    }
+                    self.eat(&Tok::RParen)?;
+                    Some(pt)
+                } else {
+                    None
+                };
+                cases.push(Case { name: cname, payload });
+                if *self.peek() == Tok::Comma {
+                    self.pos += 1;
+                }
             }
-        }
+            TypeBody::Variant(cases)
+        };
         self.eat(&Tok::RBrace)?;
         let leaked = self.type_names[&name];
-        Ok(RecordDef { name: leaked, fields, line })
+        Ok(TypeDef { name: leaked, body, line })
     }
 
     fn func(&mut self) -> Result<Func, CErr> {
@@ -602,6 +685,11 @@ impl Parser {
         while *self.peek() == Tok::Dot {
             self.pos += 1;
             let name = self.ident()?;
+            if name == "match" && *self.peek() == Tok::LBrace {
+                let arms = self.match_arms()?;
+                e = Expr::Match { recv: Box::new(e), arms };
+                continue;
+            }
             let (args, parens, block) = if *self.peek() == Tok::LParen {
                 (self.args()?, true, None)
             } else if *self.peek() == Tok::LBrace && !self.no_block {
@@ -657,6 +745,36 @@ impl Parser {
         }
         self.eat(&Tok::RBrace)?;
         Ok(Block { param, body })
+    }
+
+    /// match := '{' (Case ('(' ident ')')? '->' (stmt | '{' stmt* '}'))* '}'
+    fn match_arms(&mut self) -> Result<Vec<MatchArm>, CErr> {
+        self.eat(&Tok::LBrace)?;
+        let mut arms = Vec::new();
+        while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
+            let line = self.cur_line();
+            let case = self.ident()?;
+            let binding = if *self.peek() == Tok::LParen {
+                self.pos += 1;
+                let b = self.ident()?;
+                self.eat(&Tok::RParen)?;
+                Some(b)
+            } else {
+                None
+            };
+            self.eat(&Tok::Arrow)?;
+            let body = if *self.peek() == Tok::LBrace {
+                self.stmt_block()?
+            } else {
+                vec![self.stmt()?]
+            };
+            arms.push(MatchArm { case, binding, body, line });
+            if *self.peek() == Tok::Comma {
+                self.pos += 1;
+            }
+        }
+        self.eat(&Tok::RBrace)?;
+        Ok(arms)
     }
 
     fn primary(&mut self) -> Result<Expr, CErr> {
@@ -803,30 +921,48 @@ fn fail_ret(sig: &Sig) -> &'static str {
     }
 }
 
-/// Split items into the functions and record types, set the global type table.
-fn prepare(items: &[Item]) -> (Vec<&Func>, Vec<&RecordDef>) {
+/// Split items into the functions and user types, set the global type table.
+fn prepare(items: &[Item]) -> (Vec<&Func>, Vec<&TypeDef>) {
     let funcs: Vec<&Func> = items.iter().filter_map(|i| match i {
         Item::Func(f) => Some(f),
         _ => None,
     }).collect();
-    let records: Vec<&RecordDef> = items.iter().filter_map(|i| match i {
-        Item::Type(r) => Some(r),
+    let tdefs: Vec<&TypeDef> = items.iter().filter_map(|i| match i {
+        Item::Type(t) => Some(t),
         _ => None,
     }).collect();
-    let owned: Vec<RecordDef> = records.iter().map(|r| (*r).clone()).collect();
+    let owned: Vec<TypeDef> = tdefs.iter().map(|t| (*t).clone()).collect();
     let _ = TYPES.set(owned);
-    (funcs, records)
+    (funcs, tdefs)
 }
 
-fn emit_typedefs(records: &[&RecordDef], out: &mut String) {
-    for r in records {
-        out.push_str("typedef struct { ");
-        for (fname, ft) in &r.fields {
-            out.push_str(&format!("{} {}; ", cty(*ft), fname));
+fn emit_typedefs(tdefs: &[&TypeDef], out: &mut String) {
+    for t in tdefs {
+        match &t.body {
+            TypeBody::Record(fields) => {
+                out.push_str("typedef struct { ");
+                for (fname, ft) in fields {
+                    out.push_str(&format!("{} {}; ", cty(*ft), fname));
+                }
+                out.push_str(&format!("}} {};\n", t.name));
+            }
+            TypeBody::Variant(cases) => {
+                // A tagged union: an int tag, plus a union of any payloads.
+                out.push_str("typedef struct { int tag;");
+                if cases.iter().any(|c| c.payload.is_some()) {
+                    out.push_str(" union {");
+                    for c in cases {
+                        if let Some(pt) = c.payload {
+                            out.push_str(&format!(" {} {};", cty(pt), c.name));
+                        }
+                    }
+                    out.push_str(" } data;");
+                }
+                out.push_str(&format!(" }} {};\n", t.name));
+            }
         }
-        out.push_str(&format!("}} {};\n", r.name));
     }
-    if !records.is_empty() {
+    if !tdefs.is_empty() {
         out.push('\n');
     }
 }
@@ -1131,8 +1267,8 @@ fn emit_expr_stmt(
             out.push_str(&format!("{}if (!({})) {{ simpler_failed = 1; {} }}\n", pad, ac, fret));
             Ok(())
         }
-        Expr::Call { name, .. } if find_record(name).is_some() => {
-            Err(ce(line, format!("record `{}` must be bound to a name, not used as a statement", name)))
+        Expr::Call { name, .. } if find_type(name).is_some() || find_case(name).is_some() => {
+            Err(ce(line, format!("`{}` constructs a value; bind it to a name", name)))
         }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
@@ -1142,6 +1278,62 @@ fn emit_expr_stmt(
             let cargs = call_args(name, args, sig, scope, line, sigs, used)?;
             used.union(sig.effects);
             out.push_str(&format!("{}{}({});\n", pad, name, cargs.join(", ")));
+            Ok(())
+        }
+        Expr::Match { recv, arms } => {
+            let (rc, rty) = emit_expr(recv, scope, line, sigs, used)?;
+            let tn = match rty {
+                Ty::User(n) => n,
+                _ => return Err(ce(line, format!("can only match a variant, not {:?}", rty))),
+            };
+            let td = find_type(tn).ok_or_else(|| ce(line, format!("unknown type `{}`", tn)))?;
+            let cases = match &td.body {
+                TypeBody::Variant(c) => c,
+                _ => return Err(ce(line, format!("`{}` is a record, not a variant; use field access", tn))),
+            };
+            let mut seen: HashSet<usize> = HashSet::new();
+            for arm in arms {
+                let idx = cases
+                    .iter()
+                    .position(|c| c.name == arm.case)
+                    .ok_or_else(|| ce(arm.line, format!("`{}` has no case `{}`", tn, arm.case)))?;
+                if !seen.insert(idx) {
+                    return Err(ce(arm.line, format!("case `{}` matched twice", arm.case)));
+                }
+            }
+            if seen.len() != cases.len() {
+                let missing: Vec<&str> = cases
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !seen.contains(i))
+                    .map(|(_, c)| c.name.as_str())
+                    .collect();
+                return Err(ce(line, format!("match on `{}` is missing: {}", tn, missing.join(", "))));
+            }
+            out.push_str(&format!("{}{{ {} _m = {};\n", pad, tn, rc));
+            out.push_str(&format!("{}switch (_m.tag) {{\n", pad));
+            for arm in arms {
+                let idx = cases.iter().position(|c| c.name == arm.case).unwrap();
+                out.push_str(&format!("{}case {}: {{\n", pad, idx));
+                scope.push();
+                match (&arm.binding, cases[idx].payload) {
+                    (Some(b), Some(pt)) => {
+                        scope.declare(b.clone(), pt);
+                        out.push_str(&format!("{}    {} {} = _m.data.{};\n", pad, cty(pt), b, arm.case));
+                    }
+                    (Some(_), None) => {
+                        scope.pop();
+                        return Err(ce(arm.line, format!("case `{}` has no payload to bind", arm.case)));
+                    }
+                    _ => {}
+                }
+                for s in &arm.body {
+                    emit_stmt(s, scope, out, ind + 2, sigs, used, fret)?;
+                }
+                scope.pop();
+                out.push_str(&format!("{}    break;\n{}}}\n", pad, pad));
+            }
+            out.push_str(&format!("{}}}\n{}}}\n", pad, pad));
             Ok(())
         }
         Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value")),
@@ -1230,10 +1422,18 @@ fn emit_expr(
     match e {
         Expr::Int(n) => Ok((n.to_string(), Ty::Int)),
         Expr::Str(s) => Ok((format!("\"{}\"", c_escape(s)), Ty::Str)),
-        Expr::Var(n) => scope
-            .lookup(n)
-            .map(|t| (n.clone(), t))
-            .ok_or_else(|| ce(line, format!("unknown name `{}`", n))),
+        Expr::Var(n) => {
+            if let Some(t) = scope.lookup(n) {
+                Ok((n.clone(), t))
+            } else if let Some((vname, tag, payload)) = find_case(n) {
+                if payload.is_some() {
+                    return Err(ce(line, format!("case `{}` needs a payload, e.g. {}(...)", n, n)));
+                }
+                Ok((format!("({}){{ .tag = {} }}", vname, tag), Ty::User(vname)))
+            } else {
+                Err(ce(line, format!("unknown name `{}`", n)))
+            }
+        }
         Expr::Bin { op, lhs, rhs } => {
             let (lc, lt) = emit_expr(lhs, scope, line, sigs, used)?;
             let (rc, rt) = emit_expr(rhs, scope, line, sigs, used)?;
@@ -1255,14 +1455,15 @@ fn emit_expr(
             Err(ce(line, "`assert` is a statement, not a value"))
         }
         // record construction: `Point(x = 3, y = 4)`
-        Expr::Call { name, args } if find_record(name).is_some() => {
-            let rec = find_record(name).unwrap();
+        Expr::Call { name, args } if record_fields(name).is_some() => {
+            let fields = record_fields(name).unwrap();
+            let tname = find_type(name).unwrap().name;
             let mut provided: HashMap<&str, String> = HashMap::new();
             for a in args {
                 let fname = a.name.as_deref().ok_or_else(|| {
-                    ce(line, format!("`{}` fields must be named, e.g. {} = ...", name, rec.fields[0].0))
+                    ce(line, format!("`{}` fields must be named, e.g. {} = ...", name, fields[0].0))
                 })?;
-                let field = rec.fields.iter().find(|(f, _)| f == fname).ok_or_else(|| {
+                let field = fields.iter().find(|(f, _)| f == fname).ok_or_else(|| {
                     ce(line, format!("`{}` has no field `{}`", name, fname))
                 })?;
                 let (vc, vt) = emit_expr(&a.value, scope, line, sigs, used)?;
@@ -1274,13 +1475,24 @@ fn emit_expr(
                 }
             }
             let mut parts = Vec::new();
-            for (fname, _) in &rec.fields {
+            for (fname, _) in fields {
                 let v = provided.get(fname.as_str()).ok_or_else(|| {
                     ce(line, format!("missing field `{}` of `{}`", fname, name))
                 })?;
                 parts.push(format!(".{} = ({})", fname, v));
             }
-            Ok((format!("({}){{ {} }}", rec.name, parts.join(", ")), Ty::User(rec.name)))
+            Ok((format!("({}){{ {} }}", tname, parts.join(", ")), Ty::User(tname)))
+        }
+        // variant case construction with a payload: `Ident("x")`
+        Expr::Call { name, args } if find_case(name).is_some() => {
+            let (vname, tag, payload) = find_case(name).unwrap();
+            let pt = payload.ok_or_else(|| ce(line, format!("case `{}` takes no payload", name)))?;
+            let a = one_positional(args, line, name)?;
+            let (ac, at) = emit_expr(a, scope, line, sigs, used)?;
+            if at != pt {
+                return Err(ce(line, format!("case `{}` carries {:?}, got {:?}", name, pt, at)));
+            }
+            Ok((format!("({}){{ .tag = {}, .data.{} = ({}) }}", vname, tag, name, ac), Ty::User(vname)))
         }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
@@ -1301,12 +1513,13 @@ fn emit_expr(
                 return Ok((String::new(), t));
             }
             if let Ty::User(tn) = rty {
-                if let Some(rec) = find_record(tn) {
-                    if let Some((_, ft)) = rec.fields.iter().find(|(f, _)| f == name) {
+                if let Some(fields) = record_fields(tn) {
+                    if let Some((_, ft)) = fields.iter().find(|(f, _)| f == name) {
                         return Ok((format!("({}).{}", rc, name), *ft));
                     }
+                    return Err(ce(line, format!("`{}` has no field `{}`", tn, name)));
                 }
-                return Err(ce(line, format!("`{}` has no field `{}`", tn, name)));
+                return Err(ce(line, format!("`{}` is a variant; take it apart with `match`", tn)));
             }
             Err(ce(line, format!("{:?} has no member `{}`", rty, name)))
         }
@@ -1314,6 +1527,7 @@ fn emit_expr(
             Err(ce(line, "`files.read` can fail; bind it as `name = files.read(path)?`"))
         }
         Expr::Send { .. } => Err(ce(line, "this send does not produce a value here")),
+        Expr::Match { .. } => Err(ce(line, "`match` is a statement; it does not produce a value yet")),
         Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value")),
     }
 }
@@ -1425,11 +1639,23 @@ fn fmt_program(items: &[Item], comments: &[Cmt]) -> String {
     out
 }
 
-fn format_typedef(r: &RecordDef, cur: &mut Cur, out: &mut String) {
-    out.push_str(&format!("{} = type {{", r.name));
-    end_line(r.line, cur, out);
-    for (fname, ft) in &r.fields {
-        out.push_str(&format!("  {} : {}\n", fname, ty_name(*ft)));
+fn format_typedef(t: &TypeDef, cur: &mut Cur, out: &mut String) {
+    out.push_str(&format!("{} = type {{", t.name));
+    end_line(t.line, cur, out);
+    match &t.body {
+        TypeBody::Record(fields) => {
+            for (fname, ft) in fields {
+                out.push_str(&format!("  {} : {}\n", fname, ty_name(*ft)));
+            }
+        }
+        TypeBody::Variant(cases) => {
+            for c in cases {
+                match c.payload {
+                    Some(pt) => out.push_str(&format!("  {}({})\n", c.name, ty_name(pt))),
+                    None => out.push_str(&format!("  {}\n", c.name)),
+                }
+            }
+        }
     }
     out.push_str("}\n");
 }
@@ -1483,6 +1709,25 @@ fn format_stmt(st: &Stmt, ind: usize, cur: &mut Cur, out: &mut String) {
                 out.push_str(&format!("{}}}\n", pad));
             }
         }
+        SKind::Expr(Expr::Match { recv, arms }) => {
+            out.push_str(&format!("{}{}.match {{", pad, fmt_expr(recv)));
+            end_line(st.line, cur, out);
+            let inner = "  ".repeat(ind + 1);
+            for arm in arms {
+                cur.leading(arm.line, ind + 1, out);
+                let p = match &arm.binding {
+                    Some(b) => format!("{}({})", arm.case, b),
+                    None => arm.case.clone(),
+                };
+                out.push_str(&format!("{}{} -> {{", inner, p));
+                end_line(arm.line, cur, out);
+                for s in &arm.body {
+                    format_stmt(s, ind + 2, cur, out);
+                }
+                out.push_str(&format!("{}}}\n", inner));
+            }
+            out.push_str(&format!("{}}}\n", pad));
+        }
         SKind::Expr(Expr::Send { recv, name, block: Some(blk), .. }) if name == "times" => {
             let p = blk.param.clone().unwrap_or_else(|| "_".into());
             out.push_str(&format!("{}{}.times {{ {} in", pad, fmt_expr(recv), p));
@@ -1532,6 +1777,7 @@ fn fmt_prec(e: &Expr, min: u8) -> String {
             }
         }
         Expr::Try(inner) => format!("{}?", fmt_prec(inner, 100)),
+        Expr::Match { recv, .. } => format!("{}.match {{ ... }}", fmt_prec(recv, 100)),
     }
 }
 

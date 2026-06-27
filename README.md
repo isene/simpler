@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M5a-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M5b-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -112,7 +112,7 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M4a** the canonical `fmt` formatter (comment-preserving, idempotent)
 - [x] **M4b** the `test` runner with the `assert` built-in
 - [x] **M5a** user-defined record types (`type { fields }`, value-semantic C structs)
-- [ ] **M5b** variants and `match`
+- [x] **M5b** variants and exhaustive `match` (tagged unions)
 - [ ] **M5c** collections (lists, maps) and string methods
 - [ ] **Self-host** rewrite the compiler in Simpler
 

@@ -1,0 +1,21 @@
+// M5b: variant types and `match`.
+Tok = type {
+  Ident(Str)
+  IntLit(Int)
+  Dot
+}
+
+main(sys) {
+  show(sys.screen, Ident("hello"))
+  show(sys.screen, IntLit(42))
+  show(sys.screen, Dot)
+}
+
+// a Tok passes by value; `match` takes it apart, exhaustively.
+show(screen : Screen, t : Tok) !IO {
+  t.match {
+    Ident(s) -> screen.print(s)
+    IntLit(n) -> screen.print(n)
+    Dot -> screen.print("dot")
+  }
+}

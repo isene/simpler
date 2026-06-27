@@ -41,6 +41,7 @@ check_run m3    "$(printf 'hello,\nworld')"
 check_run m3b   "$(printf '[mail] to=boss@co subject=Daily report\nQuarterly numbers look good.\n\nsent')"
 check_run m3c   "$(printf 'Quarterly numbers look good.\n\n6')"
 check_run m5a   "$(printf '7\n25\n13')"
+check_run m5b   "$(printf 'hello\n42\ndot')"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -107,6 +108,20 @@ check_err "nested record field rejected" \
 B = type { a : A }
 main(sys) { sys.screen.print(1) }' \
     "must be Int, Str, or Bool"
+check_err "non-exhaustive match" \
+    'Tok = type { A(Str) B }
+main(sys) { show(sys.screen, B) }
+show(screen : Screen, t : Tok) !IO { t.match { A(s) -> screen.print(s) } }' \
+    "is missing: B"
+check_err "field access on a variant" \
+    'Tok = type { A(Str) B }
+main(sys) { t = B sys.screen.print(t.x) }' \
+    "is a variant"
+check_err "unknown case in match" \
+    'Tok = type { A B }
+main(sys) { show(sys.screen, A) }
+show(screen : Screen, t : Tok) !IO { t.match { A -> screen.print("a") B -> screen.print("b") Z -> screen.print("z") } }' \
+    "has no case"
 
 # --- 3. fmt is idempotent; test reports correctly -----------------------------
 for f in hello m2 m3 m3b m3c tests; do
