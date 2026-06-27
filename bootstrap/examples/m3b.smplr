@@ -1,0 +1,6 @@
+// M3b: `?` propagates failure; the Files and Mail capabilities; named args.
+main(sys) {
+  text = sys.files.read("examples/report.txt")?
+  sys.mail.send(to = "boss@co", subject = "Daily report", body = text)
+  sys.screen.print("sent")
+}

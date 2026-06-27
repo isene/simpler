@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M3-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M3b-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -86,7 +86,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M1** the spine: lex, parse, emit C, compile end to end
 - [x] **M2** integers, the seven operators, locals, `if`/`else`, `n.times`, typed `print`
 - [x] **M3** effects (`!IO`/`!Fail`), capabilities, user functions, all checked
-- [ ] **M3b** `?` failure propagation, more capabilities, named arguments
+- [x] **M3b** `?` failure propagation, the `Files`/`Mail` capabilities, named arguments
+- [ ] **M3c** value-returning user functions and cross-function `?`
 - [ ] **M4** the canonical formatter and test runner
 - [ ] **Self-host** rewrite the compiler in Simpler
 

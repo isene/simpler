@@ -1,18 +1,17 @@
-//! The Simpler bootstrap compiler — milestone M3.
+//! The Simpler bootstrap compiler — milestone M3b.
 //!
-//! Pipeline: lex -> parse -> emit C -> system `cc`. M3 makes the language's
-//! central idea real: effects live in the signature, and a function can only
-//! touch the capabilities it was handed.
+//! Pipeline: lex -> parse -> emit C -> system `cc`. M3b completes the coarse
+//! effect vocabulary and the capability set enough to read a file and mail it:
 //!
-//!   * effect annotations `!IO` / `!Fail` on functions (coarse vocabulary),
-//!   * user functions with typed parameters and free calls,
-//!   * capabilities as passed values (`Sys`, `Screen`), checked by type,
-//!   * an effect checker: a function that uses an effect must declare it.
+//!   * `?` failure propagation: `text = files.read(path)?` returns failure
+//!     from the enclosing function (which must then declare `!Fail`),
+//!   * the `Files` capability (`read`, !IO !Fail) and `Mail` capability
+//!     (`send`, !IO),
+//!   * named arguments: `mail.send(to = "...", body = "...")`.
 //!
-//! `main` implicitly holds the world (all effects), so M1/M2 programs still
-//! compile. Capabilities are erased at runtime — purely a compile-time
-//! permission system, zero cost. `?`/`!Fail` propagation, `mail`/`files`,
-//! and named arguments arrive in M3b.
+//! Capabilities are erased at runtime; failure is a single global flag the
+//! `?` checks. `main` implicitly holds the world. Cross-function `?` (using
+//! `?` on a user call) and value-returning user functions are M3c.
 
 use std::collections::HashMap;
 use std::env;
@@ -20,7 +19,6 @@ use std::fs;
 use std::path::Path;
 use std::process::{exit, Command};
 
-/// A compile error tied to a source line.
 #[derive(Debug)]
 struct CErr {
     line: u32,
@@ -40,9 +38,10 @@ enum Ty {
     Bool,
     Sys,    // the root capability (main's world)
     Screen, // the screen capability
+    Files,  // the file-system capability
+    Mail,   // the mail capability
 }
 
-/// Value types have a C representation; capabilities are erased at runtime.
 fn is_value(t: Ty) -> bool {
     matches!(t, Ty::Int | Ty::Str | Ty::Bool)
 }
@@ -52,14 +51,16 @@ fn cty(t: Ty) -> &'static str {
         Ty::Int => "long",
         Ty::Str => "const char *",
         Ty::Bool => "int",
-        Ty::Sys | Ty::Screen => unreachable!("capabilities have no C type"),
+        _ => unreachable!("capabilities have no C type"),
     }
 }
 
-/// A sub-capability or member reachable from a capability: `sys.screen`.
+/// A sub-capability reachable from a capability: `sys.screen`, `sys.files`, ...
 fn cap_member(recv: Ty, name: &str) -> Option<Ty> {
     match (recv, name) {
         (Ty::Sys, "screen") => Some(Ty::Screen),
+        (Ty::Sys, "files") => Some(Ty::Files),
+        (Ty::Sys, "mail") => Some(Ty::Mail),
         _ => None,
     }
 }
@@ -72,11 +73,11 @@ struct Effects {
 
 impl Effects {
     fn all() -> Effects { Effects { io: true, fail: true } }
+    fn io_fail() -> Effects { Effects { io: true, fail: true } }
     fn union(&mut self, o: Effects) {
         self.io |= o.io;
         self.fail |= o.fail;
     }
-    /// True if every effect in `self` is also present in `decl`.
     fn covered_by(&self, decl: Effects) -> bool {
         (!self.io || decl.io) && (!self.fail || decl.fail)
     }
@@ -107,22 +108,29 @@ fn op_sym(op: BinOp) -> &'static str {
     }
 }
 
+/// A call argument, optionally named: `body = text`.
+#[derive(Debug, Clone)]
+struct Arg {
+    name: Option<String>,
+    value: Expr,
+}
+
 #[derive(Debug, Clone)]
 enum Expr {
     Int(i64),
     Str(String),
     Var(String),
     Bin { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
-    /// Free function call: `name(args)`.
-    Call { name: String, args: Vec<Expr> },
-    /// Message send: `receiver.name(args)` or trailing-block `recv.name { ... }`.
+    Call { name: String, args: Vec<Arg> },
     Send {
         recv: Box<Expr>,
         name: String,
-        args: Vec<Expr>,
+        args: Vec<Arg>,
         parens: bool,
         block: Option<Block>,
     },
+    /// `expr?` — propagate failure from the enclosing function.
+    Try(Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -131,7 +139,6 @@ struct Block {
     body: Vec<Stmt>,
 }
 
-/// A statement, tagged with the source line it starts on (for diagnostics).
 #[derive(Debug, Clone)]
 struct Stmt {
     line: u32,
@@ -148,14 +155,12 @@ enum SKind {
 #[derive(Debug)]
 struct Func {
     name: String,
-    /// Declared parameters; the type is `None` only for `main`'s world.
     params: Vec<(String, Option<Ty>)>,
     effects: Effects,
     body: Vec<Stmt>,
     line: u32,
 }
 
-/// A resolved function signature, used to check calls and effects.
 struct Sig {
     params: Vec<(String, Ty)>,
     effects: Effects,
@@ -175,10 +180,11 @@ enum Tok {
     LBrace,
     RBrace,
     Comma,
-    Assign, // =
-    EqEq,   // ==
-    Colon,  // :
-    Bang,   // !
+    Assign,
+    EqEq,
+    Colon,
+    Bang,
+    Question,
     Plus,
     Minus,
     Star,
@@ -188,8 +194,6 @@ enum Tok {
     Eof,
 }
 
-/// Tokenise into `(token, line)` pairs. Indexes a `Vec<char>` rather than
-/// bytes, so multi-byte UTF-8 can never split mid-character.
 fn lex(src: &str) -> Result<Vec<(Tok, u32)>, CErr> {
     let cs: Vec<char> = src.chars().collect();
     let mut i = 0;
@@ -212,6 +216,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, u32)>, CErr> {
             '}' => { toks.push((Tok::RBrace, line)); i += 1; }
             ',' => { toks.push((Tok::Comma, line)); i += 1; }
             '!' => { toks.push((Tok::Bang, line)); i += 1; }
+            '?' => { toks.push((Tok::Question, line)); i += 1; }
             '+' => { toks.push((Tok::Plus, line)); i += 1; }
             '-' => { toks.push((Tok::Minus, line)); i += 1; }
             '*' => { toks.push((Tok::Star, line)); i += 1; }
@@ -330,7 +335,6 @@ impl Parser {
         Ok(fns)
     }
 
-    /// func := ident '(' params? ')' ('!' effect)* '{' stmt* '}'
     fn func(&mut self) -> Result<Func, CErr> {
         let line = self.cur_line();
         let name = self.ident()?;
@@ -380,7 +384,6 @@ impl Parser {
         if self.ident_is("if") {
             return self.if_stmt();
         }
-        // `name = value` or `name : Type = value` (but not `name(...)`, a call)
         if let Tok::Ident(name) = self.peek().clone() {
             match self.at(1) {
                 Some(Tok::Assign) => {
@@ -403,7 +406,7 @@ impl Parser {
 
     fn if_stmt(&mut self) -> Result<Stmt, CErr> {
         let line = self.cur_line();
-        self.pos += 1; // 'if'
+        self.pos += 1;
         self.no_block = true;
         let cond = self.expr()?;
         self.no_block = false;
@@ -430,6 +433,8 @@ impl Parser {
             "Bool" => Ok(Ty::Bool),
             "Sys" => Ok(Ty::Sys),
             "Screen" => Ok(Ty::Screen),
+            "Files" => Ok(Ty::Files),
+            "Mail" => Ok(Ty::Mail),
             _ => Err(ce(line, format!("unknown type `{}`", n))),
         }
     }
@@ -482,7 +487,7 @@ impl Parser {
         Ok(e)
     }
 
-    /// postfix := primary ('.' ident ('(' args ')' | '{' block '}')?)*
+    /// postfix := primary ('.' ident ('(' args ')' | '{' block '}')?)* '?'?
     fn postfix(&mut self) -> Result<Expr, CErr> {
         let mut e = self.primary()?;
         while *self.peek() == Tok::Dot {
@@ -497,15 +502,28 @@ impl Parser {
             };
             e = Expr::Send { recv: Box::new(e), name, args, parens, block };
         }
+        if *self.peek() == Tok::Question {
+            self.pos += 1;
+            e = Expr::Try(Box::new(e));
+        }
         Ok(e)
     }
 
-    fn args(&mut self) -> Result<Vec<Expr>, CErr> {
+    /// args := '(' (arg (',' arg)*)? ')'   where arg := (ident '=')? expr
+    fn args(&mut self) -> Result<Vec<Arg>, CErr> {
         self.eat(&Tok::LParen)?;
         let mut args = Vec::new();
         if *self.peek() != Tok::RParen {
             loop {
-                args.push(self.expr()?);
+                let name = if matches!(self.peek(), Tok::Ident(_)) && self.at(1) == Some(&Tok::Assign) {
+                    let n = self.ident()?;
+                    self.pos += 1; // '='
+                    Some(n)
+                } else {
+                    None
+                };
+                let value = self.expr()?;
+                args.push(Arg { name, value });
                 if *self.peek() == Tok::Comma { self.pos += 1; } else { break; }
             }
         }
@@ -580,17 +598,35 @@ impl Scope {
 
 const RUNTIME: &str = "\
 #include <stdio.h>
+#include <stdlib.h>
 
 /* Generated by the Simpler bootstrap compiler. Do not edit. */
+
+static int simpler_failed = 0;
 
 static void simpler_print_str(const char *s) { fputs(s, stdout); fputc('\\n', stdout); }
 static void simpler_print_int(long n)        { printf(\"%ld\\n\", n); }
 static void simpler_print_bool(int b)        { fputs(b ? \"true\" : \"false\", stdout); fputc('\\n', stdout); }
+
+static const char *simpler_read(const char *path) {
+    FILE *f = fopen(path, \"rb\");
+    if (!f) { simpler_failed = 1; return \"\"; }
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) { fclose(f); simpler_failed = 1; return \"\"; }
+    size_t got = fread(buf, 1, (size_t)n, f);
+    buf[got] = '\\0';
+    fclose(f);
+    return buf;
+}
+
+static void simpler_send(const char *to, const char *subject, const char *body) {
+    printf(\"[mail] to=%s subject=%s\\n%s\\n\", to, subject, body);
+}
 ";
 
-/// Resolve each function's signature: param types and declared effects.
-/// `main` is special — its sole untyped parameter is the `Sys` world, and it
-/// implicitly holds every effect.
 fn build_sigs(funcs: &[Func]) -> Result<HashMap<String, Sig>, CErr> {
     let mut sigs = HashMap::new();
     for f in funcs {
@@ -632,14 +668,12 @@ fn emit(funcs: &[Func]) -> Result<String, CErr> {
     let sigs = build_sigs(funcs)?;
     let mut out = String::from(RUNTIME);
     out.push('\n');
-    // Forward prototypes for user functions, so call order never matters.
     for f in funcs {
         if f.name != "main" {
             out.push_str(&format!("void {}({});\n", f.name, c_params(&sigs[&f.name])));
         }
     }
     out.push('\n');
-    // Bodies: helpers first, `main` last.
     for f in funcs {
         if f.name != "main" {
             out.push_str(&emit_func(f, &sigs)?);
@@ -652,6 +686,7 @@ fn emit(funcs: &[Func]) -> Result<String, CErr> {
 
 fn emit_func(f: &Func, sigs: &HashMap<String, Sig>) -> Result<String, CErr> {
     let sig = &sigs[&f.name];
+    let fail_ret = if sig.is_main { "return 1;" } else { "return;" };
     let mut scope = Scope::new();
     for (pn, pt) in &sig.params {
         scope.declare(pn.clone(), *pt);
@@ -659,9 +694,8 @@ fn emit_func(f: &Func, sigs: &HashMap<String, Sig>) -> Result<String, CErr> {
     let mut used = Effects::default();
     let mut body = String::new();
     for st in &f.body {
-        emit_stmt(st, &mut scope, &mut body, 1, sigs, &mut used)?;
+        emit_stmt(st, &mut scope, &mut body, 1, sigs, &mut used, fail_ret)?;
     }
-    // Effect check: every used effect must be declared (main holds all).
     if !used.covered_by(sig.effects) {
         let mut missing = Vec::new();
         if used.io && !sig.effects.io { missing.push("!IO"); }
@@ -685,10 +719,32 @@ fn emit_stmt(
     ind: usize,
     sigs: &HashMap<String, Sig>,
     used: &mut Effects,
+    fail_ret: &str,
 ) -> Result<(), CErr> {
     let pad = "    ".repeat(ind);
     let line = s.line;
     match &s.kind {
+        // `name = failable?` — call, bind, then propagate failure.
+        SKind::Bind { name, ty, value: Expr::Try(inner) } => {
+            let (cval, vt, eff) = emit_failable(inner, scope, line)?;
+            used.union(eff);
+            if let Some(a) = ty {
+                if *a != vt {
+                    return Err(ce(line, format!("`{}` declared {:?} but value is {:?}", name, a, vt)));
+                }
+            }
+            match scope.lookup(name) {
+                Some(prev) if prev != vt => {
+                    return Err(ce(line, format!("`{}` is {:?}, cannot reassign a {:?}", name, prev, vt)));
+                }
+                Some(_) => out.push_str(&format!("{}{} = {};\n", pad, name, cval)),
+                None => {
+                    scope.declare(name.clone(), vt);
+                    out.push_str(&format!("{}{} {} = {};\n", pad, cty(vt), name, cval));
+                }
+            }
+            out.push_str(&format!("{}if (simpler_failed) {{ {} }}\n", pad, fail_ret));
+        }
         SKind::Bind { name, ty, value } => {
             let (vc, vt) = emit_expr(value, scope, line)?;
             if !is_value(vt) {
@@ -700,12 +756,10 @@ fn emit_stmt(
                 }
             }
             match scope.lookup(name) {
-                Some(prev) => {
-                    if prev != vt {
-                        return Err(ce(line, format!("`{}` is {:?}, cannot reassign a {:?}", name, prev, vt)));
-                    }
-                    out.push_str(&format!("{}{} = {};\n", pad, name, vc));
+                Some(prev) if prev != vt => {
+                    return Err(ce(line, format!("`{}` is {:?}, cannot reassign a {:?}", name, prev, vt)));
                 }
+                Some(_) => out.push_str(&format!("{}{} = {};\n", pad, name, vc)),
                 None => {
                     scope.declare(name.clone(), vt);
                     out.push_str(&format!("{}{} {} = {};\n", pad, cty(vt), name, vc));
@@ -720,7 +774,7 @@ fn emit_stmt(
             out.push_str(&format!("{}if ({}) {{\n", pad, cc));
             scope.push();
             for s in then {
-                emit_stmt(s, scope, out, ind + 1, sigs, used)?;
+                emit_stmt(s, scope, out, ind + 1, sigs, used, fail_ret)?;
             }
             scope.pop();
             out.push_str(&format!("{}}}", pad));
@@ -728,20 +782,19 @@ fn emit_stmt(
                 out.push_str(" else {\n");
                 scope.push();
                 for s in els {
-                    emit_stmt(s, scope, out, ind + 1, sigs, used)?;
+                    emit_stmt(s, scope, out, ind + 1, sigs, used, fail_ret)?;
                 }
                 scope.pop();
                 out.push_str(&format!("{}}}", pad));
             }
             out.push('\n');
         }
-        SKind::Expr(e) => emit_expr_stmt(e, scope, out, ind, &pad, line, sigs, used)?,
+        SKind::Expr(e) => emit_expr_stmt(e, scope, out, ind, &pad, line, sigs, used, fail_ret)?,
     }
     Ok(())
 }
 
-/// Statement-position expressions: capability sends (`print`), iteration
-/// (`times`), and free function calls.
+/// Statement-position expressions: capability methods, iteration, and calls.
 fn emit_expr_stmt(
     e: &Expr,
     scope: &mut Scope,
@@ -751,17 +804,33 @@ fn emit_expr_stmt(
     line: u32,
     sigs: &HashMap<String, Sig>,
     used: &mut Effects,
+    fail_ret: &str,
 ) -> Result<(), CErr> {
     match e {
-        Expr::Send { recv, name, args, parens, block } => {
-            match name.as_str() {
-                // Screen.print(value) — !IO. Only a Screen capability has it.
-                "print" if *parens && args.len() == 1 && block.is_none() => {
-                    let (_, rty) = emit_expr(recv, scope, line)?;
-                    if rty != Ty::Screen {
-                        return Err(ce(line, format!("`print` is a method of Screen, not {:?}", rty)));
-                    }
-                    let (ac, at) = emit_expr(&args[0], scope, line)?;
+        // n.times { i in ... }
+        Expr::Send { recv, name, args, parens: false, block: Some(blk) } if name == "times" && args.is_empty() => {
+            let (rc, rt) = emit_expr(recv, scope, line)?;
+            if rt != Ty::Int {
+                return Err(ce(line, "`times` expects an Int receiver"));
+            }
+            let var = blk.param.clone().unwrap_or_else(|| "_i".into());
+            out.push_str(&format!("{}for (long {} = 0; {} < ({}); {}++) {{\n", pad, var, var, rc, var));
+            scope.push();
+            scope.declare(var.clone(), Ty::Int);
+            for s in &blk.body {
+                emit_stmt(s, scope, out, ind + 1, sigs, used, fail_ret)?;
+            }
+            scope.pop();
+            out.push_str(&format!("{}}}\n", pad));
+            Ok(())
+        }
+        // capability method call: recv.method(args)
+        Expr::Send { recv, name, args, parens: true, block: None } => {
+            let (_, rty) = emit_expr(recv, scope, line)?;
+            match (rty, name.as_str()) {
+                (Ty::Screen, "print") => {
+                    let a = one_positional(args, line, "print")?;
+                    let (ac, at) = emit_expr(a, scope, line)?;
                     let call = match at {
                         Ty::Str => format!("simpler_print_str({});", ac),
                         Ty::Int => format!("simpler_print_int({});", ac),
@@ -772,37 +841,45 @@ fn emit_expr_stmt(
                     out.push_str(&format!("{}{}\n", pad, call));
                     Ok(())
                 }
-                // n.times { i in ... } — iterate i over 0..n. No effect of its own.
-                "times" if !*parens && args.is_empty() && block.is_some() => {
-                    let (rc, rt) = emit_expr(recv, scope, line)?;
-                    if rt != Ty::Int {
-                        return Err(ce(line, "`times` expects an Int receiver"));
+                (Ty::Mail, "send") => {
+                    let (mut to, mut subject, mut body) = (None, None, None);
+                    for a in args {
+                        let n = a.name.as_deref().ok_or_else(|| {
+                            ce(line, "`send` arguments must be named, e.g. to = \"...\", body = \"...\"")
+                        })?;
+                        let (vc, vt) = emit_expr(&a.value, scope, line)?;
+                        if vt != Ty::Str {
+                            return Err(ce(line, format!("`{}` must be a Str", n)));
+                        }
+                        match n {
+                            "to" => to = Some(vc),
+                            "subject" => subject = Some(vc),
+                            "body" => body = Some(vc),
+                            _ => return Err(ce(line, format!("`send` has no argument `{}`", n))),
+                        }
                     }
-                    let blk = block.as_ref().unwrap();
-                    let var = blk.param.clone().unwrap_or_else(|| "_i".into());
-                    out.push_str(&format!("{}for (long {} = 0; {} < ({}); {}++) {{\n", pad, var, var, rc, var));
-                    scope.push();
-                    scope.declare(var.clone(), Ty::Int);
-                    for s in &blk.body {
-                        emit_stmt(s, scope, out, ind + 1, sigs, used)?;
-                    }
-                    scope.pop();
-                    out.push_str(&format!("{}}}\n", pad));
+                    let to = to.ok_or_else(|| ce(line, "`send` needs `to`"))?;
+                    let body = body.ok_or_else(|| ce(line, "`send` needs `body`"))?;
+                    let subject = subject.unwrap_or_else(|| "\"\"".into());
+                    used.io = true;
+                    out.push_str(&format!("{}simpler_send({}, {}, {});\n", pad, to, subject, body));
                     Ok(())
                 }
-                _ => Err(ce(line, format!("unknown method `{}`", name))),
+                (Ty::Files, "read") => Err(ce(line, "`files.read` can fail; bind it as `name = files.read(path)?`")),
+                _ => Err(ce(line, format!("{:?} has no method `{}`", rty, name))),
             }
         }
         Expr::Call { name, args } => {
-            let sig = sigs
-                .get(name)
-                .ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
+            let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
             if args.len() != sig.params.len() {
                 return Err(ce(line, format!("`{}` takes {} argument(s), got {}", name, sig.params.len(), args.len())));
             }
             let mut cargs = Vec::new();
-            for (arg, (pn, pt)) in args.iter().zip(&sig.params) {
-                let (ac, at) = emit_expr(arg, scope, line)?;
+            for (a, (pn, pt)) in args.iter().zip(&sig.params) {
+                if a.name.is_some() {
+                    return Err(ce(line, format!("`{}` takes positional arguments", name)));
+                }
+                let (ac, at) = emit_expr(&a.value, scope, line)?;
                 if at != *pt {
                     return Err(ce(line, format!("argument `{}` to `{}` expects {:?}, got {:?}", pn, name, pt, at)));
                 }
@@ -814,12 +891,39 @@ fn emit_expr_stmt(
             out.push_str(&format!("{}{}({});\n", pad, name, cargs.join(", ")));
             Ok(())
         }
+        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding (M3b)")),
         _ => Err(ce(line, "this expression can't stand alone as a statement")),
     }
 }
 
-/// Emit a value or capability expression, returning its C text and its type.
-/// Capability expressions have an empty C text (they are erased at runtime).
+fn one_positional<'a>(args: &'a [Arg], line: u32, method: &str) -> Result<&'a Expr, CErr> {
+    if args.len() != 1 || args[0].name.is_some() {
+        return Err(ce(line, format!("`{}` takes one positional argument", method)));
+    }
+    Ok(&args[0].value)
+}
+
+/// Lower a failable call (the inside of a `?`). Returns its C text, success
+/// type, and effects. Only `files.read(path)` is failable in M3b.
+fn emit_failable(inner: &Expr, scope: &Scope, line: u32) -> Result<(String, Ty, Effects), CErr> {
+    if let Expr::Send { recv, name, args, parens: true, block: None } = inner {
+        if name == "read" {
+            let (_, rty) = emit_expr(recv, scope, line)?;
+            if rty != Ty::Files {
+                return Err(ce(line, format!("`read` is a method of Files, not {:?}", rty)));
+            }
+            let a = one_positional(args, line, "read")?;
+            let (ac, at) = emit_expr(a, scope, line)?;
+            if at != Ty::Str {
+                return Err(ce(line, "`read` expects a Str path"));
+            }
+            return Ok((format!("simpler_read({})", ac), Ty::Str, Effects::io_fail()));
+        }
+    }
+    Err(ce(line, "`?` expects a failable call like `files.read(path)` (M3b)"))
+}
+
+/// Emit a value or capability expression, returning its C text and type.
 fn emit_expr(e: &Expr, scope: &Scope, line: u32) -> Result<(String, Ty), CErr> {
     match e {
         Expr::Int(n) => Ok((n.to_string(), Ty::Int)),
@@ -845,18 +949,20 @@ fn emit_expr(e: &Expr, scope: &Scope, line: u32) -> Result<(String, Ty), CErr> {
             };
             Ok((format!("({} {} {})", lc, cop, rc), res))
         }
-        // A capability member read, e.g. `sys.screen`.
-        Expr::Send { recv, name, args, parens, block }
-            if !*parens && args.is_empty() && block.is_none() =>
-        {
+        // capability member read, e.g. `sys.screen`
+        Expr::Send { recv, name, args, parens: false, block: None } if args.is_empty() => {
             let (_, rty) = emit_expr(recv, scope, line)?;
             match cap_member(rty, name) {
                 Some(t) => Ok((String::new(), t)),
                 None => Err(ce(line, format!("{:?} has no member `{}`", rty, name))),
             }
         }
-        Expr::Send { .. } => Err(ce(line, "this send does not produce a value")),
-        Expr::Call { .. } => Err(ce(line, "functions don't return a value yet (M3b)")),
+        Expr::Send { name, .. } if name == "read" => {
+            Err(ce(line, "`files.read` can fail; bind it as `name = files.read(path)?`"))
+        }
+        Expr::Send { .. } => Err(ce(line, "this send does not produce a value here")),
+        Expr::Call { .. } => Err(ce(line, "functions don't return a value yet (M3c)")),
+        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding (M3b)")),
     }
 }
 
@@ -967,7 +1073,6 @@ fn drive(cmd: &str, file: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Format a compile error as `file:line: message` with the offending line.
 fn diag(file: &str, src: &str, e: &CErr) -> String {
     let mut s = format!("{}:{}: {}", file, e.line, e.msg);
     if let Some(text) = src.lines().nth(e.line.saturating_sub(1) as usize) {
@@ -976,9 +1081,6 @@ fn diag(file: &str, src: &str, e: &CErr) -> String {
     s
 }
 
-/// The system C compiler. On this machine `~/bin/cc` is a Claude session
-/// launcher that shadows the real compiler, so prefer the absolute system
-/// `cc` when present. `CC` overrides everything.
 fn pick_cc() -> String {
     if let Ok(c) = env::var("CC") {
         if !c.is_empty() {
