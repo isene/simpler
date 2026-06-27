@@ -1,14 +1,21 @@
 // A real tool, written in Simpler: number the lines of a file.
 //
-// It reads `in.txt`, prefixes each line with its 1-based number and a
-// tab, and writes the result to `out.txt`. The whole read-transform-write
-// shape most command-line tools need, in one capability-checked program.
+// It reads the input file named on the command line, prefixes each line
+// with its 1-based number and a tab, and writes the result to the output
+// file. The whole read-transform-write shape most command-line tools
+// need, in one capability-checked program.
 //
-//     cp linenum.smplr input.smplr && ./simpler > t.c && cc t.c -o ln && ./ln
+//     cp linenum.smplr input.smplr && ./simpler > t.c && cc t.c -o ln
+//     ./ln in.txt out.txt
 
 main(sys) {
-  src = sys.files.read("in.txt")?
-  sys.files.write("out.txt", number(src))
+  args = sys.args
+  if args.length < 2 {
+    sys.screen.print("usage: linenum <in> <out>")
+  } else {
+    src = sys.files.read(args.at(0))?
+    sys.files.write(args.at(1), number(src))
+  }
 }
 
 // Walk the source one character at a time, emitting "N\t" at the start of

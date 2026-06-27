@@ -18,6 +18,7 @@ long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
+long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
 long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 enum { T_Num, T_Var, T_StrLit, T_ListLit, T_Bin, T_Call, T_Match, T_Field, T_Method, T_Each };
 long Num(long v0) { return mk(T_Num, v0, 0, 0); }
@@ -229,7 +230,7 @@ long isDigit(long c);
 long isAlpha(long c);
 long isAlnum(long c);
 long isSpace(long c);
-int main() {
+int main(int argc, char** argv) {
   long src = 0;
   long lexed = 0;
   long toks = 0;
@@ -260,6 +261,7 @@ int main() {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
   for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
   long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
@@ -926,7 +928,7 @@ long emitFn(long f, long sigs) {
   sig = paramDecls(f);
   if (isMain(((FnT*)(intptr_t)f)->name)) {
   rt = (long)(intptr_t)"int";
-  sig = (long)(intptr_t)"";
+  sig = (long)(intptr_t)"int argc, char** argv";
   }
   out = s_concat(s_concat(s_concat(s_concat(s_concat(rt, (long)(intptr_t)" "), ((FnT*)(intptr_t)f)->name), (long)(intptr_t)"("), sig), (long)(intptr_t)") {");
   env = newEnv();
@@ -1858,6 +1860,9 @@ long emitField(long recv, long fld, long ctx) {
   if (isCapField(fld)) {
   r = (long)(intptr_t)"0";
   }
+  if (s_eq(fld, (long)(intptr_t)"args")) {
+  r = (long)(intptr_t)"simpler_args(argc, argv)";
+  }
   }
   return r;
 }
@@ -1993,6 +1998,9 @@ long fieldType(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"mail")) {
   r = (long)(intptr_t)"Mail";
+  }
+  if (s_eq(fld, (long)(intptr_t)"args")) {
+  r = (long)(intptr_t)"List[Str]";
   }
   if (isRec(t, ctx)) {
   r = recFieldType(t, fld, ctx);

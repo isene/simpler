@@ -90,8 +90,12 @@ cp ../selfhost/linenum.smplr "$TMP/input.smplr"
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/ln" "$TMP/ln.c" 2>/dev/null; then
     printf 'alpha\nbeta\n' > "$TMP/in.txt"
-    ( cd "$TMP" && ./ln )
+    # the input and output filenames come from the command line (sys.args)
+    ( cd "$TMP" && ./ln in.txt out.txt )
     if [ "$(cat "$TMP/out.txt" 2>/dev/null)" = "$(printf '1\talpha\n2\tbeta\n')" ]; then ok; else nope "linenum tool read/write (got: $(cat "$TMP/out.txt" 2>/dev/null))"; fi
+    # with too few args it prints usage instead of touching the disk
+    usage="$( cd "$TMP" && ./ln 2>&1 )"
+    if [ "$usage" = "usage: linenum <in> <out>" ]; then ok; else nope "linenum usage (got: $usage)"; fi
     rm -f "$TMP/in.txt" "$TMP/out.txt"
 else
     nope "linenum tool compiles"

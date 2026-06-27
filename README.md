@@ -94,19 +94,27 @@ to stdout:
 cp sample.smplr input.smplr && ./simpler > out.c && cc out.c -o out && ./out
 ```
 
-It compiles real tools, not just itself. [`selfhost/linenum.smplr`](selfhost/linenum.smplr)
-reads a file, numbers its lines, and writes the result, the read-transform-write
-shape most command-line tools have:
+It compiles real command-line tools, not just itself.
+[`selfhost/linenum.smplr`](selfhost/linenum.smplr) reads the file named on the
+command line, numbers its lines, and writes the result, the read-transform-write
+shape most tools have:
 
 ```
 main(sys) {
-  src = sys.files.read("in.txt")?
-  sys.files.write("out.txt", number(src))
+  args = sys.args
+  if args.length < 2 {
+    sys.screen.print("usage: linenum <in> <out>")
+  } else {
+    src = sys.files.read(args.at(0))?
+    sys.files.write(args.at(1), number(src))
+  }
 }
 ```
 
 `number` is a pure `Str -> Str` function, so only `main` ever touches the disk.
-A function that called `.write` without declaring `!IO` would be rejected.
+A function that called `.write` without declaring `!IO` would be rejected. The
+command line arrives as `sys.args`, a plain `List[Str]`, so the same list
+methods (`.length`, `.at`, `.each`) work on it.
 
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`

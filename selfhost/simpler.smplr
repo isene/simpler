@@ -198,6 +198,7 @@ main(sys) {
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
   sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
+  sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
@@ -775,7 +776,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   sig = paramDecls(f)
   if isMain(f.name) {
     rt = "int"
-    sig = ""
+    sig = "int argc, char** argv"
   }
   out = rt.concat(" ").concat(f.name).concat("(").concat(sig).concat(") {")
   env = newEnv()
@@ -1706,6 +1707,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     if isCapField(fld) {
       r = "0"
     }
+    if fld == "args" {
+      r = "simpler_args(argc, argv)"
+    }
   }
   r
 }
@@ -1842,6 +1846,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   }
   if fld == "mail" {
     r = "Mail"
+  }
+  if fld == "args" {
+    r = "List[Str]"
   }
   if isRec(t, ctx) {
     r = recFieldType(t, fld, ctx)
