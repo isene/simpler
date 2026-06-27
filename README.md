@@ -131,8 +131,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **`if`/`else`, `while`, comparisons** with reassignment (locals hoisted so a binding can be reused)
   - [x] **record types and field access** real C structs, resolved through a local type environment (variable to type), the front half of the checker
   - [x] **typed params/returns and `Str` methods** string literals, `.concat`/`.length`/`.at`/`.code`/`.slice`/`.toStr`, string `==`, and `print` choosing `%s` or `%ld`, all dispatched on inferred types
-  - [ ] grow further: the `List` methods the compiler leans on (`.push`, `.each`, `.at`), message sends, effects
-  - [ ] the rest of the checker: effects, capabilities, exhaustiveness
+  - [x] **`List` methods** list literals, `.push`/`.at`/`.length` (disambiguated from `Str` by receiver type), and `.each { x in ... }` lowered to a counted C loop, over a growable-list runtime
+  - [ ] close the gaps to compile its own source: real scoping, `Str`/`List`-typed fields, capabilities, effects, `match` exhaustiveness
   - [ ] the three-stage byte-identical fixpoint
 
 The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an

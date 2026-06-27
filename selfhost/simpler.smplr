@@ -28,11 +28,13 @@ Expr = type {
   Num(Int)
   Var(Str)
   StrLit(Str)
+  ListLit(List[Expr])
   Bin(Str, Expr, Expr)
   Call(Str, List[Expr])
   Match(Expr, List[Arm])
   Field(Expr, Str)
   Method(Expr, Str, List[Expr])
+  Each(Expr, Str, List[Stmt])
 }
 
 Arm = type {
@@ -156,7 +158,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Point = type { x : Int, y : Int }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nmain() {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  print(msg)\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\"))\n}\n"
+  src = "Point = type { x : Int, y : Int }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nmain() {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  print(msg)\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length)\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sigs = buildSigs(prog)
@@ -166,6 +168,11 @@ main(sys) {
   sys.screen.print("#include <string.h>")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
   sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
+  sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
+  sys.screen.print("long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }")
+  sys.screen.print("long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }")
+  sys.screen.print("long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }")
+  sys.screen.print("long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }")
   sys.screen.print("long s_len(long s) { return (long)strlen((const char*)(intptr_t)s); }")
   sys.screen.print("long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_code(long s) { return (long)(unsigned char)((const char*)(intptr_t)s)[0]; }")
@@ -341,6 +348,9 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
     ae = parseExpr(toks, i + 2)
     r = PStmt(node = Let(name, ae.node), next = ae.next)
   }
+  if isTypedAssign(toks, i) {
+    r = parseTypedLet(toks, i)
+  }
   if isWord(toks, i, "if") {
     r = parseIf(toks, i)
   }
@@ -348,6 +358,22 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
     r = parseWhile(toks, i)
   }
   r
+}
+
+// `name : Type = expr`. The annotation only guides parsing; the binding's
+// type is inferred from the value like any other.
+isTypedAssign(toks : List[Tok], i : Int) : Bool {
+  isIdent(toks, i).and(isPunct(toks, i + 1, ":"))
+}
+
+parseTypedLet(toks : List[Tok], i : Int) : PStmt {
+  name = identAt(toks, i)
+  k = i + 1
+  while isPunct(toks, k, "=").not.and(notEof(toks, k)) {
+    k = k + 1
+  }
+  ae = parseExpr(toks, k + 1)
+  PStmt(node = Let(name, ae.node), next = ae.next)
 }
 
 parseIf(toks : List[Tok], i : Int) : PStmt {
@@ -419,18 +445,37 @@ parsePostfix(toks : List[Tok], pos : Int) : Parsed {
       node = pm.node
       i = pm.next
     } else {
-      name = identAt(toks, i + 1)
-      if isPunct(toks, i + 2, "(") {
-        pa = parseArgs(toks, i + 2)
-        node = Method(node, name, pa.list)
-        i = pa.next
+      if isPunct(toks, i + 2, "{") {
+        pe = parseEach(toks, node, i)
+        node = pe.node
+        i = pe.next
       } else {
-        node = Field(node, name)
-        i = i + 2
+        name = identAt(toks, i + 1)
+        if isPunct(toks, i + 2, "(") {
+          pa = parseArgs(toks, i + 2)
+          node = Method(node, name, pa.list)
+          i = pa.next
+        } else {
+          node = Field(node, name)
+          i = i + 2
+        }
       }
     }
   }
   Parsed(node = node, next = i)
+}
+
+// `recv.each { param in stmt* }`.
+parseEach(toks : List[Tok], recv : Expr, i : Int) : Parsed {
+  param = identAt(toks, i + 3)
+  body : List[Stmt] = []
+  j = i + 5
+  while inBlock(toks, j) {
+    p = parseStmt(toks, j)
+    body.push(p.node)
+    j = p.next
+  }
+  Parsed(node = Each(recv, param, body), next = j + 1)
 }
 
 parseFactor(toks : List[Tok], pos : Int) : Parsed {
@@ -438,9 +483,32 @@ parseFactor(toks : List[Tok], pos : Int) : Parsed {
     Int(v) -> Parsed(node = Num(v), next = pos + 1)
     Str(s) -> Parsed(node = StrLit(s), next = pos + 1)
     Ident(s) -> parseIdentFactor(toks, pos)
-    Punct(p) -> parseParen(toks, pos)
+    Punct(p) -> parsePunctFactor(toks, pos)
     Eof -> Parsed(node = Num(0), next = pos)
   }
+}
+
+parsePunctFactor(toks : List[Tok], pos : Int) : Parsed {
+  r = parseParen(toks, pos)
+  if isPunct(toks, pos, "[") {
+    r = parseList(toks, pos)
+  }
+  r
+}
+
+// `[ expr , ... ]` -> a list literal. The compiler only uses `[]`.
+parseList(toks : List[Tok], pos : Int) : Parsed {
+  elems : List[Expr] = []
+  j = pos + 1
+  while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
+    e = parseExpr(toks, j)
+    elems.push(e.node)
+    j = e.next
+    if isPunct(toks, j, ",") {
+      j = j + 1
+    }
+  }
+  Parsed(node = ListLit(elems), next = j + 1)
 }
 
 parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
@@ -841,11 +909,32 @@ emitBare(e : Expr, asReturn : Bool, ctx : Ctx) : Str {
   r
 }
 
-// `print(x)` chooses its format from the argument type.
+// A bare statement: an `each` loop, a `print`, or a plain expression.
 stmtExpr(e : Expr, ctx : Ctx) : Str {
+  e.match {
+    Each(recv, param, body) -> emitEach(recv, param, body, ctx)
+    Call(name, args) -> emitCallStmt(name, args, e, ctx)
+    Num(v) -> exprStmt(e, ctx)
+    Var(s) -> exprStmt(e, ctx)
+    StrLit(s) -> exprStmt(e, ctx)
+    ListLit(es) -> exprStmt(e, ctx)
+    Bin(op, a, b) -> exprStmt(e, ctx)
+    Match(scrut, arms) -> exprStmt(e, ctx)
+    Field(recv, fld) -> exprStmt(e, ctx)
+    Method(recv, name, args) -> exprStmt(e, ctx)
+  }
+}
+
+exprStmt(e : Expr, ctx : Ctx) : Str {
+  "  ".concat(emitExpr(e, ctx)).concat(";")
+}
+
+// `print(x)` chooses its format from the argument type; any other call is
+// just a C statement.
+emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
-  if isPrintCall(e) {
-    arg = printArg(e)
+  if name == "print" {
+    arg = args.at(0)
     fmt = "%ld"
     cast = ""
     if exprType(arg, ctx) == "Str" {
@@ -857,16 +946,27 @@ stmtExpr(e : Expr, ctx : Ctx) : Str {
   r
 }
 
+// `recv.each { x in body }` lowers to a counted C loop over the list.
+emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str {
+  recvC = emitExpr(recv, ctx)
+  out = "  for (long _i = 0; _i < l_len(".concat(recvC).concat("); _i = _i + 1) {")
+  out = out.concat("\n  long ").concat(param).concat(" = l_at(").concat(recvC).concat(", _i);")
+  out = out.concat(emitBlock(body, ctx))
+  out.concat("\n  }")
+}
+
 emitReturn(e : Expr, ctx : Ctx) : Str {
   e.match {
     Match(scrut, arms) -> emitSwitch(scrut, arms, ctx)
     Num(v) -> retVal(e, ctx)
     Var(s) -> retVal(e, ctx)
     StrLit(s) -> retVal(e, ctx)
+    ListLit(es) -> retVal(e, ctx)
     Bin(op, a, b) -> retVal(e, ctx)
     Call(name, args) -> retVal(e, ctx)
     Field(recv, fld) -> retVal(e, ctx)
     Method(recv, name, args) -> retVal(e, ctx)
+    Each(recv, param, body) -> retVal(e, ctx)
   }
 }
 
@@ -930,11 +1030,13 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
     Num(v) -> v.toStr
     Var(s) -> s
     StrLit(s) -> "(long)(intptr_t)\"".concat(s).concat("\"")
+    ListLit(es) -> "l_new()"
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
     Call(name, args) -> name.concat("(").concat(emitArgs(args, ctx)).concat(")")
     Match(scrut, arms) -> "0"
     Field(recv, fld) -> emitField(recv, fld, ctx)
     Method(recv, name, args) -> emitMethod(recv, name, args, ctx)
+    Each(recv, param, body) -> "0"
   }
 }
 
@@ -957,6 +1059,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
   if isRec(t, ctx).not {
     if fld == "length" {
       r = "s_len(".concat(recvC).concat(")")
+      if t == "List" {
+        r = "l_len(".concat(recvC).concat(")")
+      }
     }
     if fld == "code" {
       r = "s_code(".concat(recvC).concat(")")
@@ -973,6 +1078,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
 
 // A `.method(args)` on a builtin value.
 emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
+  t = exprType(recv, ctx)
   recvC = emitExpr(recv, ctx)
   r = "0"
   if name == "concat" {
@@ -983,6 +1089,12 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   }
   if name == "at" {
     r = "s_at(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    if t == "List" {
+      r = "l_at(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    }
+  }
+  if name == "push" {
+    r = "l_push(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "ge" {
     r = "(".concat(recvC).concat(" >= ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -1019,11 +1131,13 @@ exprType(e : Expr, ctx : Ctx) : Str {
     Num(v) -> "Int"
     Var(s) -> envGet(ctx.env, s)
     StrLit(s) -> "Str"
+    ListLit(es) -> "List"
     Bin(op, a, b) -> "Int"
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> "Int"
     Field(recv, fld) -> fieldType(fld)
     Method(recv, name, args) -> methodRet(name)
+    Each(recv, param, body) -> "Int"
   }
 }
 
@@ -1048,32 +1162,6 @@ methodRet(name : Str) : Str {
     r = "Str"
   }
   r
-}
-
-isPrintCall(e : Expr) : Bool {
-  e.match {
-    Call(name, args) -> name == "print"
-    Num(v) -> false
-    Var(s) -> false
-    StrLit(s) -> false
-    Bin(op, a, b) -> false
-    Match(scrut, arms) -> false
-    Field(recv, fld) -> false
-    Method(recv, name, args) -> false
-  }
-}
-
-printArg(e : Expr) : Expr {
-  e.match {
-    Call(name, args) -> args.at(0)
-    Num(v) -> e
-    Var(s) -> e
-    StrLit(s) -> e
-    Bin(op, a, b) -> e
-    Match(scrut, arms) -> e
-    Field(recv, fld) -> e
-    Method(recv, name, args) -> e
-  }
 }
 
 // --- token helpers ------------------------------------------------------

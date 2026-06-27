@@ -63,13 +63,13 @@ cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
 printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp" > "$TMP/emit.c"
 if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
-# the real self-hosted compiler: lex -> parse -> emit C for its subset
-# (recursive multi-payload variants with match, enums, records with field access,
-# typed params and returns, Str methods/literals/equality with %s-vs-%ld print
-# dispatch, if/else, while with comparisons, functions, locals, arithmetic), all
-# routed through a type context. The C it emits compiles and runs.
+# the real self-hosted compiler: lex -> parse -> emit C for its subset (recursive
+# multi-payload variants with match, enums, records with field access, typed
+# params/returns, Str and List methods, list literals and `.each` loops, if/else,
+# while, comparisons, functions, locals, arithmetic, %s-vs-%ld print), all routed
+# through a type context. The C it emits compiles and runs.
 "$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
-if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$(printf 'hi!\n38')" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
+if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$(printf 'hi!\n70')" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
