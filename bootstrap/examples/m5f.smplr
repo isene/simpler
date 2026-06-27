@@ -1,0 +1,34 @@
+// M5c.4: lists -- literals, push, length, at, and each.
+Tok = type {
+  Word(Str)
+  Num(Int)
+}
+
+main(sys) {
+  // literal, length, index
+  xs = [10, 20, 30]
+  sys.screen.print(xs.length)        // 3
+  sys.screen.print(xs.at(1))         // 20
+
+  // build with push, fold with each
+  ys : List[Int] = []
+  3.times { i in
+    ys.push(i * i)
+  }
+  total = 0
+  ys.each { y in
+    total = total + y
+  }
+  sys.screen.print(total)            // 0 + 1 + 4 = 5
+
+  // a list of a variant type: a tiny token stream
+  toks : List[Tok] = []
+  toks.push(Word("hi"))
+  toks.push(Num(42))
+  toks.each { t in
+    t.match {
+      Word(w) -> sys.screen.print(w)
+      Num(n) -> sys.screen.print(n)
+    }
+  }
+}

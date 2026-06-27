@@ -45,6 +45,7 @@ check_run m5b   "$(printf 'hello\n42\ndot')"
 check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
 check_run m5d   "$(printf '2\n3\n4')"
 check_run m5e   "20"
+check_run m5f   "$(printf '3\n20\n5\nhi\n42')"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -120,6 +121,12 @@ check_err "match-value arm must produce a value" \
 main(sys) { sys.screen.print(ev(Lit(1))) }
 ev(e : Expr) : Int { e.match { Lit(n) -> { } } }' \
     "must produce"
+check_err "list element type" \
+    'main(sys) { xs : List[Int] = [] xs.push("no") sys.screen.print(1) }' \
+    "expects Int"
+check_err "empty list needs a type" \
+    'main(sys) { xs = [] sys.screen.print(1) }' \
+    "needs a type"
 check_err "non-exhaustive match" \
     'Tok = type { A(Str) B }
 main(sys) { show(sys.screen, B) }

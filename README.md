@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M5c.3-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M5c.4-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -116,8 +116,12 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M5c.1** built-in value methods (`Str`/`Int`/`Bool` ops, `Bool` literals, `Str` equality)
 - [x] **M5c.2** recursive variants via heap-boxing, multi-payload cases (a type can hold itself)
 - [x] **M5c.3** `match` as a value (recursive evaluators: `Add(a, b) -> eval(a) + eval(b)`)
-- [ ] **M5c.4** collections (lists, maps)
+- [x] **M5c.4** lists (`[…]`, `push`, `length`, `at`, `each`; elements of any type)
 - [ ] **Self-host** rewrite the compiler in Simpler
+
+With recursive types, `match` as a value, and lists of any type, the language can
+now express a lexer (a `List[Tok]`), a parser (a recursive `Expr`), and a checker
+(a fold over the tree). Self-host is now a rewrite, not a missing feature.
 
 The last four are the road to self-host: the language has to grow enough types,
 pattern matching, and collections to express its own compiler.
