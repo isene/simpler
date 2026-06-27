@@ -1318,8 +1318,10 @@ emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
   name.concat("(").concat(emitArgs(args, ctx)).concat(")")
 }
 
-// A call to a user function must pass arguments of the declared types.
-// Calls to constructors and builtins are not in the fn table and are skipped.
+// A call to a user function checks arguments against the declared parameter
+// types; a record constructor checks them against the field types (positional,
+// in declaration order, which the emitter requires). Variant constructors and
+// builtins are in neither table and are skipped.
 checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
   fns = ctx.sigs.fns
   k = 0
@@ -1328,6 +1330,16 @@ checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
     f = fns.at(k)
     if f.name == name {
       checkArgTypes(name, f.ptypes, args, ctx)
+    }
+    k = k + 1
+  }
+  recs = ctx.sigs.records
+  k = 0
+  m = recs.length
+  while k < m {
+    rec = recs.at(k)
+    if rec.name == name {
+      checkArgTypes(name, rec.ftypes, args, ctx)
     }
     k = k + 1
   }

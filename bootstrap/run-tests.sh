@@ -105,6 +105,11 @@ reject "argument type" \
     'greet(s : Str) : Int { 0 }
 main(sys) { sys.screen.print(greet(5)) }' \
     "expects Str, got Int"
+# a record field of the wrong type
+reject "field type" \
+    'Point = type { x : Int, y : Int }
+main(sys) { p = Point(x = 1, y = "a") sys.screen.print(p.x) }' \
+    "expects Int, got Str"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

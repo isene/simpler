@@ -1457,6 +1457,8 @@ long checkCall(long name, long args, long ctx) {
   long k = 0;
   long m = 0;
   long f = 0;
+  long recs = 0;
+  long rec = 0;
   fns = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fns;
   k = 0;
   m = l_len(fns);
@@ -1464,6 +1466,16 @@ long checkCall(long name, long args, long ctx) {
   f = l_at(fns, k);
   if (s_eq(((FnT*)(intptr_t)f)->name, name)) {
   checkArgTypes(name, ((FnT*)(intptr_t)f)->ptypes, args, ctx);
+  }
+  k = (k + 1);
+  }
+  recs = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->records;
+  k = 0;
+  m = l_len(recs);
+  while ((k < m)) {
+  rec = l_at(recs, k);
+  if (s_eq(((RecDefT*)(intptr_t)rec)->name, name)) {
+  checkArgTypes(name, ((RecDefT*)(intptr_t)rec)->ftypes, args, ctx);
   }
   k = (k + 1);
   }

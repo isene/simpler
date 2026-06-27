@@ -166,7 +166,8 @@ first lexer to a compiler that compiles itself:
   - [x] **`match` exhaustiveness** every case of the matched variant must have an arm, else a compile error
   - [x] **operand types** arithmetic and ordering (`+ - * / < >`) require Int operands; `1 + "a"` is rejected
   - [x] **argument types** a call checks each argument against the parameter's declared type; `greet(5)` where `greet` wants a `Str` is rejected
-  - [ ] the rest of type-checking: record field and function return types
+  - [x] **record field types** a constructor checks each field value against its declared type; `Point(x = 1, y = "a")` is rejected
+  - [ ] function return types
   - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed)
   - [ ] source locations on errors (`file:line:`)
 
