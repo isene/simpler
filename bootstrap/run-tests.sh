@@ -42,6 +42,7 @@ check_run m3b   "$(printf '[mail] to=boss@co subject=Daily report\nQuarterly num
 check_run m3c   "$(printf 'Quarterly numbers look good.\n\n6')"
 check_run m5a   "$(printf '7\n25\n13')"
 check_run m5b   "$(printf 'hello\n42\ndot')"
+check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -122,6 +123,12 @@ check_err "unknown case in match" \
 main(sys) { show(sys.screen, A) }
 show(screen : Screen, t : Tok) !IO { t.match { A -> screen.print("a") B -> screen.print("b") Z -> screen.print("z") } }' \
     "has no case"
+check_err "str method on an int" \
+    'main(sys) { sys.screen.print(5.length) }' \
+    "has no method"
+check_err "wrong builtin arg type" \
+    'main(sys) { sys.screen.print("hi".at("x")) }' \
+    "expects Int"
 
 # --- 3. fmt is idempotent; test reports correctly -----------------------------
 for f in hello m2 m3 m3b m3c tests; do

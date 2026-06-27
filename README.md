@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M5b-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M5c.1-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -113,7 +113,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M4b** the `test` runner with the `assert` built-in
 - [x] **M5a** user-defined record types (`type { fields }`, value-semantic C structs)
 - [x] **M5b** variants and exhaustive `match` (tagged unions)
-- [ ] **M5c** collections (lists, maps) and string methods
+- [x] **M5c.1** built-in value methods (`Str`/`Int`/`Bool` ops, `Bool` literals, `Str` equality)
+- [ ] **M5c.2** collections (lists, maps) and recursive variants (boxing/arenas)
 - [ ] **Self-host** rewrite the compiler in Simpler
 
 The last four are the road to self-host: the language has to grow enough types,

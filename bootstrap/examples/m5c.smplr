@@ -1,0 +1,14 @@
+// M5c (part 1): built-in methods on Str, Int, and Bool.
+main(sys) {
+  s = "hello"
+  sys.screen.print(s.length)              // 5
+  sys.screen.print(s.at(1))               // e
+  sys.screen.print(s.slice(1, 4))         // ell
+  sys.screen.print(s.concat(" world"))    // hello world
+  sys.screen.print(42.toStr.concat("!"))  // 42!
+  sys.screen.print(s == "hello")          // true
+  sys.screen.print(s == "bye")            // false
+  sys.screen.print(10.mod(3))             // 1
+  sys.screen.print(true.and(false))       // false
+  sys.screen.print(7.ge(5).or(false))     // true
+}
