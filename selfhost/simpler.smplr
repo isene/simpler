@@ -40,6 +40,8 @@ Arm = type {
 Stmt = type {
   Let(Str, Expr)
   Bare(Expr)
+  If(Expr, List[Stmt], List[Stmt])
+  While(Expr, List[Stmt])
 }
 
 Fn = type {
@@ -115,7 +117,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Expr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nmain() {\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg))\n}\n"
+  src = "Expr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nmain() {\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sys.screen.print("#include <stdio.h>")
@@ -243,10 +245,49 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
     ae = parseExpr(toks, i + 2)
     r = PStmt(node = Let(name, ae.node), next = ae.next)
   }
+  if isWord(toks, i, "if") {
+    r = parseIf(toks, i)
+  }
+  if isWord(toks, i, "while") {
+    r = parseWhile(toks, i)
+  }
   r
 }
 
+// `if cond { then } else { else }`, the else clause optional.
+parseIf(toks : List[Tok], i : Int) : PStmt {
+  c = parseExpr(toks, i + 1)
+  tb = parseBlock(toks, c.next)
+  els : List[Stmt] = []
+  nxt = tb.next
+  if isWord(toks, tb.next, "else") {
+    eb = parseBlock(toks, tb.next + 1)
+    els = eb.body
+    nxt = eb.next
+  }
+  PStmt(node = If(c.node, tb.body, els), next = nxt)
+}
+
+parseWhile(toks : List[Tok], i : Int) : PStmt {
+  c = parseExpr(toks, i + 1)
+  b = parseBlock(toks, c.next)
+  PStmt(node = While(c.node, b.body), next = b.next)
+}
+
 parseExpr(toks : List[Tok], pos : Int) : Parsed {
+  p = parseAdd(toks, pos)
+  node = p.node
+  i = p.next
+  while isCmpOp(toks, i) {
+    op = punctAt(toks, i)
+    r = parseAdd(toks, i + 1)
+    node = Bin(op, node, r.node)
+    i = r.next
+  }
+  Parsed(node = node, next = i)
+}
+
+parseAdd(toks : List[Tok], pos : Int) : Parsed {
   p = parseTerm(toks, pos)
   node = p.node
   i = p.next
@@ -434,6 +475,13 @@ emitFn(f : Fn) : Str {
     rt = "int"
   }
   out = rt.concat(" ").concat(f.name).concat("(").concat(paramDecls(f)).concat(") {")
+  decls = collectLets(f.body)
+  d = 0
+  dn = decls.length
+  while d < dn {
+    out = out.concat("\n  long ").concat(decls.at(d)).concat(" = 0;")
+    d = d + 1
+  }
   k = 0
   m = f.body.length
   while k < m {
@@ -445,6 +493,60 @@ emitFn(f : Fn) : Str {
     out = out.concat("\n  return 0;")
   }
   out.concat("\n}")
+}
+
+// Locals are hoisted to the function top as declarations, so every
+// binding can be a plain assignment and reassignment just works. This
+// gathers the bound names, deduplicated, recursing into if/while bodies.
+collectLets(body : List[Stmt]) : List[Str] {
+  names : List[Str] = []
+  collectBody(body, names)
+  names
+}
+
+collectBody(body : List[Stmt], names : List[Str]) : Int {
+  k = 0
+  m = body.length
+  while k < m {
+    collectStmt(body.at(k), names)
+    k = k + 1
+  }
+  0
+}
+
+collectStmt(s : Stmt, names : List[Str]) : Int {
+  s.match {
+    Let(name, e) -> pushUnique(names, name)
+    Bare(e) -> 0
+    If(c, t, el) -> collectIf(t, el, names)
+    While(c, b) -> collectBody(b, names)
+  }
+}
+
+collectIf(t : List[Stmt], el : List[Stmt], names : List[Str]) : Int {
+  collectBody(t, names)
+  collectBody(el, names)
+  0
+}
+
+pushUnique(names : List[Str], name : Str) : Int {
+  if hasName(names, name).not {
+    names.push(name)
+  }
+  0
+}
+
+hasName(names : List[Str], name : Str) : Bool {
+  found = false
+  k = 0
+  m = names.length
+  while k < m {
+    if names.at(k) == name {
+      found = true
+    }
+    k = k + 1
+  }
+  found
 }
 
 paramDecls(f : Fn) : Str {
@@ -464,9 +566,34 @@ paramDecls(f : Fn) : Str {
 // The last bare expression in a non-main function is its return value.
 emitStmt(s : Stmt, asReturn : Bool) : Str {
   s.match {
-    Let(name, e) -> "  long ".concat(name).concat(" = ").concat(emitExpr(e)).concat(";")
+    Let(name, e) -> "  ".concat(name).concat(" = ").concat(emitExpr(e)).concat(";")
     Bare(e) -> emitBare(e, asReturn)
+    If(c, t, el) -> emitIf(c, t, el)
+    While(c, b) -> emitWhile(c, b)
   }
+}
+
+emitIf(c : Expr, t : List[Stmt], el : List[Stmt]) : Str {
+  out = "  if (".concat(emitExpr(c)).concat(") {").concat(emitBlock(t)).concat("\n  }")
+  if el.length > 0 {
+    out = out.concat(" else {").concat(emitBlock(el)).concat("\n  }")
+  }
+  out
+}
+
+emitWhile(c : Expr, b : List[Stmt]) : Str {
+  "  while (".concat(emitExpr(c)).concat(") {").concat(emitBlock(b)).concat("\n  }")
+}
+
+emitBlock(body : List[Stmt]) : Str {
+  out = ""
+  k = 0
+  m = body.length
+  while k < m {
+    out = out.concat("\n").concat(emitStmt(body.at(k), false))
+    k = k + 1
+  }
+  out
 }
 
 emitBare(e : Expr, asReturn : Bool) : Str {
@@ -709,6 +836,10 @@ isPunct(toks : List[Tok], i : Int, op : Str) : Bool {
     Str(s) -> false
     Eof -> false
   }
+}
+
+isCmpOp(toks : List[Tok], i : Int) : Bool {
+  isPunct(toks, i, "==").or(isPunct(toks, i, "<")).or(isPunct(toks, i, ">"))
 }
 
 isAddOp(toks : List[Tok], i : Int) : Bool {

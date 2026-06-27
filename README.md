@@ -128,6 +128,7 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
   - [x] **variant types and `match`** payload-less cases as a C enum; payload-bearing cases boxed in a uniform `{tag, slots}` object, so recursive and multi-field cases (`Add(Expr, Expr)`) just work; match bindings read each payload back by position
   - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs; it already compiles a recursive tree evaluator
+  - [x] **`if`/`else`, `while`, comparisons** with reassignment (locals hoisted so a binding can be reused)
   - [ ] grow further: record types, the `Str` and `List` payloads and methods the compiler itself uses, message sends, effects
   - [ ] the checker: types, effects, capabilities
   - [ ] the three-stage byte-identical fixpoint
