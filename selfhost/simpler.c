@@ -17,6 +17,7 @@ long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const 
 long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
+long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 enum { T_Num, T_Var, T_StrLit, T_ListLit, T_Bin, T_Call, T_Match, T_Field, T_Method, T_Each };
 long Num(long v0) { return mk(T_Num, v0, 0, 0); }
@@ -258,6 +259,7 @@ int main() {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
   for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
   long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
@@ -1496,6 +1498,9 @@ long effMethodE(long recv, long name, long args, long used, long ctx) {
   l_push(used, (long)(intptr_t)"IO");
   l_push(used, (long)(intptr_t)"Fail");
   }
+  if (s_eq(name, (long)(intptr_t)"write")) {
+  l_push(used, (long)(intptr_t)"IO");
+  }
   effExpr(recv, used, ctx);
   effArgs(args, used, ctx);
   return 0;
@@ -1883,6 +1888,9 @@ long emitMethod(long recv, long name, long args, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"read")) {
   r = s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)", emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"write")) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(", emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)", "), emitExpr(l_at(args, 1), ctx)), (long)(intptr_t)")");
   }
   if (s_eq(name, (long)(intptr_t)"ge")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "), emitExpr(l_at(args, 0), ctx)), (long)(intptr_t)")");

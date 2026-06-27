@@ -1,0 +1,36 @@
+// A real tool, written in Simpler: number the lines of a file.
+//
+// It reads `in.txt`, prefixes each line with its 1-based number and a
+// tab, and writes the result to `out.txt`. The whole read-transform-write
+// shape most command-line tools need, in one capability-checked program.
+//
+//     cp linenum.smplr input.smplr && ./simpler > t.c && cc t.c -o ln && ./ln
+
+main(sys) {
+  src = sys.files.read("in.txt")?
+  sys.files.write("out.txt", number(src))
+}
+
+// Walk the source one character at a time, emitting "N\t" at the start of
+// every line. A trailing partial line (no closing newline) is numbered too.
+number(src : Str) : Str {
+  out = ""
+  n = src.length
+  i = 0
+  line = 1
+  atStart = 1
+  while i < n {
+    if atStart == 1 {
+      out = out.concat(line.toStr).concat("\t")
+      line = line + 1
+      atStart = 0
+    }
+    ch = src.at(i)
+    out = out.concat(ch)
+    if ch.code == 10 {
+      atStart = 1
+    }
+    i = i + 1
+  }
+  out
+}

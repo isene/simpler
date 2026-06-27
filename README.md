@@ -94,6 +94,20 @@ to stdout:
 cp sample.smplr input.smplr && ./simpler > out.c && cc out.c -o out && ./out
 ```
 
+It compiles real tools, not just itself. [`selfhost/linenum.smplr`](selfhost/linenum.smplr)
+reads a file, numbers its lines, and writes the result, the read-transform-write
+shape most command-line tools have:
+
+```
+main(sys) {
+  src = sys.files.read("in.txt")?
+  sys.files.write("out.txt", number(src))
+}
+```
+
+`number` is a pure `Str -> Str` function, so only `main` ever touches the disk.
+A function that called `.write` without declaring `!IO` would be rejected.
+
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
 and `test`), but the language no longer depends on it:

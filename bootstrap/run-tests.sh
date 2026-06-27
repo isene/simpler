@@ -82,6 +82,21 @@ rm -f "$TMP/input.smplr"
 sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
 if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
 
+# a real read->transform->write tool, compiled by the self-hosted compiler:
+# linenum.smplr reads in.txt, numbers every line, writes out.txt. Proves the
+# file-output capability (sys.files.write) end to end, not just that it parses.
+cp ../selfhost/linenum.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > ln.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/ln" "$TMP/ln.c" 2>/dev/null; then
+    printf 'alpha\nbeta\n' > "$TMP/in.txt"
+    ( cd "$TMP" && ./ln )
+    if [ "$(cat "$TMP/out.txt" 2>/dev/null)" = "$(printf '1\talpha\n2\tbeta\n')" ]; then ok; else nope "linenum tool read/write (got: $(cat "$TMP/out.txt" 2>/dev/null))"; fi
+    rm -f "$TMP/in.txt" "$TMP/out.txt"
+else
+    nope "linenum tool compiles"
+fi
+
 # the self-hosted compiler now rejects programs the Rust rejects.
 reject() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/input.smplr"
@@ -143,6 +158,11 @@ reject "missing Fail" \
     'rd(f : Files) : Str !IO { f.read("p")? }
 main(sys) { sys.screen.print(rd(sys.files)) }' \
     "uses !Fail but does not declare it"
+# writing a file is an !IO effect that must be declared
+reject "write needs IO" \
+    'save(f : Files) { f.write("p", "x") }
+main(sys) { save(sys.files) }' \
+    "uses !IO but does not declare it"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
