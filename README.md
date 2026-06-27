@@ -132,7 +132,8 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **record types and field access** real C structs, resolved through a local type environment (variable to type), the front half of the checker
   - [x] **typed params/returns and `Str` methods** string literals, `.concat`/`.length`/`.at`/`.code`/`.slice`/`.toStr`, string `==`, and `print` choosing `%s` or `%ld`, all dispatched on inferred types
   - [x] **`List` methods** list literals, `.push`/`.at`/`.length` (disambiguated from `Str` by receiver type), and `.each { x in ... }` lowered to a counted C loop, over a growable-list runtime
-  - [ ] close the gaps to compile its own source: real scoping, `Str`/`List`-typed fields, capabilities, effects, `match` exhaustiveness
+  - [x] **typed record fields** each field's declared type is stored and resolved, so a `Str` field picks `s_eq` and a `List` field picks `l_len`, the way the compiler reads its own AST
+  - [ ] close the remaining gaps to compile its own source: capabilities (`sys.screen.print`), the `!IO` effect surface, real scoping, `match` exhaustiveness
   - [ ] the three-stage byte-identical fixpoint
 
 The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an

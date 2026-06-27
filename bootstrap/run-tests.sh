@@ -69,7 +69,7 @@ if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; t
 # while, comparisons, functions, locals, arithmetic, %s-vs-%ld print), all routed
 # through a type context. The C it emits compiles and runs.
 "$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
-if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$(printf 'hi!\n70')" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
+if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$(printf 'hi!\n72')" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

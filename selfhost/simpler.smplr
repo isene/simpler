@@ -71,6 +71,7 @@ TyDef = type {
 RecDef = type {
   name : Str
   fields : List[Str]
+  ftypes : List[Str]
 }
 
 Prog = type {
@@ -88,6 +89,7 @@ TyEnv = type {
 // Program-wide signatures: record names, and each function's return type.
 Sigs = type {
   recNames : List[Str]
+  records : List[RecDef]
   fnNames : List[Str]
   fnRets : List[Str]
 }
@@ -158,7 +160,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Point = type { x : Int, y : Int }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nmain() {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  print(msg)\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length)\n}\n"
+  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nmain() {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  print(msg)\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sigs = buildSigs(prog)
@@ -207,7 +209,7 @@ buildSigs(prog : Prog) : Sigs {
     fnNames.push(f.name)
     fnRets.push(f.ret)
   }
-  Sigs(recNames = recNames, fnNames = fnNames, fnRets = fnRets)
+  Sigs(recNames = recNames, records = prog.records, fnNames = fnNames, fnRets = fnRets)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -248,18 +250,28 @@ isRecordDef(toks : List[Tok], i : Int) : Bool {
 parseRecord(toks : List[Tok], i : Int) : PRec {
   name = identAt(toks, i)
   fields : List[Str] = []
+  ftypes : List[Str] = []
   j = i + 4
   while inBlock(toks, j) {
     fields.push(identAt(toks, j))
     j = j + 1
+    ty = "Int"
     if isPunct(toks, j, ":") {
+      ty = identAt(toks, j + 1)
       j = j + 2
+      if isPunct(toks, j, "[") {
+        while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
+          j = j + 1
+        }
+        j = j + 1
+      }
     }
+    ftypes.push(ty)
     if isPunct(toks, j, ",") {
       j = j + 1
     }
   }
-  PRec(rec = RecDef(name = name, fields = fields), next = j + 1)
+  PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes), next = j + 1)
 }
 
 parseTypeDef(toks : List[Tok], i : Int) : PTy {
@@ -1135,17 +1147,50 @@ exprType(e : Expr, ctx : Ctx) : Str {
     Bin(op, a, b) -> "Int"
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> "Int"
-    Field(recv, fld) -> fieldType(fld)
+    Field(recv, fld) -> fieldType(recv, fld, ctx)
     Method(recv, name, args) -> methodRet(name)
     Each(recv, param, body) -> "Int"
   }
 }
 
-// Record fields are Int in this subset; a no-arg `.toStr` yields a Str.
-fieldType(fld : Str) : Str {
+// A `.field`: the declared type of a record field, or the result type of a
+// no-arg method (`.toStr` yields a Str, the rest are Int-ish).
+fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
+  t = exprType(recv, ctx)
   r = "Int"
   if fld == "toStr" {
     r = "Str"
+  }
+  if isRec(t, ctx) {
+    r = recFieldType(t, fld, ctx)
+  }
+  r
+}
+
+recFieldType(tyName : Str, fld : Str, ctx : Ctx) : Str {
+  r = "Int"
+  recs = ctx.sigs.records
+  k = 0
+  m = recs.length
+  while k < m {
+    rec = recs.at(k)
+    if rec.name == tyName {
+      r = fieldTypeIn(rec, fld)
+    }
+    k = k + 1
+  }
+  r
+}
+
+fieldTypeIn(rec : RecDef, fld : Str) : Str {
+  r = "Int"
+  k = 0
+  m = rec.fields.length
+  while k < m {
+    if rec.fields.at(k) == fld {
+      r = rec.ftypes.at(k)
+    }
+    k = k + 1
   }
   r
 }
