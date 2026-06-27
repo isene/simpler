@@ -56,6 +56,13 @@ Fn = type {
   ptypes : List[Str]
   ret : Str
   body : List[Stmt]
+  line : Int
+}
+
+// The lexer's output: the tokens and a parallel line number for each.
+Lexed = type {
+  toks : List[Tok]
+  lines : List[Int]
 }
 
 Case = type {
@@ -165,8 +172,9 @@ PArgs = type {
 
 main(sys) {
   src = sys.files.read("input.smplr")?
-  toks = lex(src)
-  prog = parse(toks)
+  lexed = lex(src)
+  toks = lexed.toks
+  prog = parse(toks, lexed.lines)
   sigs = buildSigs(prog)
   sys.screen.print("#include <stdio.h>")
   sys.screen.print("#include <stdlib.h>")
@@ -187,7 +195,7 @@ main(sys) {
   sys.screen.print("long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }")
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
   sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
-  sys.screen.print("long fail(long msg) { fprintf(stderr, \"error: %s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
+  sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
   }
@@ -230,7 +238,7 @@ buildSigs(prog : Prog) : Sigs {
 
 // --- parse: tokens to a program -----------------------------------------
 
-parse(toks : List[Tok]) : Prog {
+parse(toks : List[Tok], lines : List[Int]) : Prog {
   types : List[TyDef] = []
   records : List[RecDef] = []
   fns : List[Fn] = []
@@ -247,7 +255,7 @@ parse(toks : List[Tok]) : Prog {
         i = pt.next
       }
     } else {
-      pf = parseFn(toks, i)
+      pf = parseFn(toks, lines, i)
       fns.push(pf.fn)
       i = pf.next
     }
@@ -325,12 +333,12 @@ parseTypeDef(toks : List[Tok], i : Int) : PTy {
   PTy(ty = TyDef(name = name, cases = cases), next = j + 1)
 }
 
-parseFn(toks : List[Tok], i : Int) : PFn {
+parseFn(toks : List[Tok], lines : List[Int], i : Int) : PFn {
   name = identAt(toks, i)
   pp = parseParams(toks, i + 1)
   rt = parseRet(toks, pp.next)
   pb = parseBlock(toks, rt.next)
-  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, body = pb.body), next = pb.next)
+  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, body = pb.body, line = lines.at(i)), next = pb.next)
 }
 
 // `( name : Type , ... )` -> the parameter names and their types.
@@ -770,6 +778,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     pk = pk + 1
   }
   ctx = Ctx(env = env, sigs = sigs)
+  envPut(env, "__line__", f.line.toStr)
   seedEnv(f.body, ctx)
   checkReturn(f, ctx)
   decls = collectLets(f.body)
@@ -1220,8 +1229,8 @@ checkExhaustive(styp : Str, arms : List[Arm], ctx : Ctx) : Int {
   while k < m {
     t = types.at(k)
     if t.name == styp {
-      checkCases(t, arms)
-      checkArities(t, arms)
+      checkCases(t, arms, ctx)
+      checkArities(t, arms, ctx)
     }
     k = k + 1
   }
@@ -1229,7 +1238,7 @@ checkExhaustive(styp : Str, arms : List[Arm], ctx : Ctx) : Int {
 }
 
 // Each arm must bind exactly as many values as its case carries.
-checkArities(t : TyDef, arms : List[Arm]) : Int {
+checkArities(t : TyDef, arms : List[Arm], ctx : Ctx) : Int {
   k = 0
   m = arms.length
   while k < m {
@@ -1237,12 +1246,17 @@ checkArities(t : TyDef, arms : List[Arm]) : Int {
     ar = caseArityIn(t, a.tag)
     if (ar < 0).not {
       if (a.binds.length == ar).not {
-        fail("match case ".concat(a.tag).concat(" binds ").concat(a.binds.length.toStr).concat(", expected ").concat(ar.toStr))
+        failAt("match case ".concat(a.tag).concat(" binds ").concat(a.binds.length.toStr).concat(", expected ").concat(ar.toStr), ctx)
       }
     }
     k = k + 1
   }
   0
+}
+
+// Report a compile error located at the function currently being emitted.
+failAt(msg : Str, ctx : Ctx) : Int {
+  fail("input.smplr:".concat(envGet(ctx.env, "__line__")).concat(": ").concat(msg))
 }
 
 caseArityIn(t : TyDef, tag : Str) : Int {
@@ -1259,13 +1273,13 @@ caseArityIn(t : TyDef, tag : Str) : Int {
   r
 }
 
-checkCases(t : TyDef, arms : List[Arm]) : Int {
+checkCases(t : TyDef, arms : List[Arm], ctx : Ctx) : Int {
   k = 0
   m = t.cases.length
   while k < m {
     c = t.cases.at(k)
     if armCovers(arms, c.cname).not {
-      fail("non-exhaustive match in ".concat(t.name).concat(", missing case: ").concat(c.cname))
+      failAt("non-exhaustive match in ".concat(t.name).concat(", missing case: ").concat(c.cname), ctx)
     }
     k = k + 1
   }
@@ -1333,10 +1347,10 @@ emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
 checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int {
   if isArithOp(op) {
     if notInt(exprType(a, ctx), ctx) {
-      fail("operator ".concat(op).concat(" needs Int operands"))
+      failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
     }
     if notInt(exprType(b, ctx), ctx) {
-      fail("operator ".concat(op).concat(" needs Int operands"))
+      failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
     }
   }
   0
@@ -1377,7 +1391,7 @@ checkRetExpr(e : Expr, ret : Str, ctx : Ctx) : Int {
   if isMatchExpr(e).not {
     at = exprType(e, ctx)
     if compatible(ret, at, ctx).not {
-      fail("return type mismatch: declared ".concat(ret).concat(", got ").concat(at))
+      failAt("return type mismatch: declared ".concat(ret).concat(", got ").concat(at), ctx)
     }
   }
   0
@@ -1434,7 +1448,7 @@ checkArgTypes(name : Str, ptypes : List[Str], args : List[Expr], ctx : Ctx) : In
       pt = ptypes.at(k)
       at = exprType(args.at(k), ctx)
       if compatible(pt, at, ctx).not {
-        fail("argument ".concat((k + 1).toStr).concat(" of ").concat(name).concat(": expects ").concat(pt).concat(", got ").concat(at))
+        failAt("argument ".concat((k + 1).toStr).concat(" of ").concat(name).concat(": expects ").concat(pt).concat(", got ").concat(at), ctx)
       }
       k = k + 1
     }
@@ -1801,13 +1815,18 @@ isMulOp(toks : List[Tok], i : Int) : Bool {
 
 // --- lex: the full Simpler token set ------------------------------------
 
-lex(src : Str) : List[Tok] {
+lex(src : Str) : Lexed {
   toks : List[Tok] = []
+  lines : List[Int] = []
   n = src.length
   i = 0
+  line = 1
   while i < n {
     c = src.at(i).code
     if isSpace(c) {
+      if c == 10 {
+        line = line + 1
+      }
       i = i + 1
     } else {
       if isComment(src, i, n) {
@@ -1828,6 +1847,7 @@ lex(src : Str) : List[Tok] {
             j = j + 1
           }
           toks.push(Str(s))
+          lines.push(line)
           i = j + 1
         } else {
           if isDigit(c) {
@@ -1837,6 +1857,7 @@ lex(src : Str) : List[Tok] {
               i = i + 1
             }
             toks.push(Int(num))
+            lines.push(line)
           } else {
             if isAlpha(c) {
               j = i
@@ -1844,13 +1865,16 @@ lex(src : Str) : List[Tok] {
                 j = j + 1
               }
               toks.push(Ident(src.slice(i, j)))
+              lines.push(line)
               i = j
             } else {
               if isTwoCharOp(src, i, n) {
                 toks.push(Punct(src.slice(i, i + 2)))
+                lines.push(line)
                 i = i + 2
               } else {
                 toks.push(Punct(src.at(i)))
+                lines.push(line)
                 i = i + 1
               }
             }
@@ -1860,7 +1884,8 @@ lex(src : Str) : List[Tok] {
     }
   }
   toks.push(Eof)
-  toks
+  lines.push(line)
+  Lexed(toks = toks, lines = lines)
 }
 
 esc(src : Str, j : Int) : Str {

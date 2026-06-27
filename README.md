@@ -169,8 +169,8 @@ first lexer to a compiler that compiles itself:
   - [x] **record field types** a constructor checks each field value against its declared type; `Point(x = 1, y = "a")` is rejected
   - [x] **return types** a function's value must match its declared return type; `twice(n) : Int { "no" }` is rejected (`match`-bodied functions are skipped, their type is not inferred)
   - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
+  - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the enclosing function (the lexer tracks a line per token; the Rust pinpoints the exact expression, this is one notch coarser)
   - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed): a larger subsystem the self-hosted compiler does not yet model
-  - [ ] source locations on errors (`file:line:`)
 
 See it for yourself, the fixpoint with no Rust at all:
 

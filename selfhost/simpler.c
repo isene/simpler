@@ -17,7 +17,7 @@ long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const 
 long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
-long fail(long msg) { fprintf(stderr, "error: %s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
+long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 enum { T_Num, T_Var, T_StrLit, T_ListLit, T_Bin, T_Call, T_Match, T_Field, T_Method, T_Each };
 long Num(long v0) { return mk(T_Num, v0, 0, 0); }
 long Var(long v0) { return mk(T_Var, v0, 0, 0); }
@@ -42,8 +42,10 @@ long Punct(long v0) { return mk(T_Punct, v0, 0, 0); }
 long Eof() { return mk(T_Eof, 0, 0, 0); }
 typedef struct { long tag; long binds; long body; } ArmT;
 long Arm(long tag, long binds, long body) { ArmT* o = malloc(sizeof(ArmT)); o->tag = tag; o->binds = binds; o->body = body; return (long)(intptr_t)o; }
-typedef struct { long name; long params; long ptypes; long ret; long body; } FnT;
-long Fn(long name, long params, long ptypes, long ret, long body) { FnT* o = malloc(sizeof(FnT)); o->name = name; o->params = params; o->ptypes = ptypes; o->ret = ret; o->body = body; return (long)(intptr_t)o; }
+typedef struct { long name; long params; long ptypes; long ret; long body; long line; } FnT;
+long Fn(long name, long params, long ptypes, long ret, long body, long line) { FnT* o = malloc(sizeof(FnT)); o->name = name; o->params = params; o->ptypes = ptypes; o->ret = ret; o->body = body; o->line = line; return (long)(intptr_t)o; }
+typedef struct { long toks; long lines; } LexedT;
+long Lexed(long toks, long lines) { LexedT* o = malloc(sizeof(LexedT)); o->toks = toks; o->lines = lines; return (long)(intptr_t)o; }
 typedef struct { long cname; long arity; long ptypes; } CaseT;
 long Case(long cname, long arity, long ptypes) { CaseT* o = malloc(sizeof(CaseT)); o->cname = cname; o->arity = arity; o->ptypes = ptypes; return (long)(intptr_t)o; }
 typedef struct { long name; long cases; } TyDefT;
@@ -79,12 +81,12 @@ long PBody(long body, long next) { PBodyT* o = malloc(sizeof(PBodyT)); o->body =
 typedef struct { long list; long next; } PArgsT;
 long PArgs(long list, long next) { PArgsT* o = malloc(sizeof(PArgsT)); o->list = list; o->next = next; return (long)(intptr_t)o; }
 long buildSigs(long prog);
-long parse(long toks);
+long parse(long toks, long lines);
 long isTypeDef(long toks, long i);
 long isRecordDef(long toks, long i);
 long parseRecord(long toks, long i);
 long parseTypeDef(long toks, long i);
-long parseFn(long toks, long i);
+long parseFn(long toks, long lines, long i);
 long parseParams(long toks, long i);
 long parseRet(long toks, long j);
 long parseBlock(long toks, long i);
@@ -158,9 +160,10 @@ long payloadType(long tyName, long caseTag, long idx, long ctx);
 long casePayloadType(long t, long caseTag, long idx);
 long boxField(long scrutC, long field);
 long checkExhaustive(long styp, long arms, long ctx);
-long checkArities(long t, long arms);
+long checkArities(long t, long arms, long ctx);
+long failAt(long msg, long ctx);
 long caseArityIn(long t, long tag);
-long checkCases(long t, long arms);
+long checkCases(long t, long arms, long ctx);
 long armCovers(long arms, long cname);
 long armHasBind(long arms);
 long emitExpr(long e, long ctx);
@@ -213,12 +216,14 @@ long isAlnum(long c);
 long isSpace(long c);
 int main() {
   long src = 0;
+  long lexed = 0;
   long toks = 0;
   long prog = 0;
   long sigs = 0;
   src = (long)(intptr_t)simpler_read((const char*)(intptr_t)(long)(intptr_t)"input.smplr");
-  toks = lex(src);
-  prog = parse(toks);
+  lexed = lex(src);
+  toks = ((LexedT*)(intptr_t)lexed)->toks;
+  prog = parse(toks, ((LexedT*)(intptr_t)lexed)->lines);
   sigs = buildSigs(prog);
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdio.h>");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdlib.h>");
@@ -239,7 +244,7 @@ int main() {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"error: %s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
   for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
   long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
   printf("%s\n", (const char*)(intptr_t)emitType(t));
@@ -291,7 +296,7 @@ long buildSigs(long prog) {
   }
   return Sigs(recNames, ((ProgT*)(intptr_t)prog)->records, ((ProgT*)(intptr_t)prog)->types, ((ProgT*)(intptr_t)prog)->fns, fnNames, fnRets, boxedNullary);
 }
-long parse(long toks) {
+long parse(long toks, long lines) {
   long types = 0;
   long records = 0;
   long fns = 0;
@@ -315,7 +320,7 @@ long parse(long toks) {
   i = ((PTyT*)(intptr_t)pt)->next;
   }
   } else {
-  pf = parseFn(toks, i);
+  pf = parseFn(toks, lines, i);
   l_push(fns, ((PFnT*)(intptr_t)pf)->fn);
   i = ((PFnT*)(intptr_t)pf)->next;
   }
@@ -400,7 +405,7 @@ long parseTypeDef(long toks, long i) {
   }
   return PTy(TyDef(name, cases), (j + 1));
 }
-long parseFn(long toks, long i) {
+long parseFn(long toks, long lines, long i) {
   long name = 0;
   long pp = 0;
   long rt = 0;
@@ -409,7 +414,7 @@ long parseFn(long toks, long i) {
   pp = parseParams(toks, (i + 1));
   rt = parseRet(toks, ((PNamesT*)(intptr_t)pp)->next);
   pb = parseBlock(toks, ((PRetT*)(intptr_t)rt)->next);
-  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PBodyT*)(intptr_t)pb)->body), ((PBodyT*)(intptr_t)pb)->next);
+  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PBodyT*)(intptr_t)pb)->body, l_at(lines, i)), ((PBodyT*)(intptr_t)pb)->next);
 }
 long parseParams(long toks, long i) {
   long names = 0;
@@ -911,6 +916,7 @@ long emitFn(long f, long sigs) {
   pk = (pk + 1);
   }
   ctx = Ctx(env, sigs);
+  envPut(env, (long)(intptr_t)"__line__", i_tostr(((FnT*)(intptr_t)f)->line));
   seedEnv(((FnT*)(intptr_t)f)->body, ctx);
   checkReturn(f, ctx);
   decls = collectLets(((FnT*)(intptr_t)f)->body);
@@ -1364,14 +1370,14 @@ long checkExhaustive(long styp, long arms, long ctx) {
   while ((k < m)) {
   t = l_at(types, k);
   if (s_eq(((TyDefT*)(intptr_t)t)->name, styp)) {
-  checkCases(t, arms);
-  checkArities(t, arms);
+  checkCases(t, arms, ctx);
+  checkArities(t, arms, ctx);
   }
   k = (k + 1);
   }
   return 0;
 }
-long checkArities(long t, long arms) {
+long checkArities(long t, long arms, long ctx) {
   long k = 0;
   long m = 0;
   long a = 0;
@@ -1383,12 +1389,15 @@ long checkArities(long t, long arms) {
   ar = caseArityIn(t, ((ArmT*)(intptr_t)a)->tag);
   if ((!(ar < 0))) {
   if ((!(l_len(((ArmT*)(intptr_t)a)->binds) == ar))) {
-  fail(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"match case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)" binds "), i_tostr(l_len(((ArmT*)(intptr_t)a)->binds))), (long)(intptr_t)", expected "), i_tostr(ar)));
+  failAt(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"match case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)" binds "), i_tostr(l_len(((ArmT*)(intptr_t)a)->binds))), (long)(intptr_t)", expected "), i_tostr(ar)), ctx);
   }
   }
   k = (k + 1);
   }
   return 0;
+}
+long failAt(long msg, long ctx) {
+  return fail(s_concat(s_concat(s_concat((long)(intptr_t)"input.smplr:", envGet(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__")), (long)(intptr_t)": "), msg));
 }
 long caseArityIn(long t, long tag) {
   long r = 0;
@@ -1407,7 +1416,7 @@ long caseArityIn(long t, long tag) {
   }
   return r;
 }
-long checkCases(long t, long arms) {
+long checkCases(long t, long arms, long ctx) {
   long k = 0;
   long m = 0;
   long c = 0;
@@ -1416,7 +1425,7 @@ long checkCases(long t, long arms) {
   while ((k < m)) {
   c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
   if ((!armCovers(arms, ((CaseT*)(intptr_t)c)->cname))) {
-  fail(s_concat(s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((TyDefT*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "), ((CaseT*)(intptr_t)c)->cname));
+  failAt(s_concat(s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((TyDefT*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "), ((CaseT*)(intptr_t)c)->cname), ctx);
   }
   k = (k + 1);
   }
@@ -1481,10 +1490,10 @@ long emitBin(long op, long a, long b, long ctx) {
 long checkBinOp(long op, long a, long b, long ctx) {
   if (isArithOp(op)) {
   if (notInt(exprType(a, ctx), ctx)) {
-  fail(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"));
+  failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"), ctx);
   }
   if (notInt(exprType(b, ctx), ctx)) {
-  fail(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"));
+  failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"), ctx);
   }
   }
   return 0;
@@ -1520,7 +1529,7 @@ long checkRetExpr(long e, long ret, long ctx) {
   if ((!isMatchExpr(e))) {
   at = exprType(e, ctx);
   if ((!compatible(ret, at, ctx))) {
-  fail(s_concat(s_concat(s_concat((long)(intptr_t)"return type mismatch: declared ", ret), (long)(intptr_t)", got "), at));
+  failAt(s_concat(s_concat(s_concat((long)(intptr_t)"return type mismatch: declared ", ret), (long)(intptr_t)", got "), at), ctx);
   }
   }
   return 0;
@@ -1581,7 +1590,7 @@ long checkArgTypes(long name, long ptypes, long args, long ctx) {
   pt = l_at(ptypes, k);
   at = exprType(l_at(args, k), ctx);
   if ((!compatible(pt, at, ctx))) {
-  fail(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr((k + 1))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at));
+  failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr((k + 1))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
   }
   k = (k + 1);
   }
@@ -1943,18 +1952,25 @@ long isMulOp(long toks, long i) {
 }
 long lex(long src) {
   long toks = 0;
+  long lines = 0;
   long n = 0;
   long i = 0;
+  long line = 0;
   long c = 0;
   long j = 0;
   long s = 0;
   long num = 0;
   toks = l_new();
+  lines = l_new();
   n = s_len(src);
   i = 0;
+  line = 1;
   while ((i < n)) {
   c = s_code(s_at(src, i));
   if (isSpace(c)) {
+  if ((c == 10)) {
+  line = (line + 1);
+  }
   i = (i + 1);
   } else {
   if (isComment(src, i, n)) {
@@ -1975,6 +1991,7 @@ long lex(long src) {
   j = (j + 1);
   }
   l_push(toks, Str(s));
+  l_push(lines, line);
   i = (j + 1);
   } else {
   if (isDigit(c)) {
@@ -1984,6 +2001,7 @@ long lex(long src) {
   i = (i + 1);
   }
   l_push(toks, Int(num));
+  l_push(lines, line);
   } else {
   if (isAlpha(c)) {
   j = i;
@@ -1991,13 +2009,16 @@ long lex(long src) {
   j = (j + 1);
   }
   l_push(toks, Ident(s_slice(src, i, j)));
+  l_push(lines, line);
   i = j;
   } else {
   if (isTwoCharOp(src, i, n)) {
   l_push(toks, Punct(s_slice(src, i, (i + 2))));
+  l_push(lines, line);
   i = (i + 2);
   } else {
   l_push(toks, Punct(s_at(src, i)));
+  l_push(lines, line);
   i = (i + 1);
   }
   }
@@ -2007,7 +2028,8 @@ long lex(long src) {
   }
   }
   l_push(toks, Eof());
-  return toks;
+  l_push(lines, line);
+  return Lexed(toks, lines);
 }
 long esc(long src, long j) {
   long c = 0;

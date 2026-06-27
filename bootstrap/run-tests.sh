@@ -121,6 +121,12 @@ reject "binding count" \
 ev(e : Expr) : Int { e.match { Num(n) -> n  Add(a) -> 1 } }
 main(sys) { sys.screen.print(ev(Num(1))) }' \
     "binds 1, expected 2"
+# errors carry a source location (the enclosing function's line)
+reject "located error" \
+    'Color = type { Red Green }
+name(c : Color) : Int { c.match { Red -> 1 } }
+main(sys) { sys.screen.print(name(Red)) }' \
+    "input.smplr:2:"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
