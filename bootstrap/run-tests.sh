@@ -140,6 +140,17 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/cr" "$TMP/cr.c" 2>/dev/null && [ "$("$TMP/cr")" = "$(printf 'yes\nno\na-b-c\nbb\nkeep')" ]; then ok; else nope "Str.contains/replace (got: $("$TMP/cr" 2>/dev/null))"; fi
 
+# Str.trim: strip leading and trailing whitespace (spaces, tabs, CR, LF), so a
+# CRLF or padded line is clean; a whitespace-only string trims to empty.
+printf '%s' 'main(sys) {
+  sys.screen.print("[".concat("  hi  ".trim).concat("]"))
+  sys.screen.print("[".concat("\tx\r\n".trim).concat("]"))
+  sys.screen.print("   ".trim.length.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > trim.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/trim" "$TMP/trim.c" 2>/dev/null && [ "$("$TMP/trim")" = "$(printf '[hi]\n[x]\n0')" ]; then ok; else nope "Str.trim (got: $("$TMP/trim" 2>/dev/null))"; fi
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

@@ -265,8 +265,8 @@ first lexer to a compiler that compiles itself:
   test:
   - [x] **I/O**: `sys.files.read`/`write`, `sys.args`, `sys.stdin`, and `fail` to
     stderr with a non-zero exit, so a program is a real Unix filter
-  - [x] **text**: `split`, `contains`, `replace`, `toInt`/`toFloat`/`toStr` on top
-    of the existing `concat`/`slice`/`at`/`length`
+  - [x] **text**: `split`, `contains`, `replace`, `trim`, `toInt`/`toFloat`/`toStr`
+    on top of the existing `concat`/`slice`/`at`/`length`
   - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`
     ranking) and list `sort`, plus 64-bit `Int` and `Float` with negatives
   - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,

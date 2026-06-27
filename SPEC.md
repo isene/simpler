@@ -222,6 +222,7 @@ arguments. Dispatch is by the receiver's static type.
 | `s.at(i)` | `Str` | one-character string at `i` |
 | `s.code` | `Int` | byte value of the first character |
 | `s.slice(a, b)` | `Str` | substring `[a, b)` |
+| `s.trim` | `Str` | strip leading/trailing whitespace (space, tab, CR, LF) |
 | `s.concat(t)` | `Str` | `s` followed by `t` |
 | `s.split(d)` | `List[Str]` | split on the first character of `d` |
 | `s.contains(t)` | `Bool` | is `t` a substring |

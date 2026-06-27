@@ -25,6 +25,7 @@ long f_toi(long x) { return (long)l2d(x); }
 long s_toint(long s) { return atol((const char*)(intptr_t)s); }
 long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }
 long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }
+long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }
 long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }
 typedef struct { long* keys; long* vals; long len; long cap; } SMap;
 long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }
@@ -300,6 +301,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_toint(long s) { return atol((const char*)(intptr_t)s); }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* keys; long* vals; long len; long cap; } SMap;");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }");
@@ -2072,6 +2074,9 @@ long emitField(long recv, long fld, long ctx) {
   r = s_concat(s_concat((long)(intptr_t)"s_tofloat(", recvC), (long)(intptr_t)")");
   }
   }
+  if (s_eq(fld, (long)(intptr_t)"trim")) {
+  r = s_concat(s_concat((long)(intptr_t)"s_trim(", recvC), (long)(intptr_t)")");
+  }
   if (s_eq(fld, (long)(intptr_t)"not")) {
   r = s_concat(s_concat((long)(intptr_t)"(!", recvC), (long)(intptr_t)")");
   }
@@ -2261,6 +2266,9 @@ long fieldType(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"toFloat")) {
   r = (long)(intptr_t)"Float";
+  }
+  if (s_eq(fld, (long)(intptr_t)"trim")) {
+  r = (long)(intptr_t)"Str";
   }
   if (s_eq(fld, (long)(intptr_t)"screen")) {
   r = (long)(intptr_t)"Screen";
