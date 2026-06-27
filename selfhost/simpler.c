@@ -730,9 +730,14 @@ long parseFactor(long toks, long pos) {
 }
 long parsePunctFactor(long toks, long pos) {
   long r = 0;
+  long f = 0;
   r = parseParen(toks, pos);
   if (isPunct(toks, pos, (long)(intptr_t)"[")) {
   r = parseList(toks, pos);
+  }
+  if (isPunct(toks, pos, (long)(intptr_t)"-")) {
+  f = parseFactor(toks, (pos + 1));
+  r = Parsed(Bin((long)(intptr_t)"u-", Num(0), ((ParsedT*)(intptr_t)f)->node), ((ParsedT*)(intptr_t)f)->next);
   }
   return r;
 }
@@ -1763,6 +1768,12 @@ long emitBin(long op, long a, long b, long ctx) {
   r = s_concat(s_concat((long)(intptr_t)"d2l(", inner), (long)(intptr_t)")");
   }
   }
+  if (s_eq(op, (long)(intptr_t)"u-")) {
+  r = s_concat(s_concat((long)(intptr_t)"(-", cb), (long)(intptr_t)")");
+  if (s_eq(exprType(b, ctx), (long)(intptr_t)"Float")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(-l2d(", cb), (long)(intptr_t)"))");
+  }
+  }
   return r;
 }
 long isFloatArith(long op) {
@@ -2147,6 +2158,9 @@ long emitArgs(long args, long ctx) {
 long binType(long op, long a, long b, long ctx) {
   long r = 0;
   r = (long)(intptr_t)"Int";
+  if (s_eq(op, (long)(intptr_t)"u-")) {
+  r = exprType(b, ctx);
+  }
   if (s_eq(exprType(a, ctx), (long)(intptr_t)"Float")) {
   if (isFloatArith(op)) {
   r = (long)(intptr_t)"Float";

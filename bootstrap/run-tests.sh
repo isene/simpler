@@ -220,6 +220,20 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/flt" "$TMP/flt.c" 2>/dev/null && [ "$("$TMP/flt")" = "$(printf '4.75\n2.8\nbigger\n3.5\n3.5\n3.14\n1')" ]; then ok; else nope "Float ops (got: $("$TMP/flt" 2>/dev/null))"; fi
 
+# prefix minus: negative Int and Float literals, and negation inside an
+# expression, for both scalar types (binary `-` is unaffected).
+printf '%s' 'main(sys) {
+  a = -3
+  b = -3.5
+  sys.screen.print(a.toStr)
+  sys.screen.print(b.toStr)
+  sys.screen.print((a * -2).toStr)
+  sys.screen.print((b + -1.5).toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > neg.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/neg" "$TMP/neg.c" 2>/dev/null && [ "$("$TMP/neg")" = "$(printf -- '-3\n-3.5\n6\n-5')" ]; then ok; else nope "prefix minus (got: $("$TMP/neg" 2>/dev/null))"; fi
+
 # average.smplr, a real filter that needs fractions: mean of the numbers on
 # its input. Exercises Float sum, Int count, and a Float division.
 cp ../selfhost/average.smplr "$TMP/input.smplr"

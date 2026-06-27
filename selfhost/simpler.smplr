@@ -588,6 +588,11 @@ parsePunctFactor(toks : List[Tok], pos : Int) : Parsed {
   if isPunct(toks, pos, "[") {
     r = parseList(toks, pos)
   }
+  // prefix `-`: negate the following factor (`Bin("u-", ...)` carries it)
+  if isPunct(toks, pos, "-") {
+    f = parseFactor(toks, pos + 1)
+    r = Parsed(node = Bin("u-", Num(0), f.node), next = f.next)
+  }
   r
 }
 
@@ -1578,6 +1583,13 @@ emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
       r = "d2l(".concat(inner).concat(")")
     }
   }
+  // unary minus: integer negation, or float negation through the bits
+  if op == "u-" {
+    r = "(-".concat(cb).concat(")")
+    if exprType(b, ctx) == "Float" {
+      r = "d2l(-l2d(".concat(cb).concat("))")
+    }
+  }
   r
 }
 
@@ -1972,6 +1984,9 @@ emitArgs(args : List[Expr], ctx : Ctx) : Str {
 // always a Bool (Int), whatever the operands.
 binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
   r = "Int"
+  if op == "u-" {
+    r = exprType(b, ctx)
+  }
   if exprType(a, ctx) == "Float" {
     if isFloatArith(op) {
       r = "Float"
