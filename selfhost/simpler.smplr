@@ -3,8 +3,9 @@
 // This is the real self-hosted compiler, grown one stage at a time. It
 // lexes source into tokens, parses them into an AST, and emits C, the
 // same pipeline as the Rust bootstrap. The working subset now covers
-// multiple functions with integer parameters, calls, integer locals,
-// the arithmetic operators with precedence, and `print`.
+// variant types (payload-less) with `match`, multiple functions with
+// integer parameters and calls, integer locals, the arithmetic operators
+// with precedence, and `print`.
 //
 // It emits a complete C program on stdout; pipe that to a C compiler:
 //
@@ -20,6 +21,12 @@ Expr = type {
   Var(Str)
   Bin(Str, Expr, Expr)
   Call(Str, List[Expr])
+  Match(Expr, List[Arm])
+}
+
+Arm = type {
+  tag : Str
+  body : Expr
 }
 
 Stmt = type {
@@ -31,6 +38,17 @@ Fn = type {
   name : Str
   params : List[Str]
   body : List[Stmt]
+}
+
+TyDef = type {
+  name : Str
+  cases : List[Str]
+}
+
+// A whole program: its type definitions and its functions.
+Prog = type {
+  types : List[TyDef]
+  fns : List[Fn]
 }
 
 Tok = type {
@@ -58,6 +76,11 @@ PFn = type {
   next : Int
 }
 
+PTy = type {
+  ty : TyDef
+  next : Int
+}
+
 PNames = type {
   names : List[Str]
   next : Int
@@ -74,31 +97,58 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "twice(n) {\n  n + n\n}\nmain() {\n  y = twice(5)\n  print(y + 1)\n}\n"
+  src = "Light = type { Red Yellow Green }\nrank(c) {\n  c.match {\n    Red -> 1\n    Yellow -> 2\n    Green -> 3\n  }\n}\nmain() {\n  x = rank(Green)\n  print(x + 10)\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sys.screen.print("#include <stdio.h>")
-  prog.each { f in
+  prog.types.each { t in
+    sys.screen.print(emitType(t))
+  }
+  prog.fns.each { f in
     if isMain(f.name).not {
       sys.screen.print(emitProto(f))
     }
   }
-  prog.each { f in
+  prog.fns.each { f in
     sys.screen.print(emitFn(f))
   }
 }
 
-// --- parse: tokens to a list of functions -------------------------------
+// --- parse: tokens to a program -----------------------------------------
 
-parse(toks : List[Tok]) : List[Fn] {
-  prog : List[Fn] = []
+parse(toks : List[Tok]) : Prog {
+  types : List[TyDef] = []
+  fns : List[Fn] = []
   i = 0
   while notEof(toks, i) {
-    p = parseFn(toks, i)
-    prog.push(p.fn)
-    i = p.next
+    if isTypeDef(toks, i) {
+      pt = parseTypeDef(toks, i)
+      types.push(pt.ty)
+      i = pt.next
+    } else {
+      pf = parseFn(toks, i)
+      fns.push(pf.fn)
+      i = pf.next
+    }
   }
-  prog
+  Prog(types = types, fns = fns)
+}
+
+// A type definition starts `Name = type { ... }`.
+isTypeDef(toks : List[Tok], i : Int) : Bool {
+  isIdent(toks, i).and(isPunct(toks, i + 1, "="))
+}
+
+// `Name = type { Case Case ... }` -> the case names. Payload-less for now.
+parseTypeDef(toks : List[Tok], i : Int) : PTy {
+  name = identAt(toks, i)
+  cases : List[Str] = []
+  j = i + 4
+  while inBlock(toks, j) {
+    cases.push(identAt(toks, j))
+    j = j + 1
+  }
+  PTy(ty = TyDef(name = name, cases = cases), next = j + 1)
 }
 
 parseFn(toks : List[Tok], i : Int) : PFn {
@@ -161,16 +211,26 @@ parseExpr(toks : List[Tok], pos : Int) : Parsed {
 }
 
 parseTerm(toks : List[Tok], pos : Int) : Parsed {
-  p = parseFactor(toks, pos)
+  p = parsePostfix(toks, pos)
   node = p.node
   i = p.next
   while isMulOp(toks, i) {
     op = punctAt(toks, i)
-    r = parseFactor(toks, i + 1)
+    r = parsePostfix(toks, i + 1)
     node = Bin(op, node, r.node)
     i = r.next
   }
   Parsed(node = node, next = i)
+}
+
+// A factor, optionally followed by `.match { ... }`.
+parsePostfix(toks : List[Tok], pos : Int) : Parsed {
+  p = parseFactor(toks, pos)
+  r = p
+  if isDotMatch(toks, p.next) {
+    r = parseMatch(toks, p.node, p.next)
+  }
+  r
 }
 
 parseFactor(toks : List[Tok], pos : Int) : Parsed {
@@ -183,7 +243,8 @@ parseFactor(toks : List[Tok], pos : Int) : Parsed {
   }
 }
 
-// An identifier is a variable, or a call if a `(` follows.
+// An identifier is a variable (or a payload-less constructor, which emits
+// the same way), or a call if a `(` follows.
 parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
   name = identAt(toks, pos)
   r = Parsed(node = Var(name), next = pos + 1)
@@ -214,7 +275,39 @@ parseArgs(toks : List[Tok], i : Int) : PArgs {
   PArgs(list = list, next = j + 1)
 }
 
+// `recv.match { Case -> expr ... }`. Payload-less arms for now.
+isDotMatch(toks : List[Tok], i : Int) : Bool {
+  isPunct(toks, i, ".").and(isWord(toks, i + 1, "match"))
+}
+
+parseMatch(toks : List[Tok], scrut : Expr, i : Int) : Parsed {
+  arms : List[Arm] = []
+  j = i + 3
+  while inBlock(toks, j) {
+    tag = identAt(toks, j)
+    ae = parseExpr(toks, j + 2)
+    arms.push(Arm(tag = tag, body = ae.node))
+    j = ae.next
+  }
+  Parsed(node = Match(scrut, arms), next = j + 1)
+}
+
 // --- emit: the AST folded to C ------------------------------------------
+
+// A payload-less variant is a C enum: each case becomes an int constant.
+emitType(t : TyDef) : Str {
+  out = "enum {"
+  k = 0
+  m = t.cases.length
+  while k < m {
+    if k > 0 {
+      out = out.concat(",")
+    }
+    out = out.concat(" ").concat(t.cases.at(k))
+    k = k + 1
+  }
+  out.concat(" };")
+}
 
 // A prototype, so functions may be defined in any order.
 emitProto(f : Fn) : Str {
@@ -237,8 +330,7 @@ emitFn(f : Fn) : Str {
   if isMain(f.name) {
     out = out.concat("\n  return 0;")
   }
-  out = out.concat("\n}")
-  out
+  out.concat("\n}")
 }
 
 paramDecls(f : Fn) : Str {
@@ -266,7 +358,7 @@ emitStmt(s : Stmt, asReturn : Bool) : Str {
 emitBare(e : Expr, asReturn : Bool) : Str {
   r = stmtExpr(e)
   if asReturn {
-    r = "  return ".concat(emitExpr(e)).concat(";")
+    r = emitReturn(e)
   }
   r
 }
@@ -281,12 +373,43 @@ stmtExpr(e : Expr) : Str {
   r
 }
 
+// A return: a plain `return expr;`, or a switch when the value is a match.
+emitReturn(e : Expr) : Str {
+  e.match {
+    Match(scrut, arms) -> emitSwitch(scrut, arms)
+    Num(v) -> retVal(e)
+    Var(s) -> retVal(e)
+    Bin(op, a, b) -> retVal(e)
+    Call(name, args) -> retVal(e)
+  }
+}
+
+retVal(e : Expr) : Str {
+  "  return ".concat(emitExpr(e)).concat(";")
+}
+
+// A match in return position becomes a switch, each arm returning its
+// value. The trailing return is unreachable but keeps C happy.
+emitSwitch(scrut : Expr, arms : List[Arm]) : Str {
+  out = "  switch (".concat(emitExpr(scrut)).concat(") {")
+  k = 0
+  m = arms.length
+  while k < m {
+    a = arms.at(k)
+    out = out.concat("\n  case ").concat(a.tag).concat(": return ").concat(emitExpr(a.body)).concat(";")
+    k = k + 1
+  }
+  out = out.concat("\n  }")
+  out.concat("\n  return 0;")
+}
+
 emitExpr(e : Expr) : Str {
   e.match {
     Num(v) -> v.toStr
     Var(s) -> s
     Bin(op, a, b) -> "(".concat(emitExpr(a)).concat(" ").concat(op).concat(" ").concat(emitExpr(b)).concat(")")
     Call(name, args) -> name.concat("(").concat(emitArgs(args)).concat(")")
+    Match(scrut, arms) -> "0"
   }
 }
 
@@ -310,6 +433,7 @@ isPrintCall(e : Expr) : Bool {
     Num(v) -> false
     Var(s) -> false
     Bin(op, a, b) -> false
+    Match(scrut, arms) -> false
   }
 }
 
@@ -319,6 +443,7 @@ printArg(e : Expr) : Expr {
     Num(v) -> e
     Var(s) -> e
     Bin(op, a, b) -> e
+    Match(scrut, arms) -> e
   }
 }
 
@@ -349,6 +474,16 @@ inArgs(toks : List[Tok], j : Int) : Bool {
 isIdent(toks : List[Tok], i : Int) : Bool {
   toks.at(i).match {
     Ident(s) -> true
+    Int(v) -> false
+    Str(s) -> false
+    Punct(p) -> false
+    Eof -> false
+  }
+}
+
+isWord(toks : List[Tok], i : Int, w : Str) : Bool {
+  toks.at(i).match {
+    Ident(s) -> s == w
     Int(v) -> false
     Str(s) -> false
     Punct(p) -> false
