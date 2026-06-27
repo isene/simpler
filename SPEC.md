@@ -1,299 +1,374 @@
 # Simpler
 
-*A programming language whose only goal is to be simple.*
+*A programming language whose only goal is to be simple, above all simple for
+an AI to write.*
 
-Simple to learn, simple to read, simple for an AI to write, simple to
-extend, simple to install, simple to upgrade. Compiled, and fast. The
-design rule is a budget you enforce by refusal: every feature must pay
-for itself in problems solved, or it does not go in.
+This document is the whole language. An AI writes good code in a mature
+language by recalling millions of examples; it has seen none of this one. So
+the bet is the opposite: make the entire language small enough to hold in the
+prompt at once. **This spec is the corpus.** Everything Simpler can do is here,
+and nothing here is aspirational: every construct below compiles and runs today
+in the self-hosted compiler ([`selfhost/simpler.smplr`](selfhost/simpler.smplr)),
+which is written in Simpler and compiles itself to a byte-identical fixpoint.
+
+If you are an AI writing Simpler: read this once, top to bottom, and you have
+the language. There is no standard library to recall beyond the method tables
+in section 8.
 
 ---
 
-## 1. The core law
+## 1. The core model
 
-**Everything is a message send.**
-
-```
-receiver.name(arguments)
-```
-
-A field read, a method call, an operator, a property set: all of them
-are one thing, a message sent to a receiver. No-argument sends drop the
-parentheses.
+**Everything is a message send.** A field read, a method call, an operator: all
+one shape, `receiver.name(arguments)`. A send with no arguments drops the
+parentheses, so it reads like a field.
 
 ```
-screen.resolution            // read a value
-file.read("report.txt")      // call with an argument
-items.length                 // looks like a field, is a message
+xs.length              // no-arg send, reads like a field
+xs.at(0)               // send with an argument
+a.concat(b)            // a method
 ```
 
-There is essentially one grammar production. That is the whole point.
-
-## 2. Punctuation, in full
-
-Three symbols, three meanings, zero overlap. Learn these and you have
-learned the syntax.
+Four pieces of punctuation carry the whole syntax, with no overlap:
 
 | Symbol | Means | Example |
 |--------|-------|---------|
 | `=` | bind a value to a name | `x = 3` |
 | `:` | ascribe a type | `x : Int` |
-| `{ }` | delimit a block | `each { item -> ... }` |
-| `.` | send a message | `screen.resolution` |
+| `{ }` | delimit a block | `xs.each { x in ... }` |
+| `.` | send a message | `xs.length` |
 
-`=` has **one** meaning everywhere: bind this value to this name. The
-same act covers locals, places, and named arguments.
+`=` binds; it is a **statement, never an expression**. So it cannot hide inside
+a condition, and `if a == b` can never be a mistyped `=`.
 
-```
-text = report.contents              // bind a local
-screen.resolution = 1600, 1200      // bind a place (a setter)
-mail.send(to = "boss@co", body = text)   // bind a named argument
-```
+## 2. Program structure
 
-Assignment is a **statement**, not an expression. So `to = "x"` inside
-parentheses can only be a named argument, never a hidden assignment.
-A bonus falls out: `if a == b` can never be a mistyped `=`, because
-`=` cannot appear inside an expression at all.
-
-## 3. Operators are sugar over messages
-
-Exactly seven operators exist as sugar, and nothing more:
+A program is one `.smplr` file: zero or more type definitions and functions,
+including exactly one `main`.
 
 ```
-+   -   *   /   ==   <   >
-```
-
-Each desugars to a message: `a + b` is `a.+(b)`, `a < b` is `a.<(b)`.
-Everything else is a plainly named message, which keeps the surface
-small and removes the "what does this symbol mean" guessing game.
-
-```
-a.mod(b)        // no % operator
-a.le(b)         // no <= operator
-total.max(cap)  // reads like English, needs no symbol
-```
-
-## 4. Places are bidirectional
-
-A field access is a first-class **place** with a getter and a setter,
-so a setter is never written by hand. The place's *type* declares
-whether touching it touches the world.
-
-```
-point.x           : Place[Int]                   // pure
-screen.resolution : Place[Res] !Hardware !Fail   // effectful
-```
-
-- A **pure** place is value semantics. `point.x = 5` produces an
-  updated copy and rebinds your local. No mutation, no aliasing
-  surprises.
-- An **effectful** place mutates the world, and its type says so.
-  `screen.resolution = 1600, 1200` performs a real mode switch that
-  can fail.
-
-The same `name = value` syntax means "functional update" for a pure
-place and "perform a typed effect" for an effectful one. The type tells
-you which. Effects on a deep path are the union of its links, computed
-by the compiler, so nothing can hide an effect inside `a.b.c = v`.
-
-## 5. Effects live in the signature, not the syntax
-
-Pure by default. Anything that touches the world is marked in the type:
-`!IO`, `!Fail`, `!Hardware`, and so on. A pure function cannot call an
-effectful one without declaring the effect, so cost stays visible at
-every call site. `?` propagates a failure.
-
-```
-read_all(file) !IO !Fail {
-  text = file.contents?        // ? hands the failure upward
-  text
-}
-```
-
-This is soft command-query separation: queries read the same as
-commands, but the type distinguishes them, so the convenience of
-uniform syntax never hides a cost or a failure.
-
-## 6. Memory: value semantics, no GC
-
-Value semantics by default, arenas for dynamic lifetime. No garbage
-collector (so no pauses and no idle battery drain) and no borrow
-checker (so nothing hard to learn). Pure assignment copies; the
-compiler elides the copy when it can prove nothing else shares the
-value. Real-world mutation happens only through effectful places, which
-the type system already tracks.
-
-**Why no collector.** A GC is a second runtime you cannot hold in your
-head, so it breaks the simplicity promise where you cannot see it. It
-also works on its own schedule, waking to mark and sweep even when idle,
-which is the battery cost the design exists to avoid. Neither tax is
-necessary here, because the type system already did the hard part: value
-semantics gives each value one owner, and effects make every mutation
-visible, so the compiler can place every free at compile time. Arenas
-catch the rest, freeing a whole batch at once.
-
-The trade-off is honest. Tangled, long-lived graphs are where a GC earns
-its keep; Simpler handles those with an explicit arena or handle, betting
-they are rare enough not to justify an always-on cost for every program.
-No GC, and no borrow checker either: value semantics buys memory safety
-without the tax of either.
-
-## 7. Capabilities replace imports
-
-There are no globals and no import system. `main` receives the world,
-and you pass subsets of it down. A signature becomes a permission list:
-a function can only touch what it was handed.
-
-```
-main(sys) {
-  report = sys.files.open("report.txt")
-  notify(sys.mail, report.contents?)
-}
-
-notify(mail, message) {        // can ONLY mail; never handed files
-  mail.send(to = "boss@co", body = message)
-}
-```
-
-Libraries are objects you receive, not namespaces you pull in:
-
-```
-json = sys.load("json")
-data = json.parse(text)
-```
-
-Testing needs no mocking framework: pass a fake. Two versions of a
-library are just two objects you hold, so most of dependency hell
-disappears.
-
-## 8. Control flow is messages
-
-No control-flow keywords exist underneath. Blocks are `{ ... }` values
-passed as arguments; a block that takes a parameter names it before
-`in`, as `{ item in ... }`. A small amount of sugar keeps it readable.
-
-```
-// sugar
-if user.active {
-  screen.print("welcome")
-} else {
-  screen.print("denied")
-}
-
-// desugars to a plain message send
-user.active.if(then = { screen.print("welcome") },
-               else = { screen.print("denied") })
-
-// iteration is a message too
-items.each { item in
-  screen.print(item.name)
-}
-```
-
-## 9. One language at every level
-
-Types are values, macros are ordinary functions, and the build script
-is a program, all written in this same syntax and evaluated at the
-stage where they belong. Because every expression is a message send,
-the AST is just a tree of message-send objects, so code is data with no
-parentheses ceremony. Build this last; it is the easiest piece to
-over-engineer.
-
-## 10. Compiled and fast
-
-Static types resolve the great majority of sends to direct calls or
-inlined field reads, so the dynamic-looking model has static cost. The
-compiler transpiles to C and hands it to the system C compiler. That
-buys a mature optimizer, every platform for free, and a self-contained
-toolchain small enough for one person to maintain.
-
-The whole toolchain is one binary: `simpler build | run | fmt | test`.
-A single canonical formatter means every file looks identical, which
-helps humans and AI equally. Install is one download; upgrade replaces
-one binary.
-
-## 11. Why an AI writes it well
-
-The opening promise included "simple for an AI to write." Here is why it
-holds, and it is not because the language is new.
-
-An AI writes good code in a mature language by recalling millions of
-examples. It has seen none of this one. So the only thing that matters is
-whether the whole language fits in the prompt. Simpler's surface is small
-enough that it does: one grammar production, three symbols, seven
-operators. The spec is the corpus. The model holds the entire language at
-once instead of recalling the right idiom from ten thousand.
-
-Three properties then do the work:
-
-- **The signature is the whole world.** Capabilities replace imports, so
-  a function can touch only what it was handed. The parameter list is an
-  exhaustive permission set, which kills the most common failure: calling
-  an API that is not there.
-- **Errors are mechanical and local.** Effects live in the type, so a
-  pure function that calls an effectful one is rejected at that line. The
-  write-compile-correct loop gives unambiguous signals a model converges
-  on fast.
-- **Less hidden state.** Value semantics removes the aliasing and shared
-  mutation that AI-written code gets subtly wrong.
-
-The same traits make the code efficient, not only correct. Cost is
-visible in the signature: `!IO`, `!Hardware`, `!Fail` say which paths
-touch the world, so a model optimising for battery can read the hot path
-without running it. And the division of labour is right. The model writes
-simple code; the compiler elides copies and frees arenas. It need not be
-a memory expert to get fast output.
-
-The honest limit is the cold start. With no idiom fluency, an AI will not
-beat its Python on day one. But the gap is mostly memorised breadth, and
-there is little breadth here to memorise, so it closes fast. The real
-work is libraries: a received object must ship its signatures in a form a
-model can read. Given the design, the signature alone is enough.
-
----
-
-## A complete small program
-
-```
-// Read a report and mail it. The signature of every function
-// states exactly which powers it holds.
+// a line comment runs to end of line
 
 main(sys) {
-  report = sys.files.open("report.txt")
-  if report.size > 0 {
-    notify(sys.mail, report.contents?)
-    sys.screen.print("sent")
-  } else {
-    sys.screen.print("empty report")
+  sys.screen.print("hello, world")
+}
+```
+
+- `main(sys)` is the entry point. Its one parameter, `sys`, is the **world
+  capability** (section 9). Only `main` holds it.
+- A **function** is `name(params) : RetType !Effects { body }`. The return type
+  and effects are optional; the return type defaults to `Int`.
+- The **value of a function is its last bare expression** (no `return`
+  keyword). `main` returns nothing.
+
+```
+double(n : Int) : Int {
+  n * 2                  // this expression is the result
+}
+
+greet(who : Str) : Str {
+  "hello, ".concat(who)
+}
+```
+
+## 3. Bindings
+
+```
+x = 3                    // infer the type from the value
+total = a + b
+name : Str = read()      // optional type annotation
+
+xs : List[Int] = []      // annotation REQUIRED for an empty collection,
+m  : Map[Str] = Map()    // which carries no element/value type to infer
+```
+
+A name may be reassigned (`x = x + 1`); a binding is a local in the enclosing
+function. Annotate only when inference cannot see the type: an empty `[]` or a
+`Map()` whose value type is not the default `Int`.
+
+## 4. Types
+
+Scalars: **`Int`** (64-bit signed), **`Float`** (double), **`Str`**, **`Bool`**.
+
+**`List[T]`** holds any element type. Empty literal needs an annotation.
+
+```
+nums : List[Int] = []
+nums.push(10)
+nums.push(20)
+first = nums.at(0)       // 10
+n = nums.length          // 2
+nums.each { x in sys.screen.print(x.toStr) }
+sorted = nums.sort       // a new list, ascending
+```
+
+**`Map`** is a `Str`-keyed map. Values are `Int` by default; annotate
+`Map[Str]` for string values.
+
+```
+counts = Map()                       // Str -> Int
+counts.set("a", counts.get("a") + 1) // get returns 0 for an absent key
+counts.has("a")                      // Bool
+counts.keys                          // List[Str], first-seen order
+counts.byValue                       // List[Str], ranked by descending value
+
+dir : Map[Str] = Map()               // Str -> Str
+dir.set("alice", "1234")
+dir.get("bob")                       // "" for an absent key (never null)
+```
+
+**Records** are named product types: real value structs.
+
+```
+Point = type { x : Int, y : Int }
+Box   = type { label : Str, items : List[Int] }
+
+p = Point(x = 3, y = 4)              // construct
+p.x                                  // read a field -> 3
+```
+
+Construction is **positional in declaration order**; the `field =` names are
+optional sugar and are not checked, so the values must be in order.
+
+**Variants** are named sum types (tagged unions). A case may carry payloads,
+including recursively.
+
+```
+Sign = type { Pos Neg }                       // payload-less cases
+Expr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }
+
+e = Add(Num(2), Mul(Num(3), Num(4)))          // construct
+```
+
+Inspect a variant with **`match`**, which must be **exhaustive** (every case
+present) and binds each payload positionally. `match` is itself an expression,
+so it can be a function's value, which makes recursive evaluators direct:
+
+```
+eval(e : Expr) : Int {
+  e.match {
+    Num(v)    -> v
+    Add(a, b) -> eval(a) + eval(b)
+    Mul(a, b) -> eval(a) * eval(b)
   }
 }
+```
 
-notify(mail, body) {
-  mail.send(to = "boss@co", subject = "Daily report", body = body)
+## 5. Literals
+
+```
+42        -3            // Int (a leading - negates)
+3.14      -0.5          // Float (needs a digit after the dot)
+"hi\n"                  // Str, escapes: \n \t \r \" \\
+true      false         // Bool
+[]        [1, 2, 3]     // List ([] needs an annotation)
+```
+
+## 6. Operators
+
+Seven operators, each sugar for a message: `+ - * / == < >`. Arithmetic and
+ordering take **`Int` or `Float`**, and the two may **not be mixed** (convert
+with `.toFloat` / `.toInt`); `==` works on `Int`, `Float`, and `Str`. A leading
+`-` negates. There are no `<=`, `>=`, `%`, `&&`, `||` operators; use the methods
+below.
+
+```
+a + b    a - b    a * b    a / b
+a == b   a < b    a > b
+-x                          // negation
+```
+
+## 7. Control flow
+
+```
+if cond { ... }                    // bare if
+if cond { ... } else { ... }       // with else
+
+while cond { ... }                 // the one general loop
+
+xs.each { x in ... }               // iterate a list
+
+e.match { Case -> ... }            // branch on a variant (section 4)
+```
+
+`if`/`while` conditions are `Bool` (a comparison, `true`/`false`, or a `Bool`
+method). Combine conditions with the `Bool` methods `.and` / `.or` / `.not`.
+
+## 8. Built-in methods (the whole standard library)
+
+No-argument sends are written without parentheses (`s.length`); the rest take
+arguments. Dispatch is by the receiver's static type.
+
+**`Str`**
+
+| Send | Result | Meaning |
+|------|--------|---------|
+| `s.length` | `Int` | number of bytes |
+| `s.at(i)` | `Str` | one-character string at `i` |
+| `s.code` | `Int` | byte value of the first character |
+| `s.slice(a, b)` | `Str` | substring `[a, b)` |
+| `s.concat(t)` | `Str` | `s` followed by `t` |
+| `s.split(d)` | `List[Str]` | split on the first character of `d` |
+| `s.contains(t)` | `Bool` | is `t` a substring |
+| `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
+| `s.toInt` | `Int` | parse (0 if not a number) |
+| `s.toFloat` | `Float` | parse (0 if not a number) |
+| `s == t` | `Bool` | equality |
+
+**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), `n.ge(m)` / `n.le(m)`
+(`Bool`, for `>=` / `<=`), arithmetic and ordering.
+
+**`Float`**: `x.toStr` (`Str`), `x.toInt` (`Int`, truncates), arithmetic and
+ordering.
+
+**`Bool`**: `b.not`, `b.and(c)`, `b.or(c)` (all `Bool`).
+
+**`List[T]`**: `xs.length` (`Int`), `xs.at(i)` (`T`), `xs.push(x)`,
+`xs.sort` (new sorted `List[T]`), `xs.each { x in ... }`.
+
+**`Map`**: `m.set(k, v)`, `m.get(k)` (value type), `m.has(k)` (`Bool`),
+`m.keys` (`List[Str]`), `m.byValue` (`List[Str]`, descending by value).
+
+## 9. Effects and capabilities
+
+**Pure by default.** Anything that touches the world is marked in the
+signature: `!IO` (input/output), `!Fail` (can fail). A function must declare
+every effect it uses, whether directly or by calling an effectful function;
+`main` is exempt. This keeps cost visible at every call site.
+
+```
+shout(screen : Screen, who : Str) !IO {
+  screen.print("hi, ".concat(who))   // print is !IO, so the signature says so
 }
 ```
+
+**Capabilities replace imports.** There are no globals and no `import`. `main`
+receives the world as `sys` and passes subsets down. A parameter list is a
+permission set: a function can touch only what it was handed. The capability
+types are `Screen`, `Files`, `Mail`; they are erased at compile time and cost
+nothing at runtime.
+
+`sys` provides:
+
+| Send | Type | Effect | Meaning |
+|------|------|--------|---------|
+| `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool`, with a newline |
+| `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
+| `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` |
+| `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
+| `sys.stdin` | `Str` | — | all of standard input |
+
+Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
+function that was handed only a `Screen` cannot read files: the name is not in
+scope.
+
+## 10. Failure
+
+`?` marks a call that can fail and propagates the failure upward; it is
+required on `sys.files.read`. `fail(message)` writes `message` to stderr and
+exits with a non-zero status, the way a Unix tool reports a usage error:
+
+```
+main(sys) {
+  args = sys.args
+  if args.length < 1 {
+    fail("usage: tool <file>")
+  }
+  text = sys.files.read(args.at(0))?
+  sys.screen.print(text)
+}
+```
+
+## 11. Complete programs
+
+A read-transform-write filter (numbers a file's lines, file or stdin):
+
+```
+main(sys) {
+  args = sys.args
+  text = ""
+  if args.length > 0 {
+    text = sys.files.read(args.at(0))?
+  } else {
+    text = sys.stdin
+  }
+  n = 0
+  text.split("\n").each { line in
+    if line.length > 0 {
+      n = n + 1
+      sys.screen.print(n.toStr.concat("\t").concat(line))
+    }
+  }
+}
+```
+
+A word-frequency counter, ranked (the program a `Map` exists for):
+
+```
+main(sys) {
+  counts = Map()
+  sys.stdin.replace("\n", " ").split(" ").each { w in
+    if w.length > 0 {
+      counts.set(w, counts.get(w) + 1)
+    }
+  }
+  counts.byValue.each { k in
+    sys.screen.print(k.concat(": ").concat(counts.get(k).toStr))
+  }
+}
+```
+
+More working tools live in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
+`wordfreq`, `sortlines`, `average`.
+
+## 12. Deliberately absent
+
+Knowing what is *not* here is as useful as knowing what is. Do not reach for
+these; they do not exist:
+
+- No `import` / modules / globals (capabilities replace them).
+- No `return`, `break`, or `continue` (a function's value is its last
+  expression; loops are `while` and `.each`).
+- No `<=`, `>=`, `%`, `&&`, `||` operators (use `.le`, `.ge`, `.and`, `.or`).
+- No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
+- No closures or first-class functions (so sorting by a derived key is a
+  type-specific method like `Map.byValue`, not a comparator argument).
+- No exceptions (failure is `!Fail` and `?`; `fail` aborts).
+- No mutation across functions: values are passed by value.
+- No tuples, no null. A `Map` returns a typed default (`0` or `""`) for a
+  missing key.
+
+## 13. How it runs
+
+The compiler transpiles Simpler to C and hands it to the system C compiler,
+which buys a mature optimizer and every platform for free. There is no garbage
+collector (no pauses, no idle battery drain) and no borrow checker (nothing
+hard to learn). Build with no Rust at all:
+
+```bash
+cd selfhost
+./build.sh                 # cc simpler.c -> ./simpler
+cp wordfreq.smplr input.smplr
+./simpler > out.c          # the compiler reads input.smplr, writes C to stdout
+cc out.c -o wordfreq
+```
+
+The frozen [`bootstrap/`](bootstrap/) Rust compiler is the original reference;
+it adds a `fmt` formatter and a `test` runner but the language no longer depends
+on it.
 
 ---
 
 ## Locked decisions
 
 - Everything is a message send; one grammar production.
-- `=` binds, `:` types, `{ }` blocks, `.` sends. No overlap.
-- Assignment is a statement, not an expression.
-- Operator sugar is exactly `+ - * / == < >`; nothing else.
-- Bidirectional places; setters are never hand-written.
-- Effects and fallibility live in the type, not the syntax (soft CQS).
-- Value semantics plus arenas; no GC, no borrow checker.
-- Capabilities replace imports; no globals.
-- Blocks use braces; a block parameter is named before `in` (no `->`).
-- Compile by transpiling to C; one-binary toolchain.
-
-## Open next steps
-
-- Pin the exact effect vocabulary (`!IO`, `!Fail`, `!Hardware`, ...).
-- Decide whether pure places allow any sharing, or are strictly copied.
-- Sketch the object/type definition form in full.
-- Write the bootstrap compiler (emit C), then self-host.
+- `=` binds, `:` types, `{ }` blocks, `.` sends. No overlap. `=` is a statement.
+- Operator sugar is exactly `+ - * / == < >`; a leading `-` negates.
+- `Int` and `Float` never mix without an explicit conversion.
+- Variants need exhaustive `match`; records construct positionally.
+- Effects (`!IO`, `!Fail`) and failability (`?`) live in the type, not the syntax.
+- Capabilities replace imports; `main` holds the world, passes subsets down.
+- Value semantics; no GC, no borrow checker. Compile by transpiling to C.
 
 ---
 
