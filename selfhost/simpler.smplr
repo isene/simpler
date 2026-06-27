@@ -2,10 +2,11 @@
 //
 // This is the real self-hosted compiler, grown one stage at a time. It
 // lexes source into tokens, parses them into an AST, and emits C, the
-// same pipeline as the Rust bootstrap. Right now it handles a working
-// subset: integer variables, the arithmetic operators with precedence,
-// and `print`. It emits a complete C program on stdout; pipe that to a C
-// compiler and run it.
+// same pipeline as the Rust bootstrap. The working subset now covers
+// multiple functions with integer parameters, calls, integer locals,
+// the arithmetic operators with precedence, and `print`.
+//
+// It emits a complete C program on stdout; pipe that to a C compiler:
 //
 //     bootstrap/target/release/simpler run selfhost/simpler.smplr | cc -x c - -o /tmp/p && /tmp/p
 //
@@ -18,11 +19,18 @@ Expr = type {
   Num(Int)
   Var(Str)
   Bin(Str, Expr, Expr)
+  Call(Str, List[Expr])
 }
 
 Stmt = type {
   Let(Str, Expr)
-  Print(Expr)
+  Bare(Expr)
+}
+
+Fn = type {
+  name : Str
+  params : List[Str]
+  body : List[Stmt]
 }
 
 Tok = type {
@@ -33,7 +41,8 @@ Tok = type {
   Eof
 }
 
-// A parse result: the node built, and the token position to resume from.
+// Parse results: a node plus the token position to resume from. Value
+// semantics with no tuples, so each parser returns a small record.
 Parsed = type {
   node : Expr
   next : Int
@@ -44,41 +53,96 @@ PStmt = type {
   next : Int
 }
 
+PFn = type {
+  fn : Fn
+  next : Int
+}
+
+PNames = type {
+  names : List[Str]
+  next : Int
+}
+
+PBody = type {
+  body : List[Stmt]
+  next : Int
+}
+
+PArgs = type {
+  list : List[Expr]
+  next : Int
+}
+
 main(sys) {
-  src = "x = 2 + 3\nprint(x * 4)\n"
+  src = "twice(n) {\n  n + n\n}\nmain() {\n  y = twice(5)\n  print(y + 1)\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sys.screen.print("#include <stdio.h>")
-  sys.screen.print("int main() {")
-  prog.each { s in
-    sys.screen.print(emitStmt(s))
+  prog.each { f in
+    if isMain(f.name).not {
+      sys.screen.print(emitProto(f))
+    }
   }
-  sys.screen.print("  return 0;")
-  sys.screen.print("}")
+  prog.each { f in
+    sys.screen.print(emitFn(f))
+  }
 }
 
-// --- parse: tokens to a list of statements ------------------------------
+// --- parse: tokens to a list of functions -------------------------------
 
-parse(toks : List[Tok]) : List[Stmt] {
-  prog : List[Stmt] = []
+parse(toks : List[Tok]) : List[Fn] {
+  prog : List[Fn] = []
   i = 0
   while notEof(toks, i) {
-    p = parseStmt(toks, i)
-    prog.push(p.node)
+    p = parseFn(toks, i)
+    prog.push(p.fn)
     i = p.next
   }
   prog
 }
 
-// A statement is `print(expr)` or `name = expr`. Build the binding form
-// by default, then override if the leading word is `print`.
-parseStmt(toks : List[Tok], i : Int) : PStmt {
+parseFn(toks : List[Tok], i : Int) : PFn {
   name = identAt(toks, i)
-  e = parseExpr(toks, i + 2)
-  r = PStmt(node = Let(name, e.node), next = e.next)
-  if isWord(toks, i, "print") {
-    pe = parseExpr(toks, i + 2)
-    r = PStmt(node = Print(pe.node), next = pe.next + 1)
+  pp = parseParams(toks, i + 1)
+  pb = parseBlock(toks, pp.next)
+  PFn(fn = Fn(name = name, params = pp.names, body = pb.body), next = pb.next)
+}
+
+// `( name , name )` -> the parameter names, resuming after `)`.
+parseParams(toks : List[Tok], i : Int) : PNames {
+  names : List[Str] = []
+  j = i + 1
+  while isIdent(toks, j) {
+    names.push(identAt(toks, j))
+    j = j + 1
+    if isPunct(toks, j, ",") {
+      j = j + 1
+    }
+  }
+  PNames(names = names, next = j + 1)
+}
+
+// `{ stmt* }` -> the body, resuming after `}`.
+parseBlock(toks : List[Tok], i : Int) : PBody {
+  body : List[Stmt] = []
+  j = i + 1
+  while inBlock(toks, j) {
+    p = parseStmt(toks, j)
+    body.push(p.node)
+    j = p.next
+  }
+  PBody(body = body, next = j + 1)
+}
+
+// A statement is `name = expr` or a bare expression. Build the bare form
+// by default, then override if it is an assignment.
+parseStmt(toks : List[Tok], i : Int) : PStmt {
+  e = parseExpr(toks, i)
+  r = PStmt(node = Bare(e.node), next = e.next)
+  if isAssign(toks, i) {
+    name = identAt(toks, i)
+    ae = parseExpr(toks, i + 2)
+    r = PStmt(node = Let(name, ae.node), next = ae.next)
   }
   r
 }
@@ -112,11 +176,22 @@ parseTerm(toks : List[Tok], pos : Int) : Parsed {
 parseFactor(toks : List[Tok], pos : Int) : Parsed {
   toks.at(pos).match {
     Int(v) -> Parsed(node = Num(v), next = pos + 1)
-    Ident(s) -> Parsed(node = Var(s), next = pos + 1)
+    Ident(s) -> parseIdentFactor(toks, pos)
     Punct(p) -> parseParen(toks, pos)
     Str(s) -> Parsed(node = Num(0), next = pos + 1)
     Eof -> Parsed(node = Num(0), next = pos)
   }
+}
+
+// An identifier is a variable, or a call if a `(` follows.
+parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
+  name = identAt(toks, pos)
+  r = Parsed(node = Var(name), next = pos + 1)
+  if isPunct(toks, pos + 1, "(") {
+    pa = parseArgs(toks, pos + 1)
+    r = Parsed(node = Call(name, pa.list), next = pa.next)
+  }
+  r
 }
 
 parseParen(toks : List[Tok], pos : Int) : Parsed {
@@ -124,13 +199,86 @@ parseParen(toks : List[Tok], pos : Int) : Parsed {
   Parsed(node = inner.node, next = inner.next + 1)
 }
 
+// `( expr , expr )` -> the argument expressions, resuming after `)`.
+parseArgs(toks : List[Tok], i : Int) : PArgs {
+  list : List[Expr] = []
+  j = i + 1
+  while inArgs(toks, j) {
+    e = parseExpr(toks, j)
+    list.push(e.node)
+    j = e.next
+    if isPunct(toks, j, ",") {
+      j = j + 1
+    }
+  }
+  PArgs(list = list, next = j + 1)
+}
+
 // --- emit: the AST folded to C ------------------------------------------
 
-emitStmt(s : Stmt) : Str {
+// A prototype, so functions may be defined in any order.
+emitProto(f : Fn) : Str {
+  "long ".concat(f.name).concat("(").concat(paramDecls(f)).concat(");")
+}
+
+emitFn(f : Fn) : Str {
+  rt = "long"
+  if isMain(f.name) {
+    rt = "int"
+  }
+  out = rt.concat(" ").concat(f.name).concat("(").concat(paramDecls(f)).concat(") {")
+  k = 0
+  m = f.body.length
+  while k < m {
+    last = (k + 1 == m).and(isMain(f.name).not)
+    out = out.concat("\n").concat(emitStmt(f.body.at(k), last))
+    k = k + 1
+  }
+  if isMain(f.name) {
+    out = out.concat("\n  return 0;")
+  }
+  out = out.concat("\n}")
+  out
+}
+
+paramDecls(f : Fn) : Str {
+  out = ""
+  k = 0
+  m = f.params.length
+  while k < m {
+    if k > 0 {
+      out = out.concat(", ")
+    }
+    out = out.concat("long ").concat(f.params.at(k))
+    k = k + 1
+  }
+  out
+}
+
+// The last bare expression in a non-main function is its return value.
+emitStmt(s : Stmt, asReturn : Bool) : Str {
   s.match {
     Let(name, e) -> "  long ".concat(name).concat(" = ").concat(emitExpr(e)).concat(";")
-    Print(e) -> "  printf(\"%ld\\n\", ".concat(emitExpr(e)).concat(");")
+    Bare(e) -> emitBare(e, asReturn)
   }
+}
+
+emitBare(e : Expr, asReturn : Bool) : Str {
+  r = stmtExpr(e)
+  if asReturn {
+    r = "  return ".concat(emitExpr(e)).concat(";")
+  }
+  r
+}
+
+// A bare expression for effect: `print(x)` becomes a printf, anything
+// else is just the expression as a C statement.
+stmtExpr(e : Expr) : Str {
+  r = "  ".concat(emitExpr(e)).concat(";")
+  if isPrintCall(e) {
+    r = "  printf(\"%ld\\n\", ".concat(emitExpr(printArg(e))).concat(");")
+  }
+  r
 }
 
 emitExpr(e : Expr) : Str {
@@ -138,10 +286,47 @@ emitExpr(e : Expr) : Str {
     Num(v) -> v.toStr
     Var(s) -> s
     Bin(op, a, b) -> "(".concat(emitExpr(a)).concat(" ").concat(op).concat(" ").concat(emitExpr(b)).concat(")")
+    Call(name, args) -> name.concat("(").concat(emitArgs(args)).concat(")")
+  }
+}
+
+emitArgs(args : List[Expr]) : Str {
+  out = ""
+  k = 0
+  m = args.length
+  while k < m {
+    if k > 0 {
+      out = out.concat(", ")
+    }
+    out = out.concat(emitExpr(args.at(k)))
+    k = k + 1
+  }
+  out
+}
+
+isPrintCall(e : Expr) : Bool {
+  e.match {
+    Call(name, args) -> name == "print"
+    Num(v) -> false
+    Var(s) -> false
+    Bin(op, a, b) -> false
+  }
+}
+
+printArg(e : Expr) : Expr {
+  e.match {
+    Call(name, args) -> args.at(0)
+    Num(v) -> e
+    Var(s) -> e
+    Bin(op, a, b) -> e
   }
 }
 
 // --- token helpers ------------------------------------------------------
+
+isMain(name : Str) : Bool {
+  name == "main"
+}
 
 notEof(toks : List[Tok], i : Int) : Bool {
   toks.at(i).match {
@@ -153,14 +338,26 @@ notEof(toks : List[Tok], i : Int) : Bool {
   }
 }
 
-isWord(toks : List[Tok], i : Int, w : Str) : Bool {
+inBlock(toks : List[Tok], j : Int) : Bool {
+  isPunct(toks, j, "}").not.and(notEof(toks, j))
+}
+
+inArgs(toks : List[Tok], j : Int) : Bool {
+  isPunct(toks, j, ")").not.and(notEof(toks, j))
+}
+
+isIdent(toks : List[Tok], i : Int) : Bool {
   toks.at(i).match {
-    Ident(s) -> s == w
+    Ident(s) -> true
     Int(v) -> false
     Str(s) -> false
     Punct(p) -> false
     Eof -> false
   }
+}
+
+isAssign(toks : List[Tok], i : Int) : Bool {
+  isIdent(toks, i).and(isPunct(toks, i + 1, "="))
 }
 
 identAt(toks : List[Tok], i : Int) : Str {

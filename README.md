@@ -120,13 +120,13 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
 - [ ] **Self-host** rewrite the compiler in Simpler. The real compiler,
   [`selfhost/simpler.smplr`](selfhost/simpler.smplr), now exists and runs the whole
-  pipeline, lex to parse to C, on a working subset: integer variables, the
-  arithmetic operators with precedence, and `print`. The C it emits compiles and
-  runs. The subset grows toward the full language, each step checked against the
-  bootstrap:
+  pipeline, lex to parse to C, on a growing subset: multiple functions with
+  parameters and calls, integer locals, the arithmetic operators with precedence,
+  and `print`. The C it emits compiles and runs. The subset grows toward the full
+  language, each step checked against the bootstrap:
   - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
-  - [x] **parser + emitter** for the variables / arithmetic / `print` subset, into an AST and out as C that builds and runs
-  - [ ] grow the grammar: functions, user types, `match`, message sends
+  - [x] **parser + emitter** for functions, parameters, calls, integer locals, arithmetic, and `print`, into an AST and out as C that builds and runs
+  - [ ] grow the grammar further: user types, `match`, message sends, effects
   - [ ] the checker: types, effects, capabilities
   - [ ] the three-stage byte-identical fixpoint
 
