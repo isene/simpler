@@ -161,7 +161,10 @@ cp ../selfhost/wordfreq.smplr "$TMP/input.smplr"
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/wf" "$TMP/wf.c" 2>/dev/null; then
     printf 'the cat sat\non the mat\nthe cat ran\n' > "$TMP/prose.txt"
-    if [ "$("$TMP/wf" "$TMP/prose.txt")" = "$(printf 'the: 3\ncat: 2\nsat: 1\non: 1\nmat: 1\nran: 1')" ]; then ok; else nope "wordfreq tally"; fi
+    want="$(printf 'the: 3\ncat: 2\nsat: 1\non: 1\nmat: 1\nran: 1')"
+    # a real Unix filter: same result from a file argument or from stdin
+    if [ "$("$TMP/wf" "$TMP/prose.txt")" = "$want" ]; then ok; else nope "wordfreq from file"; fi
+    if [ "$(cat "$TMP/prose.txt" | "$TMP/wf")" = "$want" ]; then ok; else nope "wordfreq from stdin"; fi
     rm -f "$TMP/prose.txt"
 else
     nope "wordfreq compiles"

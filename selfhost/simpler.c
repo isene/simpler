@@ -30,6 +30,7 @@ long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (lon
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
+long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }
 long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 enum { T_Num, T_Var, T_StrLit, T_ListLit, T_Bin, T_Call, T_Match, T_Field, T_Method, T_Each };
 long Num(long v0) { return mk(T_Num, v0, 0, 0); }
@@ -285,6 +286,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
   for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
   long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
@@ -1907,6 +1909,9 @@ long emitField(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"args")) {
   r = (long)(intptr_t)"simpler_args(argc, argv)";
   }
+  if (s_eq(fld, (long)(intptr_t)"stdin")) {
+  r = (long)(intptr_t)"simpler_stdin()";
+  }
   if (s_eq(fld, (long)(intptr_t)"keys")) {
   r = s_concat(s_concat((long)(intptr_t)"m_keys(", recvC), (long)(intptr_t)")");
   }
@@ -2066,6 +2071,9 @@ long fieldType(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"args")) {
   r = (long)(intptr_t)"List[Str]";
+  }
+  if (s_eq(fld, (long)(intptr_t)"stdin")) {
+  r = (long)(intptr_t)"Str";
   }
   if (s_eq(fld, (long)(intptr_t)"keys")) {
   r = (long)(intptr_t)"List[Str]";

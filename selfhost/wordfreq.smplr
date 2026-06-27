@@ -1,8 +1,10 @@
-// wordfreq: count how often each word appears in a file.
+// wordfreq: count how often each word appears in its input.
 //
-//     wordfreq <file>
+//     wordfreq <file>        // read a named file
+//     cat prose.txt | wordfreq   // or read standard input
 //
-// Reads <file>, normalizes newlines to spaces, splits on spaces, and
+// A real Unix filter: with a filename it reads that file, with none it
+// reads stdin. It normalizes newlines to spaces, splits on spaces, and
 // tallies each word in a Str-keyed Map. Then it walks the map's keys and
 // prints "word: count", in first-seen order. This is the program a map
 // exists for: counting and grouping by key.
@@ -12,10 +14,12 @@
 
 main(sys) {
   args = sys.args
-  if args.length < 1 {
-    fail("usage: wordfreq <file>")
+  text = ""
+  if args.length > 0 {
+    text = sys.files.read(args.at(0))?
+  } else {
+    text = sys.stdin
   }
-  text = sys.files.read(args.at(0))?
   counts = Map()
   words = text.replace("\n", " ").split(" ")
   words.each { w in

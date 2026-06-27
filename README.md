@@ -140,8 +140,15 @@ counts.keys.each { k in sys.screen.print(k.concat(": ").concat(counts.get(k).toS
 ```
 
 [`selfhost/wordfreq.smplr`](selfhost/wordfreq.smplr) is exactly that: a
-word-frequency counter (`wordfreq <file>`) built from read, `replace`, `split`,
-the `Map`, and `.keys`.
+word-frequency counter built from read, `replace`, `split`, the `Map`, and
+`.keys`. It is a real Unix filter, reading a named file or, with no argument,
+standard input through `sys.stdin` (the whole of stdin as a `Str`), so both of
+these print the same tally:
+
+```bash
+wordfreq prose.txt
+cat prose.txt | wordfreq
+```
 
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
