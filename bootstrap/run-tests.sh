@@ -18,8 +18,10 @@ fail=0
 
 cleanup() {
     find examples -maxdepth 1 -type f ! -name '*.smplr' ! -name '*.txt' -delete 2>/dev/null
-    find ../selfhost -maxdepth 1 -type f ! -name '*.smplr' -delete 2>/dev/null
-    rm -f input.smplr
+    # remove generated artifacts in selfhost, but keep the committed seed simpler.c
+    find ../selfhost -maxdepth 1 -type f -name '*.c' ! -name 'simpler.c' -delete 2>/dev/null
+    for f in ../selfhost/*.smplr; do rm -f "${f%.smplr}"; done   # per-source binaries
+    rm -f ../selfhost/input.smplr input.smplr
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -70,8 +72,10 @@ if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; t
 # Str and List methods, list literals and `.each` loops, if/else, while,
 # comparisons, capabilities, escaped strings). The emitted C compiles and runs,
 # and its output matches what the bootstrap produces running the sample directly.
+# Run a temp copy so the bootstrap's `.c` side output never clobbers the seed.
+cp ../selfhost/simpler.smplr "$TMP/shc.smplr"
 cp ../selfhost/sample.smplr input.smplr
-"$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
+"$SIMPLER" run "$TMP/shc.smplr" > "$TMP/sh.c" 2>/dev/null
 rm -f input.smplr
 sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
 if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
@@ -201,11 +205,13 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else
 # stage1 compiles simpler.smplr to stage2.c; stage2 compiles it again to
 # stage3.c. stage2.c and stage3.c must be byte-identical. That fixpoint is the
 # proof of self-host.
-SH="../selfhost/simpler.smplr"
-"$SIMPLER" build "$SH" >/dev/null 2>&1
-if [ -x ../selfhost/simpler ]; then
-    cp ../selfhost/simpler "$TMP/stage1"; rm -f ../selfhost/simpler
-    cp "$SH" "$TMP/input.smplr"
+# Build in a temp copy so the bootstrap's `.c` output never clobbers the
+# committed seed selfhost/simpler.c.
+cp ../selfhost/simpler.smplr "$TMP/sc.smplr"
+"$SIMPLER" build "$TMP/sc.smplr" >/dev/null 2>&1
+if [ -x "$TMP/sc" ]; then
+    cp "$TMP/sc" "$TMP/stage1"
+    cp ../selfhost/simpler.smplr "$TMP/input.smplr"
     ( cd "$TMP" && ./stage1 > stage2.c 2>/dev/null )
     if cc -o "$TMP/stage2" "$TMP/stage2.c" 2>/dev/null; then
         ( cd "$TMP" && ./stage2 > stage3.c 2>/dev/null )
@@ -215,6 +221,19 @@ if [ -x ../selfhost/simpler ]; then
     fi
 else
     nope "self-host fixpoint: could not build stage1"
+fi
+
+# --- 5. Rust-free: the committed C seed reproduces itself ---------------------
+# selfhost/simpler.c is the self-hosted compiler transpiled to C, committed so the
+# language builds with no Rust at all. Compile it with cc, point it at its own
+# source, and it must regenerate simpler.c byte-for-byte. This both proves the
+# Rust dependency is gone and keeps the committed C in sync with the source.
+if cc -O2 ../selfhost/simpler.c -o "$TMP/seedc" 2>/dev/null; then
+    cp ../selfhost/simpler.smplr "$TMP/input.smplr"
+    ( cd "$TMP" && ./seedc > regen.c 2>/dev/null )
+    if diff -q "$TMP/regen.c" ../selfhost/simpler.c >/dev/null 2>&1; then ok; else nope "committed simpler.c is stale (regenerate it from simpler.smplr)"; fi
+else
+    nope "committed simpler.c does not compile"
 fi
 
 # --- summary ------------------------------------------------------------------

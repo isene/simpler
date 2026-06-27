@@ -77,7 +77,26 @@ capabilities are compile-time only, so they cost nothing at runtime.
 
 ## Try it
 
-The bootstrap compiler is written in Rust and transpiles to C.
+**No Rust required.** The compiler is now written in Simpler. Its source is
+transpiled to C and committed as [`selfhost/simpler.c`](selfhost/simpler.c), so a
+plain C compiler bootstraps the whole language:
+
+```bash
+cd selfhost
+./build.sh            # cc simpler.c -> ./simpler  (no Rust)
+./build.sh --rebuild  # then ./simpler recompiles its own source and proves the fixpoint
+```
+
+To compile a program, the self-hosted compiler reads `input.smplr` and writes C
+to stdout:
+
+```bash
+cp sample.smplr input.smplr && ./simpler > out.c && cc out.c -o out && ./out
+```
+
+The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
+fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
+and `test`), but the language no longer depends on it:
 
 ```bash
 cd bootstrap
@@ -102,7 +121,8 @@ cd bootstrap
 
 ## Status
 
-Early bootstrap. The language grows one runnable milestone at a time:
+**Self-hosting and Rust-free.** It grew one runnable milestone at a time, from the
+first lexer to a compiler that compiles itself:
 
 - [x] **M1** the spine: lex, parse, emit C, compile end to end
 - [x] **M2** integers, the seven operators, locals, `if`/`else`, `n.times`, typed `print`

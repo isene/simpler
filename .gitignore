@@ -9,3 +9,8 @@
 # Claude Code session/harness state
 /.claude/
 !/bootstrap/examples/*.txt
+
+# Self-hosted compiler build artifacts (keep simpler.c, the C seed, and *.smplr)
+/selfhost/simpler
+/selfhost/input.smplr
+/selfhost/*.c.new
