@@ -42,8 +42,8 @@ long Punct(long v0) { return mk(T_Punct, v0, 0, 0); }
 long Eof() { return mk(T_Eof, 0, 0, 0); }
 typedef struct { long tag; long binds; long body; } ArmT;
 long Arm(long tag, long binds, long body) { ArmT* o = malloc(sizeof(ArmT)); o->tag = tag; o->binds = binds; o->body = body; return (long)(intptr_t)o; }
-typedef struct { long name; long params; long ptypes; long ret; long body; long line; } FnT;
-long Fn(long name, long params, long ptypes, long ret, long body, long line) { FnT* o = malloc(sizeof(FnT)); o->name = name; o->params = params; o->ptypes = ptypes; o->ret = ret; o->body = body; o->line = line; return (long)(intptr_t)o; }
+typedef struct { long name; long params; long ptypes; long ret; long effs; long body; long line; } FnT;
+long Fn(long name, long params, long ptypes, long ret, long effs, long body, long line) { FnT* o = malloc(sizeof(FnT)); o->name = name; o->params = params; o->ptypes = ptypes; o->ret = ret; o->effs = effs; o->body = body; o->line = line; return (long)(intptr_t)o; }
 typedef struct { long toks; long lines; } LexedT;
 long Lexed(long toks, long lines) { LexedT* o = malloc(sizeof(LexedT)); o->toks = toks; o->lines = lines; return (long)(intptr_t)o; }
 typedef struct { long cname; long arity; long ptypes; } CaseT;
@@ -74,8 +74,8 @@ typedef struct { long rec; long next; } PRecT;
 long PRec(long rec, long next) { PRecT* o = malloc(sizeof(PRecT)); o->rec = rec; o->next = next; return (long)(intptr_t)o; }
 typedef struct { long names; long types; long next; } PNamesT;
 long PNames(long names, long types, long next) { PNamesT* o = malloc(sizeof(PNamesT)); o->names = names; o->types = types; o->next = next; return (long)(intptr_t)o; }
-typedef struct { long ret; long next; } PRetT;
-long PRet(long ret, long next) { PRetT* o = malloc(sizeof(PRetT)); o->ret = ret; o->next = next; return (long)(intptr_t)o; }
+typedef struct { long ret; long effs; long next; } PRetT;
+long PRet(long ret, long effs, long next) { PRetT* o = malloc(sizeof(PRetT)); o->ret = ret; o->effs = effs; o->next = next; return (long)(intptr_t)o; }
 typedef struct { long body; long next; } PBodyT;
 long PBody(long body, long next) { PBodyT* o = malloc(sizeof(PBodyT)); o->body = body; o->next = next; return (long)(intptr_t)o; }
 typedef struct { long list; long next; } PArgsT;
@@ -162,6 +162,19 @@ long boxField(long scrutC, long field);
 long checkExhaustive(long styp, long arms, long ctx);
 long checkArities(long t, long arms, long ctx);
 long failAt(long msg, long ctx);
+long checkEffects(long f, long ctx);
+long effBody(long body, long used, long ctx);
+long effStmt(long s, long used, long ctx);
+long effIf(long c, long t, long el, long used, long ctx);
+long effWhile(long c, long b, long used, long ctx);
+long effExpr(long e, long used, long ctx);
+long effMethodE(long recv, long name, long args, long used, long ctx);
+long effCallE(long name, long args, long used, long ctx);
+long effBin(long a, long b, long used, long ctx);
+long effMatchE(long scrut, long arms, long used, long ctx);
+long effEachE(long recv, long body, long used, long ctx);
+long effArgs(long args, long used, long ctx);
+long addAll(long src, long dst);
 long caseArityIn(long t, long tag);
 long checkCases(long t, long arms, long ctx);
 long armCovers(long arms, long cname);
@@ -183,6 +196,7 @@ long notInt(long t, long ctx);
 long varType(long s, long ctx);
 long isVariant(long t, long ctx);
 long emitField(long recv, long fld, long ctx);
+long isCapField(long fld);
 long emitMethod(long recv, long name, long args, long ctx);
 long cEscape(long s);
 long emitVar(long s, long ctx);
@@ -414,7 +428,7 @@ long parseFn(long toks, long lines, long i) {
   pp = parseParams(toks, (i + 1));
   rt = parseRet(toks, ((PNamesT*)(intptr_t)pp)->next);
   pb = parseBlock(toks, ((PRetT*)(intptr_t)rt)->next);
-  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PBodyT*)(intptr_t)pb)->body, l_at(lines, i)), ((PBodyT*)(intptr_t)pb)->next);
+  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PRetT*)(intptr_t)rt)->effs, ((PBodyT*)(intptr_t)pb)->body, l_at(lines, i)), ((PBodyT*)(intptr_t)pb)->next);
 }
 long parseParams(long toks, long i) {
   long names = 0;
@@ -448,17 +462,22 @@ long parseParams(long toks, long i) {
 }
 long parseRet(long toks, long j) {
   long ret = 0;
+  long effs = 0;
   long k = 0;
   ret = (long)(intptr_t)"Int";
+  effs = l_new();
   k = j;
   if (isPunct(toks, k, (long)(intptr_t)":")) {
   ret = identAt(toks, (k + 1));
   k = (k + 2);
   }
   while (((!isPunct(toks, k, (long)(intptr_t)"{")) && notEof(toks, k))) {
+  if (isPunct(toks, k, (long)(intptr_t)"!")) {
+  l_push(effs, identAt(toks, (k + 1)));
+  }
   k = (k + 1);
   }
-  return PRet(ret, k);
+  return PRet(ret, effs, k);
 }
 long parseBlock(long toks, long i) {
   long body = 0;
@@ -919,6 +938,7 @@ long emitFn(long f, long sigs) {
   envPut(env, (long)(intptr_t)"__line__", i_tostr(((FnT*)(intptr_t)f)->line));
   seedEnv(((FnT*)(intptr_t)f)->body, ctx);
   checkReturn(f, ctx);
+  checkEffects(f, ctx);
   decls = collectLets(((FnT*)(intptr_t)f)->body);
   d = 0;
   dn = l_len(decls);
@@ -1399,6 +1419,149 @@ long checkArities(long t, long arms, long ctx) {
 long failAt(long msg, long ctx) {
   return fail(s_concat(s_concat(s_concat((long)(intptr_t)"input.smplr:", envGet(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__")), (long)(intptr_t)": "), msg));
 }
+long checkEffects(long f, long ctx) {
+  long used = 0;
+  long k = 0;
+  long m = 0;
+  long e = 0;
+  if ((!isMain(((FnT*)(intptr_t)f)->name))) {
+  used = l_new();
+  effBody(((FnT*)(intptr_t)f)->body, used, ctx);
+  k = 0;
+  m = l_len(used);
+  while ((k < m)) {
+  e = l_at(used, k);
+  if ((!hasName(((FnT*)(intptr_t)f)->effs, e))) {
+  failAt(s_concat(s_concat((long)(intptr_t)"uses !", e), (long)(intptr_t)" but does not declare it"), ctx);
+  }
+  k = (k + 1);
+  }
+  }
+  return 0;
+}
+long effBody(long body, long used, long ctx) {
+  long k = 0;
+  long m = 0;
+  k = 0;
+  m = l_len(body);
+  while ((k < m)) {
+  effStmt(l_at(body, k), used, ctx);
+  k = (k + 1);
+  }
+  return 0;
+}
+long effStmt(long s, long used, long ctx) {
+  switch (((Obj*)(intptr_t)s)->tag) {
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return effExpr(e, used, ctx); }
+  case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return effExpr(e, used, ctx); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return effIf(c, t, el, used, ctx); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return effWhile(c, b, used, ctx); }
+  }
+  return 0;
+}
+long effIf(long c, long t, long el, long used, long ctx) {
+  effExpr(c, used, ctx);
+  effBody(t, used, ctx);
+  effBody(el, used, ctx);
+  return 0;
+}
+long effWhile(long c, long b, long used, long ctx) {
+  effExpr(c, used, ctx);
+  effBody(b, used, ctx);
+  return 0;
+}
+long effExpr(long e, long used, long ctx) {
+  switch (((Obj*)(intptr_t)e)->tag) {
+  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return effMethodE(recv, name, args, used, ctx); }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return effCallE(name, args, used, ctx); }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return effBin(a, b, used, ctx); }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return effMatchE(scrut, arms, used, ctx); }
+  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return effExpr(recv, used, ctx); }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return effEachE(recv, body, used, ctx); }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return effArgs(es, used, ctx); }
+  case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return 0; }
+  }
+  return 0;
+}
+long effMethodE(long recv, long name, long args, long used, long ctx) {
+  if (s_eq(name, (long)(intptr_t)"print")) {
+  l_push(used, (long)(intptr_t)"IO");
+  }
+  if (s_eq(name, (long)(intptr_t)"send")) {
+  l_push(used, (long)(intptr_t)"IO");
+  }
+  if (s_eq(name, (long)(intptr_t)"read")) {
+  l_push(used, (long)(intptr_t)"IO");
+  l_push(used, (long)(intptr_t)"Fail");
+  }
+  effExpr(recv, used, ctx);
+  effArgs(args, used, ctx);
+  return 0;
+}
+long effCallE(long name, long args, long used, long ctx) {
+  long fns = 0;
+  long k = 0;
+  long m = 0;
+  long g = 0;
+  fns = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fns;
+  k = 0;
+  m = l_len(fns);
+  while ((k < m)) {
+  g = l_at(fns, k);
+  if (s_eq(((FnT*)(intptr_t)g)->name, name)) {
+  addAll(((FnT*)(intptr_t)g)->effs, used);
+  }
+  k = (k + 1);
+  }
+  effArgs(args, used, ctx);
+  return 0;
+}
+long effBin(long a, long b, long used, long ctx) {
+  effExpr(a, used, ctx);
+  effExpr(b, used, ctx);
+  return 0;
+}
+long effMatchE(long scrut, long arms, long used, long ctx) {
+  long k = 0;
+  long m = 0;
+  effExpr(scrut, used, ctx);
+  k = 0;
+  m = l_len(arms);
+  while ((k < m)) {
+  effExpr(((ArmT*)(intptr_t)l_at(arms, k))->body, used, ctx);
+  k = (k + 1);
+  }
+  return 0;
+}
+long effEachE(long recv, long body, long used, long ctx) {
+  effExpr(recv, used, ctx);
+  effBody(body, used, ctx);
+  return 0;
+}
+long effArgs(long args, long used, long ctx) {
+  long k = 0;
+  long m = 0;
+  k = 0;
+  m = l_len(args);
+  while ((k < m)) {
+  effExpr(l_at(args, k), used, ctx);
+  k = (k + 1);
+  }
+  return 0;
+}
+long addAll(long src, long dst) {
+  long k = 0;
+  long m = 0;
+  k = 0;
+  m = l_len(src);
+  while ((k < m)) {
+  l_push(dst, l_at(src, k));
+  k = (k + 1);
+  }
+  return 0;
+}
 long caseArityIn(long t, long tag) {
   long r = 0;
   long k = 0;
@@ -1687,8 +1850,14 @@ long emitField(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"not")) {
   r = s_concat(s_concat((long)(intptr_t)"(!", recvC), (long)(intptr_t)")");
   }
+  if (isCapField(fld)) {
+  r = (long)(intptr_t)"0";
+  }
   }
   return r;
+}
+long isCapField(long fld) {
+  return ((s_eq(fld, (long)(intptr_t)"screen") || s_eq(fld, (long)(intptr_t)"files")) || s_eq(fld, (long)(intptr_t)"mail"));
 }
 long emitMethod(long recv, long name, long args, long ctx) {
   long t = 0;
@@ -1807,6 +1976,15 @@ long fieldType(long recv, long fld, long ctx) {
   r = (long)(intptr_t)"Int";
   if (s_eq(fld, (long)(intptr_t)"toStr")) {
   r = (long)(intptr_t)"Str";
+  }
+  if (s_eq(fld, (long)(intptr_t)"screen")) {
+  r = (long)(intptr_t)"Screen";
+  }
+  if (s_eq(fld, (long)(intptr_t)"files")) {
+  r = (long)(intptr_t)"Files";
+  }
+  if (s_eq(fld, (long)(intptr_t)"mail")) {
+  r = (long)(intptr_t)"Mail";
   }
   if (isRec(t, ctx)) {
   r = recFieldType(t, fld, ctx);

@@ -55,6 +55,7 @@ Fn = type {
   params : List[Str]
   ptypes : List[Str]
   ret : Str
+  effs : List[Str]
   body : List[Stmt]
   line : Int
 }
@@ -157,6 +158,7 @@ PNames = type {
 
 PRet = type {
   ret : Str
+  effs : List[Str]
   next : Int
 }
 
@@ -338,7 +340,7 @@ parseFn(toks : List[Tok], lines : List[Int], i : Int) : PFn {
   pp = parseParams(toks, i + 1)
   rt = parseRet(toks, pp.next)
   pb = parseBlock(toks, rt.next)
-  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, body = pb.body, line = lines.at(i)), next = pb.next)
+  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, effs = rt.effs, body = pb.body, line = lines.at(i)), next = pb.next)
 }
 
 // `( name : Type , ... )` -> the parameter names and their types.
@@ -369,18 +371,23 @@ parseParams(toks : List[Tok], i : Int) : PNames {
   PNames(names = names, types = types, next = j + 1)
 }
 
-// An optional `: Type` return annotation, then skip effects up to the body.
+// An optional `: Type` return annotation, then the declared effects (`!IO`,
+// `!Fail`), up to the body.
 parseRet(toks : List[Tok], j : Int) : PRet {
   ret = "Int"
+  effs : List[Str] = []
   k = j
   if isPunct(toks, k, ":") {
     ret = identAt(toks, k + 1)
     k = k + 2
   }
   while isPunct(toks, k, "{").not.and(notEof(toks, k)) {
+    if isPunct(toks, k, "!") {
+      effs.push(identAt(toks, k + 1))
+    }
     k = k + 1
   }
-  PRet(ret = ret, next = k)
+  PRet(ret = ret, effs = effs, next = k)
 }
 
 parseBlock(toks : List[Tok], i : Int) : PBody {
@@ -781,6 +788,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   envPut(env, "__line__", f.line.toStr)
   seedEnv(f.body, ctx)
   checkReturn(f, ctx)
+  checkEffects(f, ctx)
   decls = collectLets(f.body)
   d = 0
   dn = decls.length
@@ -1259,6 +1267,149 @@ failAt(msg : Str, ctx : Ctx) : Int {
   fail("input.smplr:".concat(envGet(ctx.env, "__line__")).concat(": ").concat(msg))
 }
 
+// --- effects: a function must declare every effect its body uses --------
+// IO comes from a capability call (.print/.read/.send); Fail from .read; both
+// also come transitively from calling a function that declares them. main is
+// exempt: it implicitly holds all effects.
+
+checkEffects(f : Fn, ctx : Ctx) : Int {
+  if isMain(f.name).not {
+    used : List[Str] = []
+    effBody(f.body, used, ctx)
+    k = 0
+    m = used.length
+    while k < m {
+      e = used.at(k)
+      if hasName(f.effs, e).not {
+        failAt("uses !".concat(e).concat(" but does not declare it"), ctx)
+      }
+      k = k + 1
+    }
+  }
+  0
+}
+
+effBody(body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+  k = 0
+  m = body.length
+  while k < m {
+    effStmt(body.at(k), used, ctx)
+    k = k + 1
+  }
+  0
+}
+
+effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
+  s.match {
+    Let(name, e) -> effExpr(e, used, ctx)
+    Bare(e) -> effExpr(e, used, ctx)
+    If(c, t, el) -> effIf(c, t, el, used, ctx)
+    While(c, b) -> effWhile(c, b, used, ctx)
+  }
+}
+
+effIf(c : Expr, t : List[Stmt], el : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+  effExpr(c, used, ctx)
+  effBody(t, used, ctx)
+  effBody(el, used, ctx)
+  0
+}
+
+effWhile(c : Expr, b : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+  effExpr(c, used, ctx)
+  effBody(b, used, ctx)
+  0
+}
+
+effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int {
+  e.match {
+    Method(recv, name, args) -> effMethodE(recv, name, args, used, ctx)
+    Call(name, args) -> effCallE(name, args, used, ctx)
+    Bin(op, a, b) -> effBin(a, b, used, ctx)
+    Match(scrut, arms) -> effMatchE(scrut, arms, used, ctx)
+    Field(recv, fld) -> effExpr(recv, used, ctx)
+    Each(recv, param, body) -> effEachE(recv, body, used, ctx)
+    ListLit(es) -> effArgs(es, used, ctx)
+    Num(v) -> 0
+    Var(s) -> 0
+    StrLit(s) -> 0
+  }
+}
+
+effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+  if name == "print" {
+    used.push("IO")
+  }
+  if name == "send" {
+    used.push("IO")
+  }
+  if name == "read" {
+    used.push("IO")
+    used.push("Fail")
+  }
+  effExpr(recv, used, ctx)
+  effArgs(args, used, ctx)
+  0
+}
+
+effCallE(name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+  fns = ctx.sigs.fns
+  k = 0
+  m = fns.length
+  while k < m {
+    g = fns.at(k)
+    if g.name == name {
+      addAll(g.effs, used)
+    }
+    k = k + 1
+  }
+  effArgs(args, used, ctx)
+  0
+}
+
+effBin(a : Expr, b : Expr, used : List[Str], ctx : Ctx) : Int {
+  effExpr(a, used, ctx)
+  effExpr(b, used, ctx)
+  0
+}
+
+effMatchE(scrut : Expr, arms : List[Arm], used : List[Str], ctx : Ctx) : Int {
+  effExpr(scrut, used, ctx)
+  k = 0
+  m = arms.length
+  while k < m {
+    effExpr(arms.at(k).body, used, ctx)
+    k = k + 1
+  }
+  0
+}
+
+effEachE(recv : Expr, body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+  effExpr(recv, used, ctx)
+  effBody(body, used, ctx)
+  0
+}
+
+effArgs(args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+  k = 0
+  m = args.length
+  while k < m {
+    effExpr(args.at(k), used, ctx)
+    k = k + 1
+  }
+  0
+}
+
+addAll(src : List[Str], dst : List[Str]) : Int {
+  k = 0
+  m = src.length
+  while k < m {
+    dst.push(src.at(k))
+    k = k + 1
+  }
+  0
+}
+
 caseArityIn(t : TyDef, tag : Str) : Int {
   r = 0 - 1
   k = 0
@@ -1548,8 +1699,16 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     if fld == "not" {
       r = "(!".concat(recvC).concat(")")
     }
+    if isCapField(fld) {
+      r = "0"
+    }
   }
   r
+}
+
+// The capability accessors on `sys`: erased at runtime, so they emit as 0.
+isCapField(fld : Str) : Bool {
+  (fld == "screen").or(fld == "files").or(fld == "mail")
 }
 
 // A `.method(args)` on a builtin value.
@@ -1667,6 +1826,15 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   r = "Int"
   if fld == "toStr" {
     r = "Str"
+  }
+  if fld == "screen" {
+    r = "Screen"
+  }
+  if fld == "files" {
+    r = "Files"
+  }
+  if fld == "mail" {
+    r = "Mail"
   }
   if isRec(t, ctx) {
     r = recFieldType(t, fld, ctx)

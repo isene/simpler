@@ -156,12 +156,13 @@ first lexer to a compiler that compiles itself:
   - [x] **string re-escaping** literals are re-escaped on emit (`\n`, `\"`, `\\`, `\t`, `\r`), so a string with a newline survives the round trip into valid C
   - [x] **reading its own source** (`sys.files.read`, `?`), typed match bindings, and nested-binding type inference, the last gaps the fixpoint exposed
   - [x] **the three-stage byte-identical fixpoint** ✅ stage2 and stage3 match to the byte
-- [ ] **Beyond the bootstrap** make the self-hosted compiler a strict superset of
-  the Rust: reject every program the Rust rejects, not just compile the valid ones.
-  Once all the checks are folded in, the Rust retires for good. (Adding a check
-  means the compiler now needs to *report* errors, so its source uses a `fail`
-  primitive the frozen Rust does not have; from here it is built only from its own
-  C seed.)
+- [x] **Beyond the bootstrap** the self-hosted compiler is now a superset of the
+  Rust on what it rejects: it catches every type-, structure-, and effect-level
+  error the Rust does, with source locations, and still compiles itself to the
+  byte-stable fixpoint. (Adding a check means the compiler now needs to *report*
+  errors, so its source uses a `fail` primitive the frozen Rust does not have;
+  from here it is built only from its own C seed.) The lone gap left to the C
+  compiler is using a capability that was never handed in (an undefined name).
   - [x] **error reporting** a `fail` primitive: a compile error prints to stderr and stops the compiler
   - [x] **`match` exhaustiveness** every case of the matched variant must have an arm, else a compile error
   - [x] **operand types** arithmetic and ordering (`+ - * / < >`) require Int operands; `1 + "a"` is rejected
@@ -170,7 +171,7 @@ first lexer to a compiler that compiles itself:
   - [x] **return types** a function's value must match its declared return type; `twice(n) : Int { "no" }` is rejected (`match`-bodied functions are skipped, their type is not inferred)
   - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
   - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the enclosing function (the lexer tracks a line per token; the Rust pinpoints the exact expression, this is one notch coarser)
-  - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed): a larger subsystem the self-hosted compiler does not yet model
+  - [x] **effects** `!IO`/`!Fail` coverage: a function must declare every effect it uses, directly through a capability call (`.print`/`.read`/`.send`) or transitively by calling an effectful function; `main` is exempt. Capabilities are typed (`sys.screen` is a `Screen`, erased to `0` at runtime) so they pass to capability parameters. The one piece left to the C compiler: using a capability that was never handed in is caught as an undefined name, not yet as a Simpler-level error.
 
 See it for yourself, the fixpoint with no Rust at all:
 

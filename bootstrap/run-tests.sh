@@ -127,6 +127,22 @@ reject "located error" \
 name(c : Color) : Int { c.match { Red -> 1 } }
 main(sys) { sys.screen.print(name(Red)) }' \
     "input.smplr:2:"
+# uses an effect (IO) without declaring it
+reject "undeclared effect" \
+    'greet(screen : Screen) { screen.print("hi") }
+main(sys) { greet(sys.screen) }' \
+    "uses !IO but does not declare it"
+# transitively uses an effect (calls an !IO function) without declaring it
+reject "transitive effect" \
+    'a(s : Screen) !IO { s.print("x") }
+b(s : Screen) { a(s) }
+main(sys) { b(sys.screen) }' \
+    "uses !IO but does not declare it"
+# a failable read needs !Fail, not just !IO
+reject "missing Fail" \
+    'rd(f : Files) : Str !IO { f.read("p")? }
+main(sys) { sys.screen.print(rd(sys.files)) }' \
+    "uses !Fail but does not declare it"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
