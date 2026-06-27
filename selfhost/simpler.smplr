@@ -160,7 +160,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nnl() : Str {\n  \"a\\nb\"\n}\nmain(sys) {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  sys.screen.print(nl())\n  sys.screen.print(msg)\n  sys.screen.print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
+  src = sys.files.read("input.smplr")?
   toks = lex(src)
   prog = parse(toks)
   sigs = buildSigs(prog)
@@ -182,6 +182,7 @@ main(sys) {
   sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
   sys.screen.print("long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }")
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
+  sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
   }
@@ -473,6 +474,9 @@ parsePostfix(toks : List[Tok], pos : Int) : Parsed {
         }
       }
     }
+  }
+  if isPunct(toks, i, "?") {
+    i = i + 1
   }
   Parsed(node = node, next = i)
 }
@@ -1123,6 +1127,9 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   if name == "push" {
     r = "l_push(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
+  if name == "read" {
+    r = "(long)(intptr_t)simpler_read((const char*)(intptr_t)".concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
   if name == "ge" {
     r = "(".concat(recvC).concat(" >= ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
@@ -1249,6 +1256,9 @@ methodRet(name : Str) : Str {
     r = "Str"
   }
   if name == "at" {
+    r = "Str"
+  }
+  if name == "read" {
     r = "Str"
   }
   r

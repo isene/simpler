@@ -19,6 +19,7 @@ fail=0
 cleanup() {
     find examples -maxdepth 1 -type f ! -name '*.smplr' ! -name '*.txt' -delete 2>/dev/null
     find ../selfhost -maxdepth 1 -type f ! -name '*.smplr' -delete 2>/dev/null
+    rm -f input.smplr
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -63,13 +64,17 @@ cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
 printf '#include <stdio.h>\nint main(){printf("%%d\\n", %s);return 0;}\n' "$cexp" > "$TMP/emit.c"
 if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; then ok; else nope "emitted C compiles to 25 (expr: $cexp)"; fi
 
-# the real self-hosted compiler: lex -> parse -> emit C for its subset (recursive
-# multi-payload variants with match, enums, records with field access, typed
-# params/returns, Str and List methods, list literals and `.each` loops, if/else,
-# while, comparisons, functions, locals, arithmetic, %s-vs-%ld print), all routed
-# through a type context. The C it emits compiles and runs.
+# the real self-hosted compiler reads a source file (input.smplr) and emits C.
+# Feed it sample.smplr, which exercises the whole subset (recursive multi-payload
+# variants with match, enums, records with field access, typed params/returns,
+# Str and List methods, list literals and `.each` loops, if/else, while,
+# comparisons, capabilities, escaped strings). The emitted C compiles and runs,
+# and its output matches what the bootstrap produces running the sample directly.
+cp ../selfhost/sample.smplr input.smplr
 "$SIMPLER" run ../selfhost/simpler.smplr > "$TMP/sh.c" 2>/dev/null
-if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds its subset"; fi
+rm -f input.smplr
+sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
+if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

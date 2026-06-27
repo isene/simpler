@@ -1,0 +1,96 @@
+// A sample program covering the self-hosted compiler's whole subset.
+// Compiling it (with the bootstrap or the self-hosted compiler) yields a C
+// program that prints:
+//
+//     a
+//     b
+//     hi!
+//     72
+
+Point = type { x : Int, y : Int }
+Box = type { label : Str, items : List[Int] }
+Expr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }
+Sign = type { Pos Neg }
+
+eval(e : Expr) : Int {
+  e.match {
+    Num(v) -> v
+    Add(a, b) -> eval(a) + eval(b)
+    Mul(a, b) -> eval(a) * eval(b)
+  }
+}
+
+flip(s : Sign) : Int {
+  s.match {
+    Pos -> 0
+    Neg -> 1
+  }
+}
+
+sumTo(n : Int) : Int {
+  total = 0
+  i = 1
+  while i < n {
+    total = total + i
+    i = i + 1
+  }
+  total
+}
+
+classify(x : Int) : Int {
+  r = 0
+  if x < 5 {
+    r = 1
+  } else {
+    r = 2
+  }
+  r
+}
+
+shout(w : Str) : Str {
+  w.concat("!")
+}
+
+isHi(w : Str) : Int {
+  r = 0
+  if w == "hi" {
+    r = 1
+  } else {
+    r = 2
+  }
+  r
+}
+
+sumList(xs : List[Int]) : Int {
+  total = 0
+  xs.each { n in
+    total = total + n
+  }
+  total
+}
+
+boxScore(b : Box) : Int {
+  r = 0
+  if b.label == "hi" {
+    r = b.items.length
+  } else {
+    r = 0
+  }
+  r
+}
+
+nl() : Str {
+  "a\nb"
+}
+
+main(sys) {
+  p = Point(x = 3, y = 4)
+  msg = shout("hi")
+  nums : List[Int] = []
+  nums.push(10)
+  nums.push(20)
+  bx = Box(label = "hi", items = nums)
+  sys.screen.print(nl())
+  sys.screen.print(msg)
+  sys.screen.print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi("hi") + sumList(nums) + nums.length + boxScore(bx))
+}
