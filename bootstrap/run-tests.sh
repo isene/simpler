@@ -111,6 +111,19 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/add" "$TMP/add.c" 2>/dev/null && [ "$("$TMP/add" 40 2)" = "42" ]; then ok; else nope "Str.toInt arg arithmetic"; fi
 
+# Str.split: split a comma-separated argument and sum the fields. Proves
+# split returns a List[Str] that composes with .each, .toInt and .length.
+printf '%s' 'main(sys) {
+  parts = sys.args.at(0).split(",")
+  total = 0
+  parts.each { p in total = total + p.toInt }
+  sys.screen.print(parts.length.toStr)
+  sys.screen.print(total.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sum.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/sum" "$TMP/sum.c" 2>/dev/null && [ "$("$TMP/sum" 10,20,3,9)" = "$(printf '4\n42')" ]; then ok; else nope "Str.split fields"; fi
+
 # the self-hosted compiler now rejects programs the Rust rejects.
 reject() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/input.smplr"

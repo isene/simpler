@@ -116,7 +116,8 @@ A function that called `.write` without declaring `!IO` would be rejected. The
 command line arrives as `sys.args`, a plain `List[Str]`, so the same list
 methods (`.length`, `.at`, `.each`) work on it. A numeric argument becomes an
 `Int` with `.toInt` (the inverse of `.toStr`), so a tool can do arithmetic on
-what it is given.
+what it is given. `"a,b,c".split(",")` returns a `List[Str]`, so a line of text
+splits into fields that compose straight into `.each` and `.toInt`.
 
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
