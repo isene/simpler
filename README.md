@@ -150,6 +150,13 @@ wordfreq prose.txt
 cat prose.txt | wordfreq
 ```
 
+A list sorts with `xs.sort`, which returns a new list ordered by its element
+type: numerically for `List[Int]`, lexically for `List[Str]`.
+[`selfhost/sortlines.smplr`](selfhost/sortlines.smplr) is the Unix `sort` in
+miniature on top of it. An empty collection takes its element type from its
+annotation, so `xs : List[Str] = []` really is a list of strings once you fill
+and walk it.
+
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
 and `test`), but the language no longer depends on it:

@@ -27,6 +27,9 @@ long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_
 long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }
 long m_has(long mp, long k) { return m_find(mp, k) >= 0; }
 long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }
+int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }
+int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }
+long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
@@ -44,7 +47,7 @@ long Field(long v0, long v1) { return mk(T_Field, v0, v1, 0); }
 long Method(long v0, long v1, long v2) { return mk(T_Method, v0, v1, v2); }
 long Each(long v0, long v1, long v2) { return mk(T_Each, v0, v1, v2); }
 enum { T_Let, T_Bare, T_If, T_While };
-long Let(long v0, long v1) { return mk(T_Let, v0, v1, 0); }
+long Let(long v0, long v1, long v2) { return mk(T_Let, v0, v1, v2); }
 long Bare(long v0) { return mk(T_Bare, v0, 0, 0); }
 long If(long v0, long v1, long v2) { return mk(T_If, v0, v1, v2); }
 long While(long v0, long v1) { return mk(T_While, v0, v1, 0); }
@@ -143,6 +146,7 @@ long seedIf(long t, long el, long ctx);
 long seedExpr(long e, long ctx);
 long seedEach(long recv, long param, long body, long ctx);
 long inferType(long e, long ctx);
+long letType(long ty, long e, long ctx);
 long callRet(long name, long ctx);
 long variantOf(long name, long ctx);
 long hasCase(long t, long name);
@@ -283,6 +287,9 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
@@ -531,7 +538,7 @@ long parseStmt(long toks, long i) {
   if (isAssign(toks, i)) {
   name = identAt(toks, i);
   ae = parseExpr(toks, (i + 2));
-  r = PStmt(Let(name, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
+  r = PStmt(Let(name, (long)(intptr_t)"", ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
   }
   if (isTypedAssign(toks, i)) {
   r = parseTypedLet(toks, i);
@@ -549,15 +556,20 @@ long isTypedAssign(long toks, long i) {
 }
 long parseTypedLet(long toks, long i) {
   long name = 0;
+  long ty = 0;
   long k = 0;
   long ae = 0;
   name = identAt(toks, i);
+  ty = identAt(toks, (i + 2));
+  if (isPunct(toks, (i + 3), (long)(intptr_t)"[")) {
+  ty = s_concat(s_concat(s_concat(ty, (long)(intptr_t)"["), identAt(toks, (i + 4))), (long)(intptr_t)"]");
+  }
   k = (i + 1);
   while (((!isPunct(toks, k, (long)(intptr_t)"=")) && notEof(toks, k))) {
   k = (k + 1);
   }
   ae = parseExpr(toks, (k + 1));
-  return PStmt(Let(name, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
+  return PStmt(Let(name, ty, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
 }
 long parseIf(long toks, long i) {
   long c = 0;
@@ -1043,7 +1055,7 @@ long seedEnv(long body, long ctx) {
 }
 long seedStmt(long s, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return envPut(((CtxT*)(intptr_t)ctx)->env, name, inferType(e, ctx)); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return envPut(((CtxT*)(intptr_t)ctx)->env, name, letType(ty, e, ctx)); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return seedExpr(e, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return seedIf(t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return seedEnv(b, ctx); }
@@ -1077,6 +1089,14 @@ long seedEach(long recv, long param, long body, long ctx) {
 }
 long inferType(long e, long ctx) {
   return exprType(e, ctx);
+}
+long letType(long ty, long e, long ctx) {
+  long r = 0;
+  r = inferType(e, ctx);
+  if ((!s_eq(ty, (long)(intptr_t)""))) {
+  r = ty;
+  }
+  return r;
 }
 long callRet(long name, long ctx) {
   long r = 0;
@@ -1160,7 +1180,7 @@ long collectBody(long body, long names) {
 }
 long collectStmt(long s, long names) {
   switch (((Obj*)(intptr_t)s)->tag) {
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return pushUnique(names, name); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return pushUnique(names, name); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return collectExpr(e, names); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return collectIf(t, el, names); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return collectBody(b, names); }
@@ -1210,7 +1230,7 @@ long hasName(long names, long name) {
 }
 long emitStmt(long s, long asReturn, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  ", name), (long)(intptr_t)" = "), emitExpr(e, ctx)), (long)(intptr_t)";"); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  ", name), (long)(intptr_t)" = "), emitExpr(e, ctx)), (long)(intptr_t)";"); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return emitBare(e, asReturn, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return emitIf(c, t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return emitWhile(c, b, ctx); }
@@ -1499,7 +1519,7 @@ long effBody(long body, long used, long ctx) {
 }
 long effStmt(long s, long used, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return effExpr(e, used, ctx); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return effExpr(e, used, ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return effExpr(e, used, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return effIf(c, t, el, used, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return effWhile(c, b, used, ctx); }
@@ -1731,7 +1751,7 @@ long checkReturn(long f, long ctx) {
 long checkReturnStmt(long s, long ret, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return checkRetExpr(e, ret, ctx); }
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long v = ((Obj*)(intptr_t)s)->v1; return 0; }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long v = ((Obj*)(intptr_t)s)->v2; return 0; }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return 0; }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return 0; }
   }
@@ -1881,6 +1901,7 @@ long emitField(long recv, long fld, long ctx) {
   long t = 0;
   long recvC = 0;
   long r = 0;
+  long flag = 0;
   t = exprType(recv, ctx);
   recvC = emitExpr(recv, ctx);
   r = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"((", t), (long)(intptr_t)"T*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld);
@@ -1914,6 +1935,13 @@ long emitField(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"keys")) {
   r = s_concat(s_concat((long)(intptr_t)"m_keys(", recvC), (long)(intptr_t)")");
+  }
+  if (s_eq(fld, (long)(intptr_t)"sort")) {
+  flag = (long)(intptr_t)"0";
+  if (s_eq(elemOf(t), (long)(intptr_t)"Str")) {
+  flag = (long)(intptr_t)"1";
+  }
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_sort(", recvC), (long)(intptr_t)", "), flag), (long)(intptr_t)")");
   }
   }
   return r;
@@ -2077,6 +2105,9 @@ long fieldType(long recv, long fld, long ctx) {
   }
   if (s_eq(fld, (long)(intptr_t)"keys")) {
   r = (long)(intptr_t)"List[Str]";
+  }
+  if (s_eq(fld, (long)(intptr_t)"sort")) {
+  r = t;
   }
   if (isRec(t, ctx)) {
   r = recFieldType(t, fld, ctx);

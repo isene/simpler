@@ -44,7 +44,7 @@ Arm = type {
 }
 
 Stmt = type {
-  Let(Str, Expr)
+  Let(Str, Str, Expr)
   Bare(Expr)
   If(Expr, List[Stmt], List[Stmt])
   While(Expr, List[Stmt])
@@ -207,6 +207,9 @@ main(sys) {
   sys.screen.print("long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }")
   sys.screen.print("long m_has(long mp, long k) { return m_find(mp, k) >= 0; }")
   sys.screen.print("long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }")
+  sys.screen.print("int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }")
+  sys.screen.print("int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }")
+  sys.screen.print("long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }")
   sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }")
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
@@ -421,7 +424,7 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
   if isAssign(toks, i) {
     name = identAt(toks, i)
     ae = parseExpr(toks, i + 2)
-    r = PStmt(node = Let(name, ae.node), next = ae.next)
+    r = PStmt(node = Let(name, "", ae.node), next = ae.next)
   }
   if isTypedAssign(toks, i) {
     r = parseTypedLet(toks, i)
@@ -435,20 +438,25 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
   r
 }
 
-// `name : Type = expr`. The annotation only guides parsing; the binding's
-// type is inferred from the value like any other.
+// `name : Type = expr`. The annotation is the binding's declared type; it
+// matters for an empty collection (`xs : List[Str] = []`), whose value
+// carries no element type to infer.
 isTypedAssign(toks : List[Tok], i : Int) : Bool {
   isIdent(toks, i).and(isPunct(toks, i + 1, ":"))
 }
 
 parseTypedLet(toks : List[Tok], i : Int) : PStmt {
   name = identAt(toks, i)
+  ty = identAt(toks, i + 2)
+  if isPunct(toks, i + 3, "[") {
+    ty = ty.concat("[").concat(identAt(toks, i + 4)).concat("]")
+  }
   k = i + 1
   while isPunct(toks, k, "=").not.and(notEof(toks, k)) {
     k = k + 1
   }
   ae = parseExpr(toks, k + 1)
-  PStmt(node = Let(name, ae.node), next = ae.next)
+  PStmt(node = Let(name, ty, ae.node), next = ae.next)
 }
 
 parseIf(toks : List[Tok], i : Int) : PStmt {
@@ -879,7 +887,7 @@ seedEnv(body : List[Stmt], ctx : Ctx) : Int {
 
 seedStmt(s : Stmt, ctx : Ctx) : Int {
   s.match {
-    Let(name, e) -> envPut(ctx.env, name, inferType(e, ctx))
+    Let(name, ty, e) -> envPut(ctx.env, name, letType(ty, e, ctx))
     Bare(e) -> seedExpr(e, ctx)
     If(c, t, el) -> seedIf(t, el, ctx)
     While(c, b) -> seedEnv(b, ctx)
@@ -915,6 +923,17 @@ seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int {
 
 inferType(e : Expr, ctx : Ctx) : Str {
   exprType(e, ctx)
+}
+
+// A binding's type: its declared annotation when it has one, otherwise
+// inferred from the value. The annotation wins because an empty collection
+// has no element type to infer from its value.
+letType(ty : Str, e : Expr, ctx : Ctx) : Str {
+  r = inferType(e, ctx)
+  if (ty == "").not {
+    r = ty
+  }
+  r
 }
 
 // The type a call produces: a record constructor yields its record, a variant
@@ -995,7 +1014,7 @@ collectBody(body : List[Stmt], names : List[Str]) : Int {
 
 collectStmt(s : Stmt, names : List[Str]) : Int {
   s.match {
-    Let(name, e) -> pushUnique(names, name)
+    Let(name, ty, e) -> pushUnique(names, name)
     Bare(e) -> collectExpr(e, names)
     If(c, t, el) -> collectIf(t, el, names)
     While(c, b) -> collectBody(b, names)
@@ -1049,7 +1068,7 @@ hasName(names : List[Str], name : Str) : Bool {
 
 emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str {
   s.match {
-    Let(name, e) -> "  ".concat(name).concat(" = ").concat(emitExpr(e, ctx)).concat(";")
+    Let(name, ty, e) -> "  ".concat(name).concat(" = ").concat(emitExpr(e, ctx)).concat(";")
     Bare(e) -> emitBare(e, asReturn, ctx)
     If(c, t, el) -> emitIf(c, t, el, ctx)
     While(c, b) -> emitWhile(c, b, ctx)
@@ -1335,7 +1354,7 @@ effBody(body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
 
 effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
   s.match {
-    Let(name, e) -> effExpr(e, used, ctx)
+    Let(name, ty, e) -> effExpr(e, used, ctx)
     Bare(e) -> effExpr(e, used, ctx)
     If(c, t, el) -> effIf(c, t, el, used, ctx)
     While(c, b) -> effWhile(c, b, used, ctx)
@@ -1569,7 +1588,7 @@ checkReturn(f : Fn, ctx : Ctx) : Int {
 checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
   s.match {
     Bare(e) -> checkRetExpr(e, ret, ctx)
-    Let(name, v) -> 0
+    Let(name, ty, v) -> 0
     If(c, t, el) -> 0
     While(c, b) -> 0
   }
@@ -1751,6 +1770,13 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     if fld == "keys" {
       r = "m_keys(".concat(recvC).concat(")")
     }
+    if fld == "sort" {
+      flag = "0"
+      if elemOf(t) == "Str" {
+        flag = "1"
+      }
+      r = "l_sort(".concat(recvC).concat(", ").concat(flag).concat(")")
+    }
   }
   r
 }
@@ -1914,6 +1940,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   }
   if fld == "keys" {
     r = "List[Str]"
+  }
+  if fld == "sort" {
+    r = t
   }
   if isRec(t, ctx) {
     r = recFieldType(t, fld, ctx)

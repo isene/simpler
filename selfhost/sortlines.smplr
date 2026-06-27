@@ -1,0 +1,27 @@
+// sortlines: print the lines of the input in sorted order.
+//
+//     sortlines <file>        // sort a named file
+//     cat names.txt | sortlines   // or sort standard input
+//
+// The classic Unix `sort`, in miniature: read a file or stdin, split on
+// newlines, sort the lines lexically with List .sort, and print the
+// non-empty ones. A List[Str] sorts by string order; a List[Int] would
+// sort numerically, picked from the element type.
+//
+//     cp sortlines.smplr input.smplr && ./simpler > t.c && cc t.c -o sortlines
+//     sortlines names.txt
+
+main(sys) {
+  args = sys.args
+  text = ""
+  if args.length > 0 {
+    text = sys.files.read(args.at(0))?
+  } else {
+    text = sys.stdin
+  }
+  text.split("\n").sort.each { line in
+    if line.length > 0 {
+      sys.screen.print(line)
+    }
+  }
+}

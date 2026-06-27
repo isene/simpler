@@ -170,6 +170,39 @@ else
     nope "wordfreq compiles"
 fi
 
+# List .sort, on both element types, and the empty-List[Str] typing it relies
+# on: an ascribed `xs : List[Str] = []` must carry its element type so .each
+# and print treat the items as strings, not as the raw pointers.
+printf '%s' 'main(sys) {
+  words : List[Str] = []
+  words.push("pear")
+  words.push("apple")
+  words.push("kiwi")
+  words.sort.each { w in sys.screen.print(w) }
+  nums : List[Int] = []
+  nums.push(3)
+  nums.push(1)
+  nums.push(2)
+  nums.sort.each { n in sys.screen.print(n.toStr) }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sort.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/sort" "$TMP/sort.c" 2>/dev/null && [ "$("$TMP/sort")" = "$(printf 'apple\nkiwi\npear\n1\n2\n3')" ]; then ok; else nope "List.sort / empty-List[Str] typing (got: $("$TMP/sort" 2>/dev/null))"; fi
+
+# sortlines.smplr, the Unix `sort` in miniature, built by the self-hosted
+# compiler: read a file or stdin, sort the lines, print them.
+cp ../selfhost/sortlines.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sl.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/sl" "$TMP/sl.c" 2>/dev/null; then
+    printf 'banana\napple\ncherry\n' > "$TMP/names.txt"
+    swant="$(printf 'apple\nbanana\ncherry')"
+    if [ "$("$TMP/sl" "$TMP/names.txt")" = "$swant" ] && [ "$(cat "$TMP/names.txt" | "$TMP/sl")" = "$swant" ]; then ok; else nope "sortlines"; fi
+    rm -f "$TMP/names.txt"
+else
+    nope "sortlines compiles"
+fi
+
 # sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the
