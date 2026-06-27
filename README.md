@@ -77,8 +77,8 @@ cargo build --release
 ./target/release/simpler emit examples/m3.smplr     # show the generated C
 ```
 
-Commands: `run`, `build`, `emit`, and `fmt` (format a file in place,
-canonical and comment-preserving). `test` is planned.
+Commands: `run`, `build`, `emit`, `fmt` (format in place, canonical and
+comment-preserving), and `test` (run the file's `test_*` functions).
 
 ## Status
 
@@ -90,7 +90,7 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M3b** `?` failure propagation, the `Files`/`Mail` capabilities, named arguments
 - [x] **M3c** value-returning user functions and cross-function `?`
 - [x] **M4a** the canonical `fmt` formatter (comment-preserving, idempotent)
-- [ ] **M4b** the `test` runner (needs an `assert` primitive)
+- [x] **M4b** the `test` runner with the `assert` built-in
 - [ ] **Self-host** rewrite the compiler in Simpler
 
 Every error reports `file:line:` with the offending line, because the whole

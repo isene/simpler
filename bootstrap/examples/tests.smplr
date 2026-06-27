@@ -1,0 +1,15 @@
+// M4b: a test is a function named test_*; assert(cond) checks a condition.
+// Run with: simpler test examples/tests.smplr
+test_arithmetic() {
+  assert(2 + 2 == 4)
+  assert(twice(21) == 42)
+}
+
+test_comparison() {
+  assert(10 > 3)
+  assert(2 < 5)
+}
+
+twice(n : Int) : Int {
+  n + n
+}

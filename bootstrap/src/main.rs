@@ -640,6 +640,9 @@ fn build_sigs(funcs: &[Func]) -> Result<HashMap<String, Sig>, CErr> {
     let mut sigs = HashMap::new();
     for f in funcs {
         let is_main = f.name == "main";
+        // `test_*` functions are run by `simpler test`; asserting is their job,
+        // so they implicitly hold `!Fail`.
+        let is_test = !is_main && f.name.starts_with("test_");
         let mut params = Vec::new();
         for (pn, pt) in &f.params {
             let ty = match pt {
@@ -654,15 +657,15 @@ fn build_sigs(funcs: &[Func]) -> Result<HashMap<String, Sig>, CErr> {
         if is_main && f.ret.is_some() {
             return Err(ce(f.line, "`main` does not return a value"));
         }
-        let effects = if is_main { Effects::all() } else { f.effects };
+        let mut effects = if is_main { Effects::all() } else { f.effects };
+        if is_test {
+            effects.fail = true;
+        }
         let ret = if is_main { None } else { f.ret };
         if sigs.contains_key(&f.name) {
             return Err(ce(f.line, format!("function `{}` is defined twice", f.name)));
         }
         sigs.insert(f.name.clone(), Sig { params, ret, effects, is_main });
-    }
-    if !sigs.contains_key("main") {
-        return Err(ce(1, "no `main` function found"));
     }
     Ok(sigs)
 }
@@ -704,6 +707,9 @@ fn fail_ret(sig: &Sig) -> &'static str {
 
 fn emit(funcs: &[Func]) -> Result<String, CErr> {
     let sigs = build_sigs(funcs)?;
+    if !sigs.contains_key("main") {
+        return Err(ce(1, "no `main` function found"));
+    }
     let mut out = String::from(RUNTIME);
     out.push('\n');
     for f in funcs {
@@ -720,6 +726,44 @@ fn emit(funcs: &[Func]) -> Result<String, CErr> {
     }
     let mainf = funcs.iter().find(|f| f.name == "main").unwrap();
     out.push_str(&emit_func(mainf, &sigs)?);
+    Ok(out)
+}
+
+/// Emit a test-runner program: every `test_*` function is called, its pass or
+/// fail reported via the failure flag. No user `main` is needed or used.
+fn emit_tests(funcs: &[Func]) -> Result<String, CErr> {
+    let sigs = build_sigs(funcs)?;
+    let mut out = String::from(RUNTIME);
+    out.push('\n');
+    for f in funcs {
+        if f.name != "main" {
+            let sig = &sigs[&f.name];
+            out.push_str(&format!("{} {}({});\n", c_ret(sig), f.name, c_params(sig)));
+        }
+    }
+    out.push('\n');
+    for f in funcs {
+        if f.name != "main" {
+            out.push_str(&emit_func(f, &sigs)?);
+        }
+    }
+    let mut tests = Vec::new();
+    for f in funcs {
+        if f.name.starts_with("test_") {
+            if !f.params.is_empty() {
+                return Err(ce(f.line, format!("test `{}` must take no parameters", f.name)));
+            }
+            tests.push(f.name.clone());
+        }
+    }
+    out.push_str("int main(void) {\n    int failures = 0;\n");
+    for t in &tests {
+        out.push_str(&format!("    simpler_failed = 0;\n    {}();\n", t));
+        out.push_str(&format!("    if (simpler_failed) {{ printf(\"FAIL {}\\n\"); failures++; }}\n", t));
+        out.push_str(&format!("    else printf(\"PASS {}\\n\");\n", t));
+    }
+    out.push_str(&format!("    printf(\"\\n%d/{} passed\\n\", {} - failures);\n", tests.len(), tests.len()));
+    out.push_str("    return failures ? 1 : 0;\n}\n");
     Ok(out)
 }
 
@@ -947,6 +991,17 @@ fn emit_expr_stmt(
                 _ => Err(ce(line, format!("{:?} has no method `{}`", rty, name))),
             }
         }
+        // assert(cond) — built-in check; fails (sets the flag) when cond is false.
+        Expr::Call { name, args } if name == "assert" => {
+            let a = one_positional(args, line, "assert")?;
+            let (ac, at) = emit_expr(a, scope, line, sigs, used)?;
+            if at != Ty::Bool {
+                return Err(ce(line, format!("`assert` needs a Bool, got {:?}", at)));
+            }
+            used.fail = true;
+            out.push_str(&format!("{}if (!({})) {{ simpler_failed = 1; {} }}\n", pad, ac, fret));
+            Ok(())
+        }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
             if sig.effects.fail {
@@ -1065,6 +1120,9 @@ fn emit_expr(
                 BinOp::Gt => (">", Ty::Bool),
             };
             Ok((format!("({} {} {})", lc, cop, rc), res))
+        }
+        Expr::Call { name, .. } if name == "assert" => {
+            Err(ce(line, "`assert` is a statement, not a value"))
         }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
@@ -1340,8 +1398,14 @@ fn main() {
             }
         }
         "test" => {
-            eprintln!("simpler: `test` is not implemented yet (needs an `assert` primitive)");
-            exit(2);
+            let Some(file) = args.get(2) else {
+                eprintln!("simpler: `test` needs an input file");
+                exit(2);
+            };
+            if let Err(e) = test_file(file) {
+                eprintln!("simpler: {}", e);
+                exit(1);
+            }
         }
         "-h" | "--help" | "help" => usage(),
         other => {
@@ -1360,7 +1424,7 @@ fn usage() {
          \x20 simpler build <file.smplr>   transpile to C and compile\n\
          \x20 simpler emit  <file.smplr>   print the generated C\n\
          \x20 simpler fmt   <file.smplr>   format in place (canonical)\n\
-         \x20 simpler test  <file.smplr>   (next) not yet"
+         \x20 simpler test  <file.smplr>   run the test_* functions"
     );
 }
 
@@ -1387,7 +1451,21 @@ fn drive(cmd: &str, file: &str) -> Result<(), String> {
         print!("{}", c);
         return Ok(());
     }
+    compile_c(file, &c, cmd == "run")
+}
 
+/// Build the file's `test_*` functions into a runner and run it.
+fn test_file(file: &str) -> Result<(), String> {
+    let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
+    let (toks, _comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
+    let mut p = Parser { toks, pos: 0, no_block: false };
+    let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
+    let c = emit_tests(&funcs).map_err(|e| diag(file, &src, &e))?;
+    compile_c(file, &c, true)
+}
+
+/// Write the generated C next to the source, compile it, and optionally run it.
+fn compile_c(file: &str, c: &str, run: bool) -> Result<(), String> {
     let path = Path::new(file);
     let stem = path
         .file_stem()
@@ -1400,7 +1478,7 @@ fn drive(cmd: &str, file: &str) -> Result<(), String> {
     let cfile = dir.join(format!("{}.c", stem));
     let bin = dir.join(stem);
 
-    fs::write(&cfile, &c).map_err(|e| format!("cannot write {}: {}", cfile.display(), e))?;
+    fs::write(&cfile, c).map_err(|e| format!("cannot write {}: {}", cfile.display(), e))?;
 
     let cc = pick_cc();
     let status = Command::new(&cc)
@@ -1413,7 +1491,7 @@ fn drive(cmd: &str, file: &str) -> Result<(), String> {
         return Err("C compilation failed".into());
     }
 
-    if cmd == "run" {
+    if run {
         let st = Command::new(&bin)
             .status()
             .map_err(|e| format!("failed to run {}: {}", bin.display(), e))?;
