@@ -1209,6 +1209,25 @@ elemOf(t : Str) : Str {
   r
 }
 
+// `Map[Str]` is a Str-valued map; a bare `Map` defaults to Int values.
+isMapType(t : Str) : Bool {
+  r = false
+  if t.length > 4 {
+    if t.slice(0, 4) == "Map[" {
+      r = true
+    }
+  }
+  r
+}
+
+mapValueOf(t : Str) : Str {
+  r = "Int"
+  if isMapType(t) {
+    r = t.slice(4, t.length - 1)
+  }
+  r
+}
+
 emitReturn(e : Expr, ctx : Ctx) : Str {
   e.match {
     Match(scrut, arms) -> emitSwitch(scrut, arms, ctx)
@@ -2100,6 +2119,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str {
   }
   if name == "has" {
     r = "Bool"
+  }
+  if name == "get" {
+    r = mapValueOf(exprType(recv, ctx))
   }
   if name == "at" {
     r = "Str"

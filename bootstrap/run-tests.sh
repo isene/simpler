@@ -153,6 +153,19 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/map" "$TMP/map.c" 2>/dev/null && [ "$("$TMP/map")" = "$(printf 'a:3\nb:2\nc:1\nhas a\nno z')" ]; then ok; else nope "Str-keyed Map (got: $("$TMP/map" 2>/dev/null))"; fi
 
+# a Str-valued Map (Map[Str]): .get returns a real Str, so string methods
+# dispatch on it (here .length), not the Int default.
+printf '%s' 'main(sys) {
+  dir : Map[Str] = Map()
+  dir.set("alice", "1234")
+  dir.set("bob", "56")
+  dir.keys.each { name in sys.screen.print(name.concat("=").concat(dir.get(name))) }
+  sys.screen.print(dir.get("alice").length.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > smap.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/smap" "$TMP/smap.c" 2>/dev/null && [ "$("$TMP/smap")" = "$(printf 'alice=1234\nbob=56\n4')" ]; then ok; else nope "Str-valued Map (got: $("$TMP/smap" 2>/dev/null))"; fi
+
 # wordfreq.smplr, a real word-frequency tool built by the self-hosted compiler:
 # read + replace + split + Map tally + .keys enumeration, the program a map is
 # for. Exercises the whole text-and-map stack in one binary.

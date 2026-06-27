@@ -179,6 +179,8 @@ long emitPrint(long arg, long ctx);
 long emitEach(long recv, long param, long body, long ctx);
 long isListType(long t);
 long elemOf(long t);
+long isMapType(long t);
+long mapValueOf(long t);
 long emitReturn(long e, long ctx);
 long retVal(long e, long ctx);
 long emitSwitch(long scrut, long arms, long ctx);
@@ -1377,6 +1379,24 @@ long elemOf(long t) {
   }
   return r;
 }
+long isMapType(long t) {
+  long r = 0;
+  r = false;
+  if ((s_len(t) > 4)) {
+  if (s_eq(s_slice(t, 0, 4), (long)(intptr_t)"Map[")) {
+  r = true;
+  }
+  }
+  return r;
+}
+long mapValueOf(long t) {
+  long r = 0;
+  r = (long)(intptr_t)"Int";
+  if (isMapType(t)) {
+  r = s_slice(t, 4, (s_len(t) - 1));
+  }
+  return r;
+}
 long emitReturn(long e, long ctx) {
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return emitSwitch(scrut, arms, ctx); }
@@ -2279,6 +2299,9 @@ long methodRet(long recv, long name, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"has")) {
   r = (long)(intptr_t)"Bool";
+  }
+  if (s_eq(name, (long)(intptr_t)"get")) {
+  r = mapValueOf(exprType(recv, ctx));
   }
   if (s_eq(name, (long)(intptr_t)"at")) {
   r = (long)(intptr_t)"Str";

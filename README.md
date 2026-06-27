@@ -130,8 +130,10 @@ so they behave in a shell pipeline the way a real command does.
 
 For counting and grouping there is a `Str`-keyed `Map`. `Map()` makes an empty
 one; `m.set(k, v)`, `m.get(k)`, and `m.has(k)` store, read, and test it, and
-`m.keys` enumerates the keys in first-seen order. `m.get` returns `0` for a key
-that was never set, so a tally increments without a guard:
+`m.keys` enumerates the keys in first-seen order. Values are `Int` by default;
+annotate the binding (`dir : Map[Str] = Map()`) for a `Str`-valued map, and
+`get` returns that type, so string methods dispatch on the result. `m.get`
+returns `0` for a key that was never set, so a tally increments without a guard:
 
 ```
 counts = Map()
