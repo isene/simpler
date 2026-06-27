@@ -18,6 +18,7 @@ fail=0
 
 cleanup() {
     find examples -maxdepth 1 -type f ! -name '*.smplr' ! -name '*.txt' -delete 2>/dev/null
+    find ../selfhost -maxdepth 1 -type f ! -name '*.smplr' -delete 2>/dev/null
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -46,6 +47,15 @@ check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\nt
 check_run m5d   "$(printf '2\n3\n4')"
 check_run m5e   "20"
 check_run m5f   "$(printf '3\n20\n5\nhi\n42')"
+check_run m6    "15"
+
+# the self-hosted lexer (written in Simpler) tokenises correctly
+lout="$("$SIMPLER" run ../selfhost/lexer.smplr 2>/dev/null)"
+if [ "$lout" = "$(printf 'Ident foo\nPunct .\nIdent bar\nPunct (\nNum 42\nPunct )\nPunct +\nIdent baz')" ]; then
+    ok
+else
+    nope "self-hosted lexer (got: $lout)"
+fi
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

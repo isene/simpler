@@ -169,6 +169,7 @@ struct Stmt {
 enum SKind {
     Bind { name: String, ty: Option<Ty>, value: Expr },
     If { cond: Expr, then: Vec<Stmt>, els: Vec<Stmt> },
+    While { cond: Expr, body: Vec<Stmt> },
     Expr(Expr),
 }
 
@@ -577,6 +578,9 @@ impl Parser {
         if self.ident_is("if") {
             return self.if_stmt();
         }
+        if self.ident_is("while") {
+            return self.while_stmt();
+        }
         if let Tok::Ident(name) = self.peek().clone() {
             match self.at(1) {
                 Some(Tok::Assign) => {
@@ -615,6 +619,16 @@ impl Parser {
             Vec::new()
         };
         Ok(Stmt { line, kind: SKind::If { cond, then, els } })
+    }
+
+    fn while_stmt(&mut self) -> Result<Stmt, CErr> {
+        let line = self.cur_line();
+        self.pos += 1; // 'while'
+        self.no_block = true;
+        let cond = self.expr()?;
+        self.no_block = false;
+        let body = self.stmt_block()?;
+        Ok(Stmt { line, kind: SKind::While { cond, body } })
     }
 
     fn parse_type(&mut self) -> Result<Ty, CErr> {
@@ -1361,6 +1375,19 @@ fn emit_stmt(
             }
             out.push('\n');
         }
+        SKind::While { cond, body } => {
+            let (cc, ct) = emit_expr(cond, scope, line, sigs, used)?;
+            if ct != Ty::Bool {
+                return Err(ce(line, "`while` condition must be Bool"));
+            }
+            out.push_str(&format!("{}while ({}) {{\n", pad, cc));
+            scope.push();
+            for s in body {
+                emit_stmt(s, scope, out, ind + 1, sigs, used, fret)?;
+            }
+            scope.pop();
+            out.push_str(&format!("{}}}\n", pad));
+        }
         SKind::Expr(e) => emit_expr_stmt(e, scope, out, ind, &pad, line, sigs, used, fret)?,
     }
     Ok(())
@@ -2038,6 +2065,14 @@ fn format_stmt(st: &Stmt, ind: usize, cur: &mut Cur, out: &mut String) {
                 }
                 out.push_str(&format!("{}}}\n", pad));
             }
+        }
+        SKind::While { cond, body } => {
+            out.push_str(&format!("{}while {} {{", pad, fmt_expr(cond)));
+            end_line(st.line, cur, out);
+            for s in body {
+                format_stmt(s, ind + 1, cur, out);
+            }
+            out.push_str(&format!("{}}}\n", pad));
         }
         SKind::Expr(Expr::Match { recv, arms }) => {
             out.push_str(&format!("{}{}.match {{", pad, fmt_expr(recv)));

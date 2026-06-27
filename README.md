@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M5c.4-EE6C1A)
+![Self-host](https://img.shields.io/badge/self--hosting-lexer-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -117,14 +117,16 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M5c.2** recursive variants via heap-boxing, multi-payload cases (a type can hold itself)
 - [x] **M5c.3** `match` as a value (recursive evaluators: `Add(a, b) -> eval(a) + eval(b)`)
 - [x] **M5c.4** lists (`[…]`, `push`, `length`, `at`, `each`; elements of any type)
-- [ ] **Self-host** rewrite the compiler in Simpler
+- [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
+- [ ] **Self-host** rewrite the compiler in Simpler, verified against the bootstrap:
+  - [x] **lexer** ([`selfhost/lexer.smplr`](selfhost/lexer.smplr), real Simpler, compiled by the bootstrap)
+  - [ ] **parser** a recursive `Expr` tree
+  - [ ] **checker** a fold over the tree
+  - [ ] **emitter** C, then the fixpoint test
 
-With recursive types, `match` as a value, and lists of any type, the language can
-now express a lexer (a `List[Tok]`), a parser (a recursive `Expr`), and a checker
-(a fold over the tree). Self-host is now a rewrite, not a missing feature.
-
-The last four are the road to self-host: the language has to grow enough types,
-pattern matching, and collections to express its own compiler.
+With recursive types, `match` as a value, lists of any type, and `while`, the
+language can now express its own compiler. Self-host is a rewrite, not a missing
+feature: the lexer above is the first stage, and it already runs.
 
 Every error reports `file:line:` with the offending line, because the whole
 point of effects-in-the-type is a tight, local feedback loop.

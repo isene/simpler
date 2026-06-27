@@ -1,0 +1,10 @@
+// M6: the while loop, summing 1..5.
+main(sys) {
+  i = 1
+  sum = 0
+  while i.le(5) {
+    sum = sum + i
+    i = i + 1
+  }
+  sys.screen.print(sum)
+}

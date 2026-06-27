@@ -1,0 +1,82 @@
+// The Simpler lexer, written in Simpler.
+//
+// The first piece of the self-hosted compiler: it scans source text into a
+// list of tokens, using a `while` loop, the Str methods, a variant token type,
+// and a `List[Tok]`. Compile and run it with the bootstrap:
+//
+//     bootstrap/target/release/simpler run selfhost/lexer.smplr
+
+Tok = type {
+  Ident(Str)
+  Num(Int)
+  Punct(Str)
+}
+
+main(sys) {
+  toks = lex("foo.bar(42) + baz")
+  toks.each { t in
+    show(sys.screen, t)
+  }
+}
+
+// Scan `src` into a list of tokens.
+lex(src : Str) : List[Tok] {
+  toks : List[Tok] = []
+  n = src.length
+  i = 0
+  while i < n {
+    cc = src.at(i).code
+    if isSpace(cc) {
+      i = i + 1
+    } else {
+      if isAlpha(cc) {
+        // an identifier: letters and digits
+        j = i
+        while (j < n).and(isAlnum(src.at(j).code)) {
+          j = j + 1
+        }
+        toks.push(Ident(src.slice(i, j)))
+        i = j
+      } else {
+        if isDigit(cc) {
+          // a number: accumulate the integer value directly
+          num = 0
+          while (i < n).and(isDigit(src.at(i).code)) {
+            num = num * 10 + (src.at(i).code - 48)
+            i = i + 1
+          }
+          toks.push(Num(num))
+        } else {
+          // anything else is single-character punctuation
+          toks.push(Punct(src.at(i)))
+          i = i + 1
+        }
+      }
+    }
+  }
+  toks
+}
+
+show(screen : Screen, t : Tok) !IO {
+  t.match {
+    Ident(s) -> screen.print("Ident ".concat(s))
+    Num(v) -> screen.print("Num ".concat(v.toStr))
+    Punct(p) -> screen.print("Punct ".concat(p))
+  }
+}
+
+isDigit(c : Int) : Bool {
+  c.ge(48).and(c.le(57))
+}
+
+isAlpha(c : Int) : Bool {
+  c.ge(65).and(c.le(90)).or(c.ge(97).and(c.le(122))).or(c == 95)
+}
+
+isAlnum(c : Int) : Bool {
+  isAlpha(c).or(isDigit(c))
+}
+
+isSpace(c : Int) : Bool {
+  (c == 32).or(c == 9).or(c == 10).or(c == 13)
+}
