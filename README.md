@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Bootstrap](https://img.shields.io/badge/bootstrap-M4-EE6C1A)
+![Bootstrap](https://img.shields.io/badge/bootstrap-M5a-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -111,7 +111,13 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M3c** value-returning user functions and cross-function `?`
 - [x] **M4a** the canonical `fmt` formatter (comment-preserving, idempotent)
 - [x] **M4b** the `test` runner with the `assert` built-in
+- [x] **M5a** user-defined record types (`type { fields }`, value-semantic C structs)
+- [ ] **M5b** variants and `match`
+- [ ] **M5c** collections (lists, maps) and string methods
 - [ ] **Self-host** rewrite the compiler in Simpler
+
+The last four are the road to self-host: the language has to grow enough types,
+pattern matching, and collections to express its own compiler.
 
 Every error reports `file:line:` with the offending line, because the whole
 point of effects-in-the-type is a tight, local feedback loop.

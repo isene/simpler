@@ -40,6 +40,7 @@ check_run m2    "$(printf '0\n1\n2\nbig\n3')"
 check_run m3    "$(printf 'hello,\nworld')"
 check_run m3b   "$(printf '[mail] to=boss@co subject=Daily report\nQuarterly numbers look good.\n\nsent')"
 check_run m3c   "$(printf 'Quarterly numbers look good.\n\n6')"
+check_run m5a   "$(printf '7\n25\n13')"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -89,6 +90,23 @@ check_err "assert needs Bool" \
 check_err "no main" \
     'twice(n : Int) : Int { n + n }' \
     'no `main` function found'
+check_err "missing record field" \
+    'Point = type { x : Int, y : Int }
+main(sys) { p = Point(x = 1) sys.screen.print(p.x) }' \
+    "missing field"
+check_err "wrong field type" \
+    'Point = type { x : Int }
+main(sys) { p = Point(x = "a") sys.screen.print(p.x) }' \
+    "got Str"
+check_err "unknown field read" \
+    'Point = type { x : Int }
+main(sys) { p = Point(x = 1) sys.screen.print(p.z) }' \
+    "has no field"
+check_err "nested record field rejected" \
+    'A = type { x : Int }
+B = type { a : A }
+main(sys) { sys.screen.print(1) }' \
+    "must be Int, Str, or Bool"
 
 # --- 3. fmt is idempotent; test reports correctly -----------------------------
 for f in hello m2 m3 m3b m3c tests; do

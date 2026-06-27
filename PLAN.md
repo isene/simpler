@@ -28,30 +28,25 @@ end-to-end.
 
 ---
 
-## Phase 0: Design closure (blocks everything)
+## Phase 0: Design closure (settled)
 
-The compiler cannot lower what is not yet defined. Three questions, plus
-the decision that frames them, must close before Phase 1.
+The compiler cannot lower what is not yet defined. The four questions are
+now closed:
 
-- **Effect vocabulary.** Pin the exact set: `!IO`, `!Fail`, `!Hardware`,
-  and the rest. The checker needs a closed list to verify against and a
-  rule for how effects on a deep path combine.
-- **Pure-place sharing.** Decide whether a pure place is strictly copied
-  or may share when the compiler proves no observer differs. This gates
-  the whole memory model: strict copy is simplest to build; proven
-  sharing is faster but asks more of the compiler. Pick one before
-  writing the lowering, because it changes what the lowering emits.
-- **Object/type definition form.** Sketch it in full. Until a type can be
-  declared, the checker has nothing to resolve sends against.
-- **Host language for the bootstrap.** The bootstrap is thrown away once
-  self-hosting lands, so this is a low-stakes, near-term choice.
-  Recommendation: Rust, because the AST is a tree of message-send nodes,
-  which sum types model cleanly, and its error handling suits a compiler. The
-  one cost over plain C is a second build dependency, paid only until
-  Phase 3 removes it.
-
-Output of Phase 0: a frozen mini-spec for each of the four, enough that
-the compiler author never has to guess.
+- **Effect vocabulary: coarse.** Two tags, `!IO` (any contact with the
+  outside) and `!Fail` (can fail). Finer tags get added only when a real
+  need shows up.
+- **Pure-place sharing: always copy.** Assignment copies; the compiler may
+  elide a copy later as a pure speed optimisation, but the semantics are
+  value-copy. Simplest to build and correct by default.
+- **Object/type definition form: one unified `type`.** A type is a bag of
+  fields (a record) or a choice of cases (a variant), told apart by its
+  contents, with `match` to take a variant apart. Records landed in M5a;
+  variants and `match` are M5b.
+- **Host language for the bootstrap: Rust.** The AST is a tree of
+  message-send nodes, which sum types model cleanly, and its error
+  handling suits a compiler. The one cost over plain C is a second build
+  dependency, paid only until self-hosting removes it.
 
 ---
 

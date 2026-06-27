@@ -1,22 +1,27 @@
-//! The Simpler bootstrap compiler — milestone M3c.
+//! The Simpler bootstrap compiler — milestone M5a.
 //!
-//! Pipeline: lex -> parse -> emit C -> system `cc`. M3c makes functions first
-//! class enough to compose:
+//! Pipeline: lex -> parse -> emit C -> system `cc`. M5a adds the first half of
+//! the object/type form: **records**, user-defined product types.
 //!
-//!   * value-returning user functions, written `name(params) : Ret !eff { }`,
-//!     with implicit return (the body's last expression is the result),
-//!   * cross-function `?`: a failable function (`!Fail`) called as `f(...)?`
-//!     propagates its failure to the caller.
+//!   Point = type {
+//!     x : Int
+//!     y : Int
+//!   }
 //!
-//! Capabilities stay erased at runtime; failure is a single global flag the
-//! `?` checks. `main` implicitly holds the world. Nested `?` (inside a call
-//! argument) still waits for an ANF pass.
+//! A record is constructed with named fields (`Point(x = 3, y = 4)`), read with
+//! a field send (`p.x`), and has value semantics (a C struct, copied on bind /
+//! pass / return). Fields are `Int`/`Str`/`Bool` for now; nested records,
+//! variants + `match`, and collections come in M5b+.
+//!
+//! Earlier milestones still hold: capabilities and effects are compile-time
+//! only, `?` propagates failure, `fmt` is canonical, `test` runs `test_*`.
 
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{exit, Command};
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 struct CErr {
@@ -39,10 +44,14 @@ enum Ty {
     Screen,
     Files,
     Mail,
+    /// A user-defined record type, named by its (leaked, so `Copy`) name.
+    User(&'static str),
 }
 
+/// Value types have a C representation and value semantics; capabilities are
+/// erased at runtime. A record is a value (a C struct).
 fn is_value(t: Ty) -> bool {
-    matches!(t, Ty::Int | Ty::Str | Ty::Bool)
+    matches!(t, Ty::Int | Ty::Str | Ty::Bool | Ty::User(_))
 }
 
 fn cty(t: Ty) -> &'static str {
@@ -50,6 +59,7 @@ fn cty(t: Ty) -> &'static str {
         Ty::Int => "long",
         Ty::Str => "const char *",
         Ty::Bool => "int",
+        Ty::User(name) => name,
         _ => unreachable!("capabilities have no C type"),
     }
 }
@@ -158,11 +168,39 @@ struct Func {
     line: u32,
 }
 
+/// A record type definition: named fields, in declaration order.
+#[derive(Debug, Clone)]
+struct RecordDef {
+    name: &'static str,
+    fields: Vec<(String, Ty)>,
+    line: u32,
+}
+
+/// A top-level item, kept in source order so the formatter can preserve it.
+#[derive(Debug)]
+enum Item {
+    Func(Func),
+    Type(RecordDef),
+}
+
 struct Sig {
     params: Vec<(String, Ty)>,
     ret: Option<Ty>,
     effects: Effects,
     is_main: bool,
+}
+
+/// The record types of the program being compiled. Set once before emit, then
+/// read by construction and field access, so the type table need not thread
+/// through every emit function.
+static TYPES: OnceLock<Vec<RecordDef>> = OnceLock::new();
+
+fn types() -> &'static [RecordDef] {
+    TYPES.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
+fn find_record(name: &str) -> Option<&'static RecordDef> {
+    types().iter().find(|r| r.name == name)
 }
 
 // ----------------------------- Lexer ---------------------------------------
@@ -297,9 +335,16 @@ struct Parser {
     toks: Vec<(Tok, u32)>,
     pos: usize,
     no_block: bool,
+    /// User type names, mapped to a leaked `&'static str` so `Ty::User` stays
+    /// `Copy`. Filled by a pre-scan so forward references resolve.
+    type_names: HashMap<String, &'static str>,
 }
 
 impl Parser {
+    fn new(toks: Vec<(Tok, u32)>) -> Self {
+        Parser { toks, pos: 0, no_block: false, type_names: HashMap::new() }
+    }
+
     fn peek(&self) -> &Tok { &self.toks[self.pos].0 }
     fn cur_line(&self) -> u32 { self.toks[self.pos].1 }
     fn at(&self, n: usize) -> Option<&Tok> { self.toks.get(self.pos + n).map(|t| &t.0) }
@@ -331,15 +376,66 @@ impl Parser {
         matches!(self.peek(), Tok::Ident(n) if n == s)
     }
 
-    fn program(&mut self) -> Result<Vec<Func>, CErr> {
-        let mut fns = Vec::new();
-        while *self.peek() != Tok::Eof {
-            fns.push(self.func()?);
+    /// Register every `Name = type` so field and parameter types can refer to a
+    /// record defined later in the file.
+    fn prescan_types(&mut self) {
+        let n = self.toks.len();
+        let mut i = 0;
+        while i + 2 < n {
+            if let (Tok::Ident(name), Tok::Assign, Tok::Ident(kw)) =
+                (&self.toks[i].0, &self.toks[i + 1].0, &self.toks[i + 2].0)
+            {
+                if kw == "type" && !self.type_names.contains_key(name) {
+                    let leaked: &'static str = Box::leak(name.clone().into_boxed_str());
+                    self.type_names.insert(name.clone(), leaked);
+                }
+            }
+            i += 1;
         }
-        Ok(fns)
     }
 
-    /// func := ident '(' params? ')' (':' Type)? ('!' effect)* '{' stmt* '}'
+    fn program(&mut self) -> Result<Vec<Item>, CErr> {
+        self.prescan_types();
+        let mut items = Vec::new();
+        while *self.peek() != Tok::Eof {
+            if matches!(self.peek(), Tok::Ident(_)) && self.at(1) == Some(&Tok::Assign) {
+                items.push(Item::Type(self.typedef()?));
+            } else {
+                items.push(Item::Func(self.func()?));
+            }
+        }
+        Ok(items)
+    }
+
+    /// typedef := ident '=' 'type' '{' (ident ':' Type)* '}'
+    fn typedef(&mut self) -> Result<RecordDef, CErr> {
+        let line = self.cur_line();
+        let name = self.ident()?;
+        self.eat(&Tok::Assign)?;
+        if !self.ident_is("type") {
+            return Err(ce(self.cur_line(), "expected `type` after `=` in a type definition"));
+        }
+        self.pos += 1;
+        self.eat(&Tok::LBrace)?;
+        let mut fields = Vec::new();
+        while *self.peek() != Tok::RBrace && *self.peek() != Tok::Eof {
+            let fname = self.ident()?;
+            self.eat(&Tok::Colon)?;
+            let fl = self.cur_line();
+            let ft = self.parse_type()?;
+            if !matches!(ft, Ty::Int | Ty::Str | Ty::Bool) {
+                return Err(ce(fl, "record fields must be Int, Str, or Bool for now (nested types come later)"));
+            }
+            fields.push((fname, ft));
+            if *self.peek() == Tok::Comma {
+                self.pos += 1;
+            }
+        }
+        self.eat(&Tok::RBrace)?;
+        let leaked = self.type_names[&name];
+        Ok(RecordDef { name: leaked, fields, line })
+    }
+
     fn func(&mut self) -> Result<Func, CErr> {
         let line = self.cur_line();
         let name = self.ident()?;
@@ -446,7 +542,10 @@ impl Parser {
             "Screen" => Ok(Ty::Screen),
             "Files" => Ok(Ty::Files),
             "Mail" => Ok(Ty::Mail),
-            _ => Err(ce(line, format!("unknown type `{}`", n))),
+            _ => match self.type_names.get(&n) {
+                Some(&leaked) => Ok(Ty::User(leaked)),
+                None => Err(ce(line, format!("unknown type `{}`", n))),
+            },
         }
     }
 
@@ -636,12 +735,10 @@ static void simpler_send(const char *to, const char *subject, const char *body) 
 }
 ";
 
-fn build_sigs(funcs: &[Func]) -> Result<HashMap<String, Sig>, CErr> {
+fn build_sigs(funcs: &[&Func]) -> Result<HashMap<String, Sig>, CErr> {
     let mut sigs = HashMap::new();
     for f in funcs {
         let is_main = f.name == "main";
-        // `test_*` functions are run by `simpler test`; asserting is their job,
-        // so they implicitly hold `!Fail`.
         let is_test = !is_main && f.name.starts_with("test_");
         let mut params = Vec::new();
         for (pn, pt) in &f.params {
@@ -691,8 +788,6 @@ fn c_ret(sig: &Sig) -> &'static str {
     }
 }
 
-/// What a function returns when an inner `?` fails: a dummy of its return type
-/// (the failure flag, not the value, is what the caller checks).
 fn fail_ret(sig: &Sig) -> &'static str {
     if sig.is_main {
         return "return 1;";
@@ -701,25 +796,58 @@ fn fail_ret(sig: &Sig) -> &'static str {
         None => "return;",
         Some(Ty::Str) => "return \"\";",
         Some(Ty::Int) | Some(Ty::Bool) => "return 0;",
+        // A record return on the failure path: a zero-initialised struct. The
+        // caller checks the flag, never the value, so the contents are unused.
+        Some(Ty::User(_)) => "return (typeof_ret){0};",
         Some(_) => "return;",
     }
 }
 
-fn emit(funcs: &[Func]) -> Result<String, CErr> {
-    let sigs = build_sigs(funcs)?;
+/// Split items into the functions and record types, set the global type table.
+fn prepare(items: &[Item]) -> (Vec<&Func>, Vec<&RecordDef>) {
+    let funcs: Vec<&Func> = items.iter().filter_map(|i| match i {
+        Item::Func(f) => Some(f),
+        _ => None,
+    }).collect();
+    let records: Vec<&RecordDef> = items.iter().filter_map(|i| match i {
+        Item::Type(r) => Some(r),
+        _ => None,
+    }).collect();
+    let owned: Vec<RecordDef> = records.iter().map(|r| (*r).clone()).collect();
+    let _ = TYPES.set(owned);
+    (funcs, records)
+}
+
+fn emit_typedefs(records: &[&RecordDef], out: &mut String) {
+    for r in records {
+        out.push_str("typedef struct { ");
+        for (fname, ft) in &r.fields {
+            out.push_str(&format!("{} {}; ", cty(*ft), fname));
+        }
+        out.push_str(&format!("}} {};\n", r.name));
+    }
+    if !records.is_empty() {
+        out.push('\n');
+    }
+}
+
+fn emit(items: &[Item]) -> Result<String, CErr> {
+    let (funcs, records) = prepare(items);
+    let sigs = build_sigs(&funcs)?;
     if !sigs.contains_key("main") {
         return Err(ce(1, "no `main` function found"));
     }
     let mut out = String::from(RUNTIME);
     out.push('\n');
-    for f in funcs {
+    emit_typedefs(&records, &mut out);
+    for f in &funcs {
         if f.name != "main" {
             let sig = &sigs[&f.name];
             out.push_str(&format!("{} {}({});\n", c_ret(sig), f.name, c_params(sig)));
         }
     }
     out.push('\n');
-    for f in funcs {
+    for f in &funcs {
         if f.name != "main" {
             out.push_str(&emit_func(f, &sigs)?);
         }
@@ -731,24 +859,26 @@ fn emit(funcs: &[Func]) -> Result<String, CErr> {
 
 /// Emit a test-runner program: every `test_*` function is called, its pass or
 /// fail reported via the failure flag. No user `main` is needed or used.
-fn emit_tests(funcs: &[Func]) -> Result<String, CErr> {
-    let sigs = build_sigs(funcs)?;
+fn emit_tests(items: &[Item]) -> Result<String, CErr> {
+    let (funcs, records) = prepare(items);
+    let sigs = build_sigs(&funcs)?;
     let mut out = String::from(RUNTIME);
     out.push('\n');
-    for f in funcs {
+    emit_typedefs(&records, &mut out);
+    for f in &funcs {
         if f.name != "main" {
             let sig = &sigs[&f.name];
             out.push_str(&format!("{} {}({});\n", c_ret(sig), f.name, c_params(sig)));
         }
     }
     out.push('\n');
-    for f in funcs {
+    for f in &funcs {
         if f.name != "main" {
             out.push_str(&emit_func(f, &sigs)?);
         }
     }
     let mut tests = Vec::new();
-    for f in funcs {
+    for f in &funcs {
         if f.name.starts_with("test_") {
             if !f.params.is_empty() {
                 return Err(ce(f.line, format!("test `{}` must take no parameters", f.name)));
@@ -795,6 +925,8 @@ fn emit_func(f: &Func, sigs: &HashMap<String, Sig>) -> Result<String, CErr> {
         let m = missing.join(" ");
         return Err(ce(f.line, format!("`{}` uses {} but isn't declared {}", f.name, m, m)));
     }
+    // A record's failure-path return needs the concrete struct name.
+    let body = body.replace("typeof_ret", c_ret(sig));
     let header = if sig.is_main {
         "int main(void) {\n".to_string()
     } else {
@@ -804,7 +936,6 @@ fn emit_func(f: &Func, sigs: &HashMap<String, Sig>) -> Result<String, CErr> {
     Ok(format!("{}{}{}", header, body, tail))
 }
 
-/// Emit the final statement of a value-returning function as a `return`.
 fn emit_return(
     st: &Stmt,
     ret_ty: Ty,
@@ -901,7 +1032,6 @@ fn emit_stmt(
     Ok(())
 }
 
-/// Declare-or-assign a value binding, checking type consistency on reassign.
 fn bind(name: &str, vt: Ty, cval: &str, scope: &mut Scope, out: &mut String, pad: &str, line: u32) -> Result<(), CErr> {
     match scope.lookup(name) {
         Some(prev) if prev != vt => {
@@ -991,7 +1121,6 @@ fn emit_expr_stmt(
                 _ => Err(ce(line, format!("{:?} has no method `{}`", rty, name))),
             }
         }
-        // assert(cond) — built-in check; fails (sets the flag) when cond is false.
         Expr::Call { name, args } if name == "assert" => {
             let a = one_positional(args, line, "assert")?;
             let (ac, at) = emit_expr(a, scope, line, sigs, used)?;
@@ -1001,6 +1130,9 @@ fn emit_expr_stmt(
             used.fail = true;
             out.push_str(&format!("{}if (!({})) {{ simpler_failed = 1; {} }}\n", pad, ac, fret));
             Ok(())
+        }
+        Expr::Call { name, .. } if find_record(name).is_some() => {
+            Err(ce(line, format!("record `{}` must be bound to a name, not used as a statement", name)))
         }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
@@ -1012,7 +1144,7 @@ fn emit_expr_stmt(
             out.push_str(&format!("{}{}({});\n", pad, name, cargs.join(", ")));
             Ok(())
         }
-        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value (M3c)")),
+        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value")),
         _ => Err(ce(line, "this expression can't stand alone as a statement")),
     }
 }
@@ -1024,8 +1156,6 @@ fn one_positional<'a>(args: &'a [Arg], line: u32, method: &str) -> Result<&'a Ex
     Ok(&args[0].value)
 }
 
-/// Type-check call arguments against a signature, returning the C text for the
-/// value (non-capability) arguments in order.
 fn call_args(
     name: &str,
     args: &[Arg],
@@ -1085,7 +1215,7 @@ fn emit_failable(
             let cargs = call_args(name, args, sig, scope, line, sigs, used)?;
             Ok((format!("{}({})", name, cargs.join(", ")), ret, sig.effects))
         }
-        _ => Err(ce(line, "`?` expects a failable call like `files.read(path)` or `f(...)` (M3c)")),
+        _ => Err(ce(line, "`?` expects a failable call like `files.read(path)` or `f(...)`")),
     }
 }
 
@@ -1124,6 +1254,34 @@ fn emit_expr(
         Expr::Call { name, .. } if name == "assert" => {
             Err(ce(line, "`assert` is a statement, not a value"))
         }
+        // record construction: `Point(x = 3, y = 4)`
+        Expr::Call { name, args } if find_record(name).is_some() => {
+            let rec = find_record(name).unwrap();
+            let mut provided: HashMap<&str, String> = HashMap::new();
+            for a in args {
+                let fname = a.name.as_deref().ok_or_else(|| {
+                    ce(line, format!("`{}` fields must be named, e.g. {} = ...", name, rec.fields[0].0))
+                })?;
+                let field = rec.fields.iter().find(|(f, _)| f == fname).ok_or_else(|| {
+                    ce(line, format!("`{}` has no field `{}`", name, fname))
+                })?;
+                let (vc, vt) = emit_expr(&a.value, scope, line, sigs, used)?;
+                if vt != field.1 {
+                    return Err(ce(line, format!("field `{}` of `{}` is {:?}, got {:?}", fname, name, field.1, vt)));
+                }
+                if provided.insert(field.0.as_str(), vc).is_some() {
+                    return Err(ce(line, format!("field `{}` of `{}` set twice", fname, name)));
+                }
+            }
+            let mut parts = Vec::new();
+            for (fname, _) in &rec.fields {
+                let v = provided.get(fname.as_str()).ok_or_else(|| {
+                    ce(line, format!("missing field `{}` of `{}`", fname, name))
+                })?;
+                parts.push(format!(".{} = ({})", fname, v));
+            }
+            Ok((format!("({}){{ {} }}", rec.name, parts.join(", ")), Ty::User(rec.name)))
+        }
         Expr::Call { name, args } => {
             let sig = sigs.get(name).ok_or_else(|| ce(line, format!("unknown function `{}`", name)))?;
             let ret = sig
@@ -1136,18 +1294,27 @@ fn emit_expr(
             used.union(sig.effects);
             Ok((format!("{}({})", name, cargs.join(", ")), ret))
         }
+        // capability member (`sys.screen`) or record field (`p.x`)
         Expr::Send { recv, name, args, parens: false, block: None } if args.is_empty() => {
-            let (_, rty) = emit_expr(recv, scope, line, sigs, used)?;
-            match cap_member(rty, name) {
-                Some(t) => Ok((String::new(), t)),
-                None => Err(ce(line, format!("{:?} has no member `{}`", rty, name))),
+            let (rc, rty) = emit_expr(recv, scope, line, sigs, used)?;
+            if let Some(t) = cap_member(rty, name) {
+                return Ok((String::new(), t));
             }
+            if let Ty::User(tn) = rty {
+                if let Some(rec) = find_record(tn) {
+                    if let Some((_, ft)) = rec.fields.iter().find(|(f, _)| f == name) {
+                        return Ok((format!("({}).{}", rc, name), *ft));
+                    }
+                }
+                return Err(ce(line, format!("`{}` has no field `{}`", tn, name)));
+            }
+            Err(ce(line, format!("{:?} has no member `{}`", rty, name)))
         }
         Expr::Send { name, .. } if name == "read" => {
             Err(ce(line, "`files.read` can fail; bind it as `name = files.read(path)?`"))
         }
         Expr::Send { .. } => Err(ce(line, "this send does not produce a value here")),
-        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value (M3c)")),
+        Expr::Try(_) => Err(ce(line, "`?` must be the whole right-hand side of a binding, or the returned value")),
     }
 }
 
@@ -1168,7 +1335,6 @@ fn c_escape(s: &str) -> String {
 
 // ----------------------------- Formatter -----------------------------------
 
-/// A captured `//` comment with its source line and whether it trails code.
 #[derive(Debug, Clone)]
 struct Cmt {
     line: u32,
@@ -1185,6 +1351,7 @@ fn ty_name(t: Ty) -> &'static str {
         Ty::Screen => "Screen",
         Ty::Files => "Files",
         Ty::Mail => "Mail",
+        Ty::User(s) => s,
     }
 }
 
@@ -1203,7 +1370,6 @@ fn prec(op: BinOp) -> u8 {
     }
 }
 
-/// Walks captured comments in source order, emitting each at the right spot.
 struct Cur<'a> {
     cs: &'a [Cmt],
     i: usize,
@@ -1212,7 +1378,6 @@ struct Cur<'a> {
 impl<'a> Cur<'a> {
     fn new(cs: &'a [Cmt]) -> Self { Cur { cs, i: 0 } }
 
-    /// Emit every comment that sits before `before`, as its own line.
     fn leading(&mut self, before: u32, ind: usize, out: &mut String) {
         while self.i < self.cs.len() && self.cs[self.i].line < before {
             out.push_str(&"  ".repeat(ind));
@@ -1221,7 +1386,6 @@ impl<'a> Cur<'a> {
         }
     }
 
-    /// Consume a comment that trails code on exactly `line`, if present.
     fn trailing(&mut self, line: u32) -> Option<String> {
         if self.i < self.cs.len() && self.cs[self.i].line == line && self.cs[self.i].trailing {
             let t = self.cs[self.i].text.clone();
@@ -1240,20 +1404,34 @@ impl<'a> Cur<'a> {
     }
 }
 
-/// Pretty-print the whole program to canonical Simpler source, interleaving
-/// the captured comments by source line.
-fn fmt_program(funcs: &[Func], comments: &[Cmt]) -> String {
+fn fmt_program(items: &[Item], comments: &[Cmt]) -> String {
     let mut out = String::new();
     let mut cur = Cur::new(comments);
-    for (idx, f) in funcs.iter().enumerate() {
+    for (idx, item) in items.iter().enumerate() {
+        let line = match item {
+            Item::Func(f) => f.line,
+            Item::Type(r) => r.line,
+        };
         if idx > 0 {
-            out.push('\n'); // blank line between functions, before any doc comment
+            out.push('\n');
         }
-        cur.leading(f.line, 0, &mut out);
-        format_fn(f, &mut cur, &mut out);
+        cur.leading(line, 0, &mut out);
+        match item {
+            Item::Func(f) => format_fn(f, &mut cur, &mut out),
+            Item::Type(r) => format_typedef(r, &mut cur, &mut out),
+        }
     }
     cur.rest(&mut out);
     out
+}
+
+fn format_typedef(r: &RecordDef, cur: &mut Cur, out: &mut String) {
+    out.push_str(&format!("{} = type {{", r.name));
+    end_line(r.line, cur, out);
+    for (fname, ft) in &r.fields {
+        out.push_str(&format!("  {} : {}\n", fname, ty_name(*ft)));
+    }
+    out.push_str("}\n");
 }
 
 fn format_fn(f: &Func, cur: &mut Cur, out: &mut String) {
@@ -1321,7 +1499,6 @@ fn format_stmt(st: &Stmt, ind: usize, cur: &mut Cur, out: &mut String) {
     }
 }
 
-/// Append an optional trailing comment for `line`, then a newline.
 fn end_line(line: u32, cur: &mut Cur, out: &mut String) {
     if let Some(tc) = cur.trailing(line) {
         out.push_str(&format!("  // {}", tc));
@@ -1347,7 +1524,7 @@ fn fmt_prec(e: &Expr, min: u8) -> String {
         Expr::Send { recv, name, args, parens, block } => {
             let r = fmt_prec(recv, 100);
             if block.is_some() {
-                format!("{}.{}", r, name) // trailing-block sends print as statements
+                format!("{}.{}", r, name)
             } else if *parens {
                 format!("{}.{}({})", r, name, fmt_args(args))
             } else {
@@ -1428,24 +1605,12 @@ fn usage() {
     );
 }
 
-/// Format a file in place to canonical Simpler source, comments preserved.
-fn fmt_file(file: &str) -> Result<(), String> {
-    let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
-    let (toks, comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
-    let mut p = Parser { toks, pos: 0, no_block: false };
-    let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
-    let formatted = fmt_program(&funcs, &comments);
-    fs::write(file, &formatted).map_err(|e| format!("cannot write {}: {}", file, e))?;
-    println!("formatted {}", file);
-    Ok(())
-}
-
 fn drive(cmd: &str, file: &str) -> Result<(), String> {
     let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
     let (toks, _comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
-    let mut p = Parser { toks, pos: 0, no_block: false };
-    let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
-    let c = emit(&funcs).map_err(|e| diag(file, &src, &e))?;
+    let mut p = Parser::new(toks);
+    let items = p.program().map_err(|e| diag(file, &src, &e))?;
+    let c = emit(&items).map_err(|e| diag(file, &src, &e))?;
 
     if cmd == "emit" {
         print!("{}", c);
@@ -1454,17 +1619,26 @@ fn drive(cmd: &str, file: &str) -> Result<(), String> {
     compile_c(file, &c, cmd == "run")
 }
 
-/// Build the file's `test_*` functions into a runner and run it.
 fn test_file(file: &str) -> Result<(), String> {
     let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
     let (toks, _comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
-    let mut p = Parser { toks, pos: 0, no_block: false };
-    let funcs = p.program().map_err(|e| diag(file, &src, &e))?;
-    let c = emit_tests(&funcs).map_err(|e| diag(file, &src, &e))?;
+    let mut p = Parser::new(toks);
+    let items = p.program().map_err(|e| diag(file, &src, &e))?;
+    let c = emit_tests(&items).map_err(|e| diag(file, &src, &e))?;
     compile_c(file, &c, true)
 }
 
-/// Write the generated C next to the source, compile it, and optionally run it.
+fn fmt_file(file: &str) -> Result<(), String> {
+    let src = fs::read_to_string(file).map_err(|e| format!("cannot read {}: {}", file, e))?;
+    let (toks, comments) = lex(&src).map_err(|e| diag(file, &src, &e))?;
+    let mut p = Parser::new(toks);
+    let items = p.program().map_err(|e| diag(file, &src, &e))?;
+    let formatted = fmt_program(&items, &comments);
+    fs::write(file, &formatted).map_err(|e| format!("cannot write {}: {}", file, e))?;
+    println!("formatted {}", file);
+    Ok(())
+}
+
 fn compile_c(file: &str, c: &str, run: bool) -> Result<(), String> {
     let path = Path::new(file);
     let stem = path

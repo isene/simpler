@@ -1,0 +1,21 @@
+// M5a: user-defined record types, constructed and read by field.
+Point = type {
+  x : Int
+  y : Int
+}
+
+main(sys) {
+  p = Point(x = 3, y = 4)
+  sys.screen.print(p.x + p.y)        // 7
+  sys.screen.print(lengthSq(p))      // 25
+  sys.screen.print(moved(p).x)       // 13
+}
+
+// records pass and return by value (a C struct, copied).
+lengthSq(p : Point) : Int {
+  p.x * p.x + p.y * p.y
+}
+
+moved(p : Point) : Point {
+  Point(x = p.x + 10, y = p.y)
+}
