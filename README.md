@@ -270,8 +270,12 @@ first lexer to a compiler that compiles itself:
   - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`
     ranking) and list `sort`, plus 64-bit `Int` and `Float` with negatives
   - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
-    `wordfreq`, `sortlines`, `average`, each built by the self-hosted compiler
-    and checked end to end
+    `wordfreq`, `sortlines`, `average`, `numstats`, each built by the
+    self-hosted compiler and checked end to end
+  - [x] **the corpus holds up**: `numstats` was written by an AI from
+    [SPEC.md](SPEC.md) alone, with no sight of the compiler or the other
+    examples, then compiled and run unchanged, a round-trip test that the spec
+    is a sufficient corpus to write Simpler
 
 See it for yourself, the fixpoint with no Rust at all:
 

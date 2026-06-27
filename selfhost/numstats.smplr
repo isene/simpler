@@ -1,0 +1,50 @@
+// numstats: count, min, max and mean of the numbers in its input.
+//
+//     numstats <file>         // read a named file
+//     cat data.txt | numstats     // or read standard input
+//
+// One number per line (decimals allowed); blank lines are ignored. This
+// program was written by an AI from SPEC.md alone, with no sight of the
+// compiler or the other examples, then compiled and run unchanged, a test
+// that the spec is a sufficient corpus to write Simpler.
+//
+
+main(sys) {
+  args = sys.args
+  text = ""
+  if args.length > 0 {
+    text = sys.files.read(args.at(0))?
+  } else {
+    text = sys.stdin
+  }
+
+  count = 0
+  sum = 0.0
+  min = 0.0
+  max = 0.0
+
+  text.split("\n").each { line in
+    if line.length > 0 {
+      x = line.toFloat
+      count = count + 1
+      sum = sum + x
+      if count == 1 {
+        min = x
+        max = x
+      } else {
+        if x < min { min = x }
+        if x > max { max = x }
+      }
+    }
+  }
+
+  if count == 0 {
+    fail("numstats: no numbers in input")
+  }
+
+  mean = sum / count.toFloat
+  sys.screen.print("count: ".concat(count.toStr))
+  sys.screen.print("min: ".concat(min.toStr))
+  sys.screen.print("max: ".concat(max.toStr))
+  sys.screen.print("mean: ".concat(mean.toStr))
+}

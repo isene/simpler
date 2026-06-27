@@ -293,6 +293,20 @@ else
     nope "average compiles"
 fi
 
+# numstats.smplr, written by an AI from SPEC.md alone (no sight of the compiler
+# or the other examples) and shipped unchanged: count/min/max/mean of the
+# numbers on its input. The round-trip proof that the spec is a sufficient
+# corpus. Compiled and run here like any other tool.
+cp ../selfhost/numstats.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > ns.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/ns" "$TMP/ns.c" 2>/dev/null; then
+    if [ "$(printf '3\n3.5\n-2.25\n10\n' | "$TMP/ns")" = "$(printf 'count: 4\nmin: -2.25\nmax: 10\nmean: 3.5625')" ]; then ok; else nope "numstats stats (got: $(printf '3\n3.5\n-2.25\n10\n' | "$TMP/ns"))"; fi
+    printf '' | "$TMP/ns" >/dev/null 2>&1; if [ "$?" -ne 0 ]; then ok; else nope "numstats empty exits nonzero"; fi
+else
+    nope "numstats compiles"
+fi
+
 # sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the

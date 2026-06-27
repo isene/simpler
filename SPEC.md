@@ -158,7 +158,7 @@ eval(e : Expr) : Int {
 
 ```
 42        -3            // Int (a leading - negates)
-3.14      -0.5          // Float (needs a digit after the dot)
+3.14      -0.5      0.0  // Float (a dot with a digit on each side)
 "hi\n"                  // Str, escapes: \n \t \r \" \\
 true      false         // Bool
 []        [1, 2, 3]     // List ([] needs an annotation)
@@ -194,6 +194,21 @@ e.match { Case -> ... }            // branch on a variant (section 4)
 `if`/`while` conditions are `Bool` (a comparison, `true`/`false`, or a `Bool`
 method). Combine conditions with the `Bool` methods `.and` / `.or` / `.not`.
 
+The block of an `.each` shares the enclosing function's scope: it reads and
+**reassigns** the locals around it. ("No closures" in section 12 means a block
+is not a value you can store or pass, not that it is isolated.) So accumulate by
+reassigning an outer local. There is no `fold`, `min`, or `max`; when you need a
+running min or max, seed it from the first element by counting:
+
+```
+count = 0
+min = 0.0                 // a dead seed; overwritten on the first element
+nums.each { x in
+  count = count + 1
+  if count == 1 { min = x } else { if x < min { min = x } }
+}
+```
+
 ## 8. Built-in methods (the whole standard library)
 
 No-argument sends are written without parentheses (`s.length`); the rest take
@@ -218,8 +233,8 @@ arguments. Dispatch is by the receiver's static type.
 **`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), `n.ge(m)` / `n.le(m)`
 (`Bool`, for `>=` / `<=`), arithmetic and ordering.
 
-**`Float`**: `x.toStr` (`Str`), `x.toInt` (`Int`, truncates), arithmetic and
-ordering.
+**`Float`**: `x.toStr` (`Str`, compact: `5.0` renders as `5`, no trailing
+zeros), `x.toInt` (`Int`, truncates), arithmetic and ordering.
 
 **`Bool`**: `b.not`, `b.and(c)`, `b.or(c)` (all `Bool`).
 
@@ -265,8 +280,10 @@ scope.
 ## 10. Failure
 
 `?` marks a call that can fail and propagates the failure upward; it is
-required on `sys.files.read`. `fail(message)` writes `message` to stderr and
-exits with a non-zero status, the way a Unix tool reports a usage error:
+required on `sys.files.read` (which yields `""` for a file it cannot read).
+`fail(message)` writes `message` to stderr and exits with a non-zero status, the
+way a Unix tool reports an error. `fail` may be called anywhere, not only as a
+guard at the top:
 
 ```
 main(sys) {
