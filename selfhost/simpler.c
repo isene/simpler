@@ -318,23 +318,39 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
-  long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->types;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long t = l_at(_lst, _i);
   printf("%s\n", (const char*)(intptr_t)emitType(t));
   }
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->records); _i = _i + 1) {
-  long r = l_at(((ProgT*)(intptr_t)prog)->records, _i);
+  }
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->records;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long r = l_at(_lst, _i);
   printf("%s\n", (const char*)(intptr_t)emitRecord(r));
   }
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->fns); _i = _i + 1) {
-  long f = l_at(((ProgT*)(intptr_t)prog)->fns, _i);
+  }
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->fns;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long f = l_at(_lst, _i);
   if ((!isMain(((FnT*)(intptr_t)f)->name))) {
   printf("%s\n", (const char*)(intptr_t)emitProto(f));
   }
   }
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->fns); _i = _i + 1) {
-  long f = l_at(((ProgT*)(intptr_t)prog)->fns, _i);
+  }
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->fns;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long f = l_at(_lst, _i);
   printf("%s\n", (const char*)(intptr_t)emitFn(f, sigs));
+  }
   }
   return 0;
 }
@@ -344,25 +360,41 @@ long buildSigs(long prog) {
   long fnRets = 0;
   long boxedNullary = 0;
   recNames = l_new();
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->records); _i = _i + 1) {
-  long r = l_at(((ProgT*)(intptr_t)prog)->records, _i);
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->records;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long r = l_at(_lst, _i);
   l_push(recNames, ((RecDefT*)(intptr_t)r)->name);
+  }
   }
   fnNames = l_new();
   fnRets = l_new();
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->fns); _i = _i + 1) {
-  long f = l_at(((ProgT*)(intptr_t)prog)->fns, _i);
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->fns;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long f = l_at(_lst, _i);
   l_push(fnNames, ((FnT*)(intptr_t)f)->name);
   l_push(fnRets, ((FnT*)(intptr_t)f)->ret);
   }
+  }
   boxedNullary = l_new();
-  for (long _i = 0; _i < l_len(((ProgT*)(intptr_t)prog)->types); _i = _i + 1) {
-  long t = l_at(((ProgT*)(intptr_t)prog)->types, _i);
+  {
+  long _lst = ((ProgT*)(intptr_t)prog)->types;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long t = l_at(_lst, _i);
   if (hasPayload(t)) {
-  for (long _i = 0; _i < l_len(((TyDefT*)(intptr_t)t)->cases); _i = _i + 1) {
-  long c = l_at(((TyDefT*)(intptr_t)t)->cases, _i);
+  {
+  long _lst = ((TyDefT*)(intptr_t)t)->cases;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long c = l_at(_lst, _i);
   if ((((CaseT*)(intptr_t)c)->arity == 0L)) {
   l_push(boxedNullary, ((CaseT*)(intptr_t)c)->cname);
+  }
+  }
   }
   }
   }
@@ -1360,10 +1392,15 @@ long emitEach(long recv, long param, long body, long ctx) {
   long out = 0;
   recvC = emitExpr(recv, ctx);
   envPut(((CtxT*)(intptr_t)ctx)->env, param, elemOf(exprType(recv, ctx)));
-  out = s_concat(s_concat((long)(intptr_t)"  for (long _i = 0; _i < l_len(", recvC), (long)(intptr_t)"); _i = _i + 1) {");
-  out = s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), param), (long)(intptr_t)" = l_at("), recvC), (long)(intptr_t)", _i);");
+  out = (long)(intptr_t)"  {";
+  out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long _lst = "), recvC), (long)(intptr_t)";");
+  out = s_concat(out, (long)(intptr_t)"\n  long _n = l_len(_lst);");
+  out = s_concat(out, (long)(intptr_t)"\n  for (long _i = 0; _i < _n; _i = _i + 1) {");
+  out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), param), (long)(intptr_t)" = l_at(_lst, _i);");
   out = s_concat(out, emitBlock(body, ctx));
-  return s_concat(out, (long)(intptr_t)"\n  }");
+  out = s_concat(out, (long)(intptr_t)"\n  }");
+  out = s_concat(out, (long)(intptr_t)"\n  }");
+  return out;
 }
 long isListType(long t) {
   long r = 0;

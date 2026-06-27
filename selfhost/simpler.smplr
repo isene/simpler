@@ -1182,14 +1182,23 @@ emitPrint(arg : Expr, ctx : Ctx) : Str {
   "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(val).concat(");")
 }
 
-// `recv.each { x in body }` lowers to a counted C loop over the list.
+// `recv.each { x in body }` lowers to a counted C loop over the list. The
+// receiver is evaluated once into a temp: it may be an expensive expression or
+// an effectful one like sys.stdin, and re-running it per iteration would be
+// wrong (stdin consumed once) as well as wasteful. The block scopes the temps
+// so nested .each loops shadow cleanly.
 emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str {
   recvC = emitExpr(recv, ctx)
   envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
-  out = "  for (long _i = 0; _i < l_len(".concat(recvC).concat("); _i = _i + 1) {")
-  out = out.concat("\n  long ").concat(param).concat(" = l_at(").concat(recvC).concat(", _i);")
+  out = "  {"
+  out = out.concat("\n  long _lst = ").concat(recvC).concat(";")
+  out = out.concat("\n  long _n = l_len(_lst);")
+  out = out.concat("\n  for (long _i = 0; _i < _n; _i = _i + 1) {")
+  out = out.concat("\n  long ").concat(param).concat(" = l_at(_lst, _i);")
   out = out.concat(emitBlock(body, ctx))
-  out.concat("\n  }")
+  out = out.concat("\n  }")
+  out = out.concat("\n  }")
+  out
 }
 
 // "List[Fn]" has element type "Fn"; a bare "List" or a non-list has none.

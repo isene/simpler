@@ -253,6 +253,18 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/flt" "$TMP/flt.c" 2>/dev/null && [ "$("$TMP/flt")" = "$(printf '4.75\n2.8\nbigger\n3.5\n3.5\n3.14\n1')" ]; then ok; else nope "Float ops (got: $("$TMP/flt" 2>/dev/null))"; fi
 
+# .each evaluates its receiver once: iterating sys.stdin.split(...) directly
+# must see every field, not consume stdin on the first re-evaluation. Also
+# checks nested .each (the temps shadow cleanly).
+printf '%s' 'main(sys) {
+  sys.stdin.split(" ").each { w in
+    w.split(",").each { c in sys.screen.print(c) }
+  }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > each.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/each" "$TMP/each.c" 2>/dev/null && [ "$(printf 'a,b c,d' | "$TMP/each")" = "$(printf 'a\nb\nc\nd')" ]; then ok; else nope "each evaluates receiver once (got: $(printf 'a,b c,d' | "$TMP/each" 2>/dev/null))"; fi
+
 # prefix minus: negative Int and Float literals, and negation inside an
 # expression, for both scalar types (binary `-` is unaffected).
 printf '%s' 'main(sys) {
