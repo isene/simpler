@@ -173,10 +173,12 @@ cp ../selfhost/wordfreq.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > wf.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/wf" "$TMP/wf.c" 2>/dev/null; then
-    printf 'the cat sat\non the mat\nthe cat ran\n' > "$TMP/prose.txt"
-    want="$(printf 'the: 3\ncat: 2\nsat: 1\non: 1\nmat: 1\nran: 1')"
+    # ranked by descending count: apple is seen first but ranks last; the two
+    # count-3 words keep first-seen order (pie before tart), a stable sort
+    printf 'apple pie\npie pie\ntart tart tart\n' > "$TMP/prose.txt"
+    want="$(printf 'pie: 3\ntart: 3\napple: 1')"
     # a real Unix filter: same result from a file argument or from stdin
-    if [ "$("$TMP/wf" "$TMP/prose.txt")" = "$want" ]; then ok; else nope "wordfreq from file"; fi
+    if [ "$("$TMP/wf" "$TMP/prose.txt")" = "$want" ]; then ok; else nope "wordfreq from file (got: $("$TMP/wf" "$TMP/prose.txt"))"; fi
     if [ "$(cat "$TMP/prose.txt" | "$TMP/wf")" = "$want" ]; then ok; else nope "wordfreq from stdin"; fi
     rm -f "$TMP/prose.txt"
 else

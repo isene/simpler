@@ -130,7 +130,9 @@ so they behave in a shell pipeline the way a real command does.
 
 For counting and grouping there is a `Str`-keyed `Map`. `Map()` makes an empty
 one; `m.set(k, v)`, `m.get(k)`, and `m.has(k)` store, read, and test it, and
-`m.keys` enumerates the keys in first-seen order. Values are `Int` by default;
+`m.keys` enumerates the keys in first-seen order, and `m.byValue` enumerates
+them ranked by descending value (a stable sort, so ties keep first-seen order),
+which is how you turn a tally into a ranking. Values are `Int` by default;
 annotate the binding (`dir : Map[Str] = Map()`) for a `Str`-valued map, and
 `get` returns that type, so string methods dispatch on the result. `m.get`
 returns `0` for a key that was never set, so a tally increments without a guard:
@@ -143,7 +145,8 @@ counts.keys.each { k in sys.screen.print(k.concat(": ").concat(counts.get(k).toS
 
 [`selfhost/wordfreq.smplr`](selfhost/wordfreq.smplr) is exactly that: a
 word-frequency counter built from read, `replace`, `split`, the `Map`, and
-`.keys`. It is a real Unix filter, reading a named file or, with no argument,
+`.byValue`, so it prints the most frequent words first. It is a real Unix
+filter, reading a named file or, with no argument,
 standard input through `sys.stdin` (the whole of stdin as a `Str`), so both of
 these print the same tally:
 

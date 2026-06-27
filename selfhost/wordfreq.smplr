@@ -5,9 +5,9 @@
 //
 // A real Unix filter: with a filename it reads that file, with none it
 // reads stdin. It normalizes newlines to spaces, splits on spaces, and
-// tallies each word in a Str-keyed Map. Then it walks the map's keys and
-// prints "word: count", in first-seen order. This is the program a map
-// exists for: counting and grouping by key.
+// tallies each word in a Str-keyed Map. Then it walks the keys ordered by
+// descending count and prints "word: count", so the most frequent words
+// come first. This is the program a map exists for: counting and ranking.
 //
 //     cp wordfreq.smplr input.smplr && ./simpler > t.c && cc t.c -o wordfreq
 //     wordfreq prose.txt
@@ -27,7 +27,7 @@ main(sys) {
       counts.set(w, counts.get(w) + 1)
     }
   }
-  counts.keys.each { k in
+  counts.byValue.each { k in
     sys.screen.print(k.concat(": ").concat(counts.get(k).toStr))
   }
 }

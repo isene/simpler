@@ -33,6 +33,7 @@ long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_
 long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }
 long m_has(long mp, long k) { return m_find(mp, k) >= 0; }
 long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }
+long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }
 int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }
 int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }
 long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }
@@ -306,6 +307,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }");
@@ -2046,6 +2048,9 @@ long emitField(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"keys")) {
   r = s_concat(s_concat((long)(intptr_t)"m_keys(", recvC), (long)(intptr_t)")");
   }
+  if (s_eq(fld, (long)(intptr_t)"byValue")) {
+  r = s_concat(s_concat((long)(intptr_t)"m_byvalue(", recvC), (long)(intptr_t)")");
+  }
   if (s_eq(fld, (long)(intptr_t)"sort")) {
   flag = (long)(intptr_t)"0";
   if (s_eq(elemOf(t), (long)(intptr_t)"Str")) {
@@ -2231,6 +2236,9 @@ long fieldType(long recv, long fld, long ctx) {
   r = (long)(intptr_t)"Str";
   }
   if (s_eq(fld, (long)(intptr_t)"keys")) {
+  r = (long)(intptr_t)"List[Str]";
+  }
+  if (s_eq(fld, (long)(intptr_t)"byValue")) {
   r = (long)(intptr_t)"List[Str]";
   }
   if (s_eq(fld, (long)(intptr_t)"sort")) {
