@@ -49,13 +49,10 @@ check_run m5e   "20"
 check_run m5f   "$(printf '3\n20\n5\nhi\n42')"
 check_run m6    "15"
 
-# the self-hosted lexer (written in Simpler) tokenises correctly
+# the self-hosted lexer (written in Simpler) scans the full token set
 lout="$("$SIMPLER" run ../selfhost/lexer.smplr 2>/dev/null)"
-if [ "$lout" = "$(printf 'Ident foo\nPunct .\nIdent bar\nPunct (\nNum 42\nPunct )\nPunct +\nIdent baz')" ]; then
-    ok
-else
-    nope "self-hosted lexer (got: $lout)"
-fi
+lwant="$(printf 'id a\nop .\nid f\nop (\nstr hi\nop )\nop !\nop ?\nop +\nop -\nop *\nop /\nop <\nop >\nop =\nop ==\nop ->\nop :\nop ,\nop [\nop ]\nop {\nop }\nint 0\neof')"
+[ "$lout" = "$lwant" ] && ok || nope "self-hosted lexer (got: $lout)"
 
 # the self-hosted calc (lex -> parse -> {eval, emit C}) respects precedence
 cout="$("$SIMPLER" run ../selfhost/calc.smplr 2>/dev/null)"

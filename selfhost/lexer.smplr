@@ -1,68 +1,130 @@
 // The Simpler lexer, written in Simpler.
 //
-// The first piece of the self-hosted compiler: it scans source text into a
-// list of tokens, using a `while` loop, the Str methods, a variant token type,
-// and a `List[Tok]`. Compile and run it with the bootstrap:
+// The first brick of the real self-hosted compiler: it scans actual
+// Simpler source into the language's full token set, the same tokens the
+// Rust bootstrap produces. Identifiers, integers, string literals (with
+// escapes), and every piece of punctuation, including the two two-char
+// operators `->` and `==`. Line comments (`//`) are skipped. Run it with
+// the bootstrap:
 //
 //     bootstrap/target/release/simpler run selfhost/lexer.smplr
 
 Tok = type {
   Ident(Str)
-  Num(Int)
+  Str(Str)
+  Int(Int)
   Punct(Str)
+  Eof
 }
 
 main(sys) {
-  toks = lex("foo.bar(42) + baz")
+  // one line touching every token kind the language has
+  toks = lex("a.f(\"hi\") ! ? + - * / < > = == -> : , [ ] { } 0")
   toks.each { t in
     show(sys.screen, t)
   }
 }
 
-// Scan `src` into a list of tokens.
+// Scan `src` into a token list, ending in Eof.
 lex(src : Str) : List[Tok] {
   toks : List[Tok] = []
   n = src.length
   i = 0
   while i < n {
-    cc = src.at(i).code
-    if isSpace(cc) {
+    c = src.at(i).code
+    if isSpace(c) {
       i = i + 1
     } else {
-      if isAlpha(cc) {
-        // an identifier: letters and digits
-        j = i
-        while (j < n).and(isAlnum(src.at(j).code)) {
-          j = j + 1
-        }
-        toks.push(Ident(src.slice(i, j)))
-        i = j
-      } else {
-        if isDigit(cc) {
-          // a number: accumulate the integer value directly
-          num = 0
-          while (i < n).and(isDigit(src.at(i).code)) {
-            num = num * 10 + (src.at(i).code - 48)
-            i = i + 1
-          }
-          toks.push(Num(num))
-        } else {
-          // anything else is single-character punctuation
-          toks.push(Punct(src.at(i)))
+      if isComment(src, i, n) {
+        // a `//` comment runs to the end of the line
+        while (i < n).and((src.at(i).code == 10).not) {
           i = i + 1
+        }
+      } else {
+        if c == 34 {
+          // a string literal: read to the closing quote, decoding escapes
+          j = i + 1
+          s = ""
+          while (j < n).and((src.at(j).code == 34).not) {
+            if src.at(j).code == 92 {
+              j = j + 1
+              s = s.concat(esc(src, j))
+            } else {
+              s = s.concat(src.at(j))
+            }
+            j = j + 1
+          }
+          toks.push(Str(s))
+          i = j + 1
+        } else {
+          if isDigit(c) {
+            num = 0
+            while (i < n).and(isDigit(src.at(i).code)) {
+              num = num * 10 + (src.at(i).code - 48)
+              i = i + 1
+            }
+            toks.push(Int(num))
+          } else {
+            if isAlpha(c) {
+              j = i
+              while (j < n).and(isAlnum(src.at(j).code)) {
+                j = j + 1
+              }
+              toks.push(Ident(src.slice(i, j)))
+              i = j
+            } else {
+              // punctuation: a two-char operator, else a single char
+              if isTwoCharOp(src, i, n) {
+                toks.push(Punct(src.slice(i, i + 2)))
+                i = i + 2
+              } else {
+                toks.push(Punct(src.at(i)))
+                i = i + 1
+              }
+            }
+          }
         }
       }
     }
   }
+  toks.push(Eof)
   toks
 }
 
 show(screen : Screen, t : Tok) !IO {
   t.match {
-    Ident(s) -> screen.print("Ident ".concat(s))
-    Num(v) -> screen.print("Num ".concat(v.toStr))
-    Punct(p) -> screen.print("Punct ".concat(p))
+    Ident(s) -> screen.print("id ".concat(s))
+    Str(s) -> screen.print("str ".concat(s))
+    Int(v) -> screen.print("int ".concat(v.toStr))
+    Punct(p) -> screen.print("op ".concat(p))
+    Eof -> screen.print("eof")
   }
+}
+
+// Decode the escape character at `j` (the char after a backslash).
+// Unknown escapes pass through as the literal character, matching the
+// bootstrap.
+esc(src : Str, j : Int) : Str {
+  c = src.at(j).code
+  r = src.at(j)
+  if c == 110 { r = "\n" }
+  if c == 116 { r = "\t" }
+  if c == 114 { r = "\r" }
+  r
+}
+
+// `//` at the cursor.
+isComment(src : Str, i : Int, n : Int) : Bool {
+  (i + 1 < n).and(src.at(i).code == 47).and(src.at(i + 1).code == 47)
+}
+
+// `->` or `==` at the cursor.
+isTwoCharOp(src : Str, i : Int, n : Int) : Bool {
+  twoIs(src, i, n, 45, 62).or(twoIs(src, i, n, 61, 61))
+}
+
+twoIs(src : Str, i : Int, n : Int, a : Int, b : Int) : Bool {
+  (i + 1 < n).and(src.at(i).code == a).and(src.at(i + 1).code == b)
 }
 
 isDigit(c : Int) : Bool {
