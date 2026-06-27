@@ -126,6 +126,20 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sum" "$TMP/sum.c" 2>/dev/null && [ "$("$TMP/sum" 10,20,3,9)" = "$(printf '4\n42')" ]; then ok; else nope "Str.split fields"; fi
 
+# Str.contains / Str.replace: substring test (a Bool) and replace-all (a Str,
+# non-overlapping, multi-char patterns, unchanged when nothing matches).
+printf '%s' 'main(sys) {
+  s = "the quick brown fox"
+  if s.contains("quick") { sys.screen.print("yes") } else { sys.screen.print("no") }
+  if s.contains("slow") { sys.screen.print("yes") } else { sys.screen.print("no") }
+  sys.screen.print("a,b,c".replace(",", "-"))
+  sys.screen.print("aaaa".replace("aa", "b"))
+  sys.screen.print("keep".replace("x", "y"))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > cr.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/cr" "$TMP/cr.c" 2>/dev/null && [ "$("$TMP/cr")" = "$(printf 'yes\nno\na-b-c\nbb\nkeep')" ]; then ok; else nope "Str.contains/replace (got: $("$TMP/cr" 2>/dev/null))"; fi
+
 # sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the

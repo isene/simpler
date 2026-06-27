@@ -118,6 +118,8 @@ methods (`.length`, `.at`, `.each`) work on it. A numeric argument becomes an
 `Int` with `.toInt` (the inverse of `.toStr`), so a tool can do arithmetic on
 what it is given. `"a,b,c".split(",")` returns a `List[Str]`, so a line of text
 splits into fields that compose straight into `.each` and `.toInt`.
+`s.contains("x")` is a `Bool` test and `s.replace("x", "y")` rewrites every
+occurrence, the two string edits most text tools reach for.
 
 [`selfhost/sumcol.smplr`](selfhost/sumcol.smplr) puts it together: a CSV
 column-summer (`sumcol <file> <col>`) that reads a file, splits it into lines,
