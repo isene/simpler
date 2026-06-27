@@ -1,6 +1,6 @@
-<img src="logo.svg" align="left" width="120" height="120" alt="Simpler logo">
-
 # Simpler
+
+<img src="logo.svg" align="left" width="120" height="120" alt="Simpler logo">
 
 **A programming language whose only goal is to be simple.**
 
