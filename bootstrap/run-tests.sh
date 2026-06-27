@@ -44,6 +44,7 @@ check_run m5a   "$(printf '7\n25\n13')"
 check_run m5b   "$(printf 'hello\n42\ndot')"
 check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
 check_run m5d   "$(printf '2\n3\n4')"
+check_run m5e   "20"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
@@ -114,6 +115,11 @@ check_err "case payload count mismatch" \
     'Expr = type { Lit(Int) Add(Expr, Expr) }
 main(sys) { e = Add(Lit(1)) sys.screen.print(1) }' \
     "positional payload"
+check_err "match-value arm must produce a value" \
+    'Expr = type { Lit(Int) }
+main(sys) { sys.screen.print(ev(Lit(1))) }
+ev(e : Expr) : Int { e.match { Lit(n) -> { } } }' \
+    "must produce"
 check_err "non-exhaustive match" \
     'Tok = type { A(Str) B }
 main(sys) { show(sys.screen, B) }

@@ -1,0 +1,20 @@
+// M5c.3: match as a value -- a recursive expression evaluator.
+Expr = type {
+  Lit(Int)
+  Add(Expr, Expr)
+  Mul(Expr, Expr)
+}
+
+main(sys) {
+  // (2 + 3) * 4 = 20
+  e = Mul(Add(Lit(2), Lit(3)), Lit(4))
+  sys.screen.print(eval(e))
+}
+
+eval(e : Expr) : Int {
+  e.match {
+    Lit(n) -> n
+    Add(a, b) -> eval(a) + eval(b)
+    Mul(a, b) -> eval(a) * eval(b)
+  }
+}

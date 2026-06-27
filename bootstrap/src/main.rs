@@ -1142,6 +1142,30 @@ fn emit_func(f: &Func, sigs: &HashMap<String, Sig>) -> Result<String, CErr> {
     Ok(format!("{}{}{}", header, body, tail))
 }
 
+/// Verify a match covers every case of `tn` exactly once.
+fn check_exhaustive(tn: &str, cases: &[Case], arms: &[MatchArm], line: u32) -> Result<(), CErr> {
+    let mut seen: HashSet<usize> = HashSet::new();
+    for arm in arms {
+        let idx = cases
+            .iter()
+            .position(|c| c.name == arm.case)
+            .ok_or_else(|| ce(arm.line, format!("`{}` has no case `{}`", tn, arm.case)))?;
+        if !seen.insert(idx) {
+            return Err(ce(arm.line, format!("case `{}` matched twice", arm.case)));
+        }
+    }
+    if seen.len() != cases.len() {
+        let missing: Vec<&str> = cases
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !seen.contains(i))
+            .map(|(_, c)| c.name.as_str())
+            .collect();
+        return Err(ce(line, format!("match on `{}` is missing: {}", tn, missing.join(", "))));
+    }
+    Ok(())
+}
+
 fn emit_return(
     st: &Stmt,
     ret_ty: Ty,
@@ -1156,6 +1180,54 @@ fn emit_return(
         SKind::Expr(e) => e,
         _ => return Err(ce(line, format!("the last statement must produce the {:?} to return", ret_ty))),
     };
+    // `match` as the returned value: every arm returns its own last expression.
+    if let Expr::Match { recv, arms } = e {
+        let (rc, rty) = emit_expr(recv, scope, line, sigs, used)?;
+        let tn = match rty {
+            Ty::User(n) => n,
+            _ => return Err(ce(line, format!("can only match a variant, not {:?}", rty))),
+        };
+        let td = find_type(tn).ok_or_else(|| ce(line, format!("unknown type `{}`", tn)))?;
+        let cases = match &td.body {
+            TypeBody::Variant(c) => c,
+            _ => return Err(ce(line, format!("`{}` is a record, not a variant", tn))),
+        };
+        check_exhaustive(tn, cases, arms, line)?;
+        out.push_str(&format!("    {} _m = {};\n", tn, rc));
+        out.push_str("    switch (_m->tag) {\n");
+        for arm in arms {
+            let idx = cases.iter().position(|c| c.name == arm.case).unwrap();
+            let payloads = &cases[idx].payloads;
+            if !arm.bindings.is_empty() && arm.bindings.len() != payloads.len() {
+                return Err(ce(arm.line, format!("case `{}` has {} payload(s), but {} binding(s)", arm.case, payloads.len(), arm.bindings.len())));
+            }
+            out.push_str(&format!("    case {}: {{\n", idx));
+            scope.push();
+            for (k, b) in arm.bindings.iter().enumerate() {
+                let pt = payloads[k];
+                scope.declare(b.clone(), pt);
+                out.push_str(&format!("        {} {} = _m->data.{}.f{};\n", cty(pt), b, arm.case, k));
+            }
+            let n = arm.body.len();
+            if n == 0 {
+                scope.pop();
+                return Err(ce(arm.line, format!("case `{}` must produce a {:?}", arm.case, ret_ty)));
+            }
+            for (i, s) in arm.body.iter().enumerate() {
+                if i + 1 == n {
+                    emit_return(s, ret_ty, scope, out, sigs, used, fret)?;
+                } else {
+                    emit_stmt(s, scope, out, 2, sigs, used, fret)?;
+                }
+            }
+            scope.pop();
+            out.push_str("    }\n");
+        }
+        out.push_str("    }\n");
+        // exhaustive, so this is unreachable, but C wants a return on every path.
+        out.push_str(&format!("    {}\n", fret));
+        return Ok(());
+    }
     if let Expr::Try(inner) = e {
         let (cval, vt, eff) = emit_failable(inner, scope, line, sigs, used)?;
         used.union(eff);
