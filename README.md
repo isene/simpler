@@ -66,6 +66,15 @@ declares the `!IO` effect, and it can reach nothing else. Drop the `!IO` and the
 compiler refuses to build it. Reach for a capability you were not handed, and
 the name is simply not in scope.
 
+## How it compiles
+
+<p align="center"><img src="arch.svg" width="100%" alt="Simpler compiler pipeline: source to lex, parse, check, emit C, then the system C compiler, then a native binary"></p>
+
+The compiler is one small binary. It lexes your source into tokens, parses
+them into a tree of message-sends, checks types, effects, and capabilities,
+then emits portable C and hands it to the system C compiler. Effects and
+capabilities are compile-time only, so they cost nothing at runtime.
+
 ## Try it
 
 The bootstrap compiler is written in Rust and transpiles to C.

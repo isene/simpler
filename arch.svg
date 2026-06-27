@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 996 384" width="996" height="384" role="img" aria-label="Simpler compiler pipeline">
+  <defs>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4A024"/>
+      <stop offset="0.55" stop-color="#EE6C1A"/>
+      <stop offset="1" stop-color="#B23A0E"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#EE6C1A"/>
+    </marker>
+    <style>
+      .serif { font-family: 'PT Serif', Georgia, 'Noto Serif', serif; }
+      .mono  { font-family: 'DejaVu Sans Mono', ui-monospace, monospace; }
+    </style>
+  </defs>
+
+  <!-- paper ground (keeps it readable in light and dark READMEs) -->
+  <rect x="2" y="2" width="992" height="380" rx="18" fill="#FFFCF7" stroke="#FCE7D2" stroke-width="3"/>
+
+  <text x="498" y="50" text-anchor="middle" class="serif" font-size="23" font-weight="700" fill="#B23A0E">How a Simpler program becomes a native binary</text>
+
+  <!-- bracket over the four compiler passes -->
+  <path d="M140 150 L140 144 L608 144 L608 150" fill="none" stroke="#EE6C1A" stroke-width="2"/>
+  <text x="374" y="136" text-anchor="middle" class="serif" font-size="14" font-weight="700" font-style="italic" fill="#EE6C1A">simpler · one binary</text>
+
+  <!-- arrows -->
+  <g stroke="#EE6C1A" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M114 203 L138 203"/>
+    <path d="M238 203 L262 203"/>
+    <path d="M362 203 L386 203"/>
+    <path d="M486 203 L510 203"/>
+    <path d="M610 203 L634 203"/>
+    <path d="M734 203 L758 203"/>
+    <path d="M858 203 L882 203"/>
+  </g>
+
+  <!-- 1. source -->
+  <rect x="16" y="170" width="96" height="66" rx="12" fill="#FCE7D2" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="64" y="209" text-anchor="middle" class="mono" font-size="13" font-weight="700" fill="#B23A0E">hello.smplr</text>
+  <text x="64" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">your program</text>
+
+  <!-- 2. lex -->
+  <rect x="140" y="170" width="96" height="66" rx="12" fill="url(#flame)" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="188" y="209" text-anchor="middle" class="serif" font-size="18" font-weight="700" fill="#FFFCF7">Lex</text>
+  <text x="188" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">tokens + lines</text>
+
+  <!-- 3. parse -->
+  <rect x="264" y="170" width="96" height="66" rx="12" fill="url(#flame)" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="312" y="209" text-anchor="middle" class="serif" font-size="18" font-weight="700" fill="#FFFCF7">Parse</text>
+  <text x="312" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">message-send AST</text>
+
+  <!-- 4. check -->
+  <rect x="388" y="170" width="96" height="66" rx="12" fill="url(#flame)" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="436" y="209" text-anchor="middle" class="serif" font-size="18" font-weight="700" fill="#FFFCF7">Check</text>
+  <text x="436" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">types · effects · caps</text>
+
+  <!-- 5. emit -->
+  <rect x="512" y="170" width="96" height="66" rx="12" fill="url(#flame)" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="560" y="209" text-anchor="middle" class="serif" font-size="17" font-weight="700" fill="#FFFCF7">Emit C</text>
+  <text x="560" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">portable C</text>
+
+  <!-- 6. c file -->
+  <rect x="636" y="170" width="96" height="66" rx="12" fill="#F4A024" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="684" y="209" text-anchor="middle" class="mono" font-size="14" font-weight="700" fill="#241B16">hello.c</text>
+  <text x="684" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">generated</text>
+
+  <!-- 7. cc -->
+  <rect x="760" y="170" width="96" height="66" rx="12" fill="#241B16" stroke="#241B16" stroke-width="1.5"/>
+  <text x="808" y="209" text-anchor="middle" class="mono" font-size="16" font-weight="700" fill="#FFFCF7">cc</text>
+  <text x="808" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">system compiler</text>
+
+  <!-- 8. binary -->
+  <rect x="884" y="170" width="96" height="66" rx="12" fill="#B23A0E" stroke="#B23A0E" stroke-width="1.5"/>
+  <text x="932" y="209" text-anchor="middle" class="mono" font-size="14" font-weight="700" fill="#FFFCF7">hello</text>
+  <text x="932" y="256" text-anchor="middle" class="serif" font-size="11.5" font-style="italic" fill="#241B16" opacity="0.6">native binary</text>
+
+  <!-- guarantees -->
+  <rect x="40" y="300" width="916" height="52" rx="12" fill="#FCE7D2"/>
+  <text x="498" y="332" text-anchor="middle" xml:space="preserve" class="serif" font-size="14.5" fill="#241B16">Capabilities erased at runtime<tspan fill="#B23A0E" font-weight="700">      ·      </tspan>Effects checked at compile time<tspan fill="#B23A0E" font-weight="700">      ·      </tspan>No GC, no pauses</text>
+</svg>
