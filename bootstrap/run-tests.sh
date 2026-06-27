@@ -203,6 +203,37 @@ else
     nope "sortlines compiles"
 fi
 
+# Float: literals, the four arithmetic ops, ordering, direct print, and the
+# Int<->Float<->Str conversions (.toFloat / .toInt / .toStr, "3.14".toFloat).
+printf '%s' 'main(sys) {
+  a = 3.5
+  b = 1.25
+  sys.screen.print((a + b).toStr)
+  sys.screen.print((a / b).toStr)
+  if a > b { sys.screen.print("bigger") }
+  sys.screen.print(a)
+  sys.screen.print((7.toFloat / 2.0).toStr)
+  sys.screen.print("3.14".toFloat.toStr)
+  sys.screen.print(b.toInt.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > flt.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/flt" "$TMP/flt.c" 2>/dev/null && [ "$("$TMP/flt")" = "$(printf '4.75\n2.8\nbigger\n3.5\n3.5\n3.14\n1')" ]; then ok; else nope "Float ops (got: $("$TMP/flt" 2>/dev/null))"; fi
+
+# average.smplr, a real filter that needs fractions: mean of the numbers on
+# its input. Exercises Float sum, Int count, and a Float division.
+cp ../selfhost/average.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > avg.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/avg" "$TMP/avg.c" 2>/dev/null; then
+    printf '1.5\n2.5\n3\n4.0\n' > "$TMP/data.txt"
+    if [ "$("$TMP/avg" "$TMP/data.txt")" = "2.75" ] && [ "$(cat "$TMP/data.txt" | "$TMP/avg")" = "2.75" ]; then ok; else nope "average mean"; fi
+    printf '' | "$TMP/avg" >/dev/null 2>&1; if [ "$?" -ne 0 ]; then ok; else nope "average empty exits nonzero"; fi
+    rm -f "$TMP/data.txt"
+else
+    nope "average compiles"
+fi
+
 # sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the
@@ -286,6 +317,10 @@ reject "write needs IO" \
     'save(f : Files) { f.write("p", "x") }
 main(sys) { save(sys.files) }' \
     "uses !IO but does not declare it"
+# Int and Float cannot be mixed in arithmetic without a conversion
+reject "mixed Int/Float" \
+    'main(sys) { x = 3.5 y = 2 sys.screen.print((x + y).toStr) }' \
+    "mixes Int and Float"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

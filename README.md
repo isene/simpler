@@ -157,6 +157,17 @@ miniature on top of it. An empty collection takes its element type from its
 annotation, so `xs : List[Str] = []` really is a list of strings once you fill
 and walk it.
 
+For fractions there is a `Float`: a literal like `2.0`, the four arithmetic
+operators, and ordering. `n.toFloat` and `x.toInt` convert (the latter
+truncates), `"3.14".toFloat` parses, and `f.toStr` formats. `Int` and `Float`
+never mix silently: `3.5 + 2` is a compile error until you convert one side.
+[`selfhost/average.smplr`](selfhost/average.smplr) is the tool that needs them,
+the mean of the numbers on its input:
+
+```bash
+printf '1.5\n2.5\n3\n4.0\n' | average    # 2.75
+```
+
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
 and `test`), but the language no longer depends on it:

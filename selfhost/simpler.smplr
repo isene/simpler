@@ -26,6 +26,7 @@
 
 Expr = type {
   Num(Int)
+  FloatLit(Str)
   Var(Str)
   StrLit(Str)
   ListLit(List[Expr])
@@ -116,6 +117,7 @@ Tok = type {
   Ident(Str)
   Str(Str)
   Int(Int)
+  Float(Str)
   Punct(Str)
   Eof
 }
@@ -196,6 +198,12 @@ main(sys) {
   sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
   sys.screen.print("long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }")
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
+  sys.screen.print("double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }")
+  sys.screen.print("long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }")
+  sys.screen.print("long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%g\", l2d(x)); return (long)(intptr_t)r; }")
+  sys.screen.print("long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }")
+  sys.screen.print("long i_tof(long n) { return d2l((double)n); }")
+  sys.screen.print("long f_toi(long x) { return (long)l2d(x); }")
   sys.screen.print("long s_toint(long s) { return atol((const char*)(intptr_t)s); }")
   sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }")
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
@@ -567,6 +575,7 @@ parseEach(toks : List[Tok], recv : Expr, i : Int) : Parsed {
 parseFactor(toks : List[Tok], pos : Int) : Parsed {
   toks.at(pos).match {
     Int(v) -> Parsed(node = Num(v), next = pos + 1)
+    Float(s) -> Parsed(node = FloatLit(s), next = pos + 1)
     Str(s) -> Parsed(node = StrLit(s), next = pos + 1)
     Ident(s) -> parseIdentFactor(toks, pos)
     Punct(p) -> parsePunctFactor(toks, pos)
@@ -904,6 +913,7 @@ seedExpr(e : Expr, ctx : Ctx) : Int {
   e.match {
     Each(recv, param, body) -> seedEach(recv, param, body, ctx)
     Num(v) -> 0
+    FloatLit(s) -> 0
     Var(s) -> 0
     StrLit(s) -> 0
     ListLit(es) -> 0
@@ -1027,6 +1037,7 @@ collectExpr(e : Expr, names : List[Str]) : Int {
   e.match {
     Each(recv, param, body) -> collectBody(body, names)
     Num(v) -> 0
+    FloatLit(s) -> 0
     Var(s) -> 0
     StrLit(s) -> 0
     ListLit(es) -> 0
@@ -1112,6 +1123,7 @@ stmtExpr(e : Expr, ctx : Ctx) : Str {
     Each(recv, param, body) -> emitEach(recv, param, body, ctx)
     Call(name, args) -> emitCallStmt(name, args, e, ctx)
     Num(v) -> exprStmt(e, ctx)
+    FloatLit(s) -> exprStmt(e, ctx)
     Var(s) -> exprStmt(e, ctx)
     StrLit(s) -> exprStmt(e, ctx)
     ListLit(es) -> exprStmt(e, ctx)
@@ -1149,11 +1161,18 @@ emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
 emitPrint(arg : Expr, ctx : Ctx) : Str {
   fmt = "%ld"
   cast = ""
-  if exprType(arg, ctx) == "Str" {
+  val = emitExpr(arg, ctx)
+  t = exprType(arg, ctx)
+  if t == "Str" {
     fmt = "%s"
     cast = "(const char*)(intptr_t)"
   }
-  "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(emitExpr(arg, ctx)).concat(");")
+  if t == "Float" {
+    fmt = "%s"
+    cast = "(const char*)(intptr_t)"
+    val = "f_tostr(".concat(val).concat(")")
+  }
+  "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(val).concat(");")
 }
 
 // `recv.each { x in body }` lowers to a counted C loop over the list.
@@ -1189,6 +1208,7 @@ emitReturn(e : Expr, ctx : Ctx) : Str {
   e.match {
     Match(scrut, arms) -> emitSwitch(scrut, arms, ctx)
     Num(v) -> retVal(e, ctx)
+    FloatLit(s) -> retVal(e, ctx)
     Var(s) -> retVal(e, ctx)
     StrLit(s) -> retVal(e, ctx)
     ListLit(es) -> retVal(e, ctx)
@@ -1384,6 +1404,7 @@ effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int {
     Each(recv, param, body) -> effEachE(recv, body, used, ctx)
     ListLit(es) -> effArgs(es, used, ctx)
     Num(v) -> 0
+    FloatLit(s) -> 0
     Var(s) -> 0
     StrLit(s) -> 0
   }
@@ -1524,6 +1545,7 @@ armHasBind(arms : List[Arm]) : Bool {
 emitExpr(e : Expr, ctx : Ctx) : Str {
   e.match {
     Num(v) -> v.toStr
+    FloatLit(s) -> "d2l(".concat(s).concat(")")
     Var(s) -> emitVar(s, ctx)
     StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
     ListLit(es) -> "l_new()"
@@ -1536,31 +1558,65 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
   }
 }
 
-// `==` on strings is a library call; on integers it is the C operator.
+// `==` on strings is a library call. Float values are stored as the bits of
+// a double, so float math reinterprets through l2d/d2l; integer math is the
+// plain C operator.
 emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
   checkBinOp(op, a, b, ctx)
-  r = "(".concat(emitExpr(a, ctx)).concat(" ").concat(op).concat(" ").concat(emitExpr(b, ctx)).concat(")")
+  ca = emitExpr(a, ctx)
+  cb = emitExpr(b, ctx)
+  r = "(".concat(ca).concat(" ").concat(op).concat(" ").concat(cb).concat(")")
   if op == "==" {
     if exprType(a, ctx) == "Str" {
-      r = "s_eq(".concat(emitExpr(a, ctx)).concat(", ").concat(emitExpr(b, ctx)).concat(")")
+      r = "s_eq(".concat(ca).concat(", ").concat(cb).concat(")")
+    }
+  }
+  if exprType(a, ctx) == "Float" {
+    inner = "(l2d(".concat(ca).concat(") ").concat(op).concat(" l2d(").concat(cb).concat(")) ")
+    r = inner
+    if isFloatArith(op) {
+      r = "d2l(".concat(inner).concat(")")
     }
   }
   r
 }
 
-// Arithmetic and ordering need Int operands, the same rule the Rust enforces.
-// `==` is left alone: it is overloaded over Int and Str. Only operands of a
-// type that is definitely not an Int are rejected; unknowns stay permissive.
+// `+ - * /` produce a Float; `< > ==` produce a Bool (no d2l re-wrap).
+isFloatArith(op : Str) : Bool {
+  (op == "+").or(op == "-").or(op == "*").or(op == "/")
+}
+
+// Arithmetic and ordering need numeric operands (Int or Float), and the two
+// must not be mixed (convert with .toFloat / .toInt). `==` is left alone: it
+// is overloaded over Int and Str. Operands of a clearly non-numeric type are
+// rejected; unknowns stay permissive.
 checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int {
   if isArithOp(op) {
-    if notInt(exprType(a, ctx), ctx) {
+    ta = exprType(a, ctx)
+    tb = exprType(b, ctx)
+    if notInt(ta, ctx) {
       failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
     }
-    if notInt(exprType(b, ctx), ctx) {
+    if notInt(tb, ctx) {
       failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
+    }
+    if mixedFloat(ta, tb) {
+      failAt("operator ".concat(op).concat(" mixes Int and Float; convert with .toFloat or .toInt"), ctx)
     }
   }
   0
+}
+
+// One operand is a Float and the other is not.
+mixedFloat(a : Str, b : Str) : Bool {
+  r = false
+  if (a == "Float").and((b == "Float").not) {
+    r = true
+  }
+  if (b == "Float").and((a == "Float").not) {
+    r = true
+  }
+  r
 }
 
 isArithOp(op : Str) : Bool {
@@ -1608,6 +1664,7 @@ isMatchExpr(e : Expr) : Bool {
   e.match {
     Match(scrut, arms) -> true
     Num(v) -> false
+    FloatLit(s) -> false
     Var(s) -> false
     StrLit(s) -> false
     ListLit(es) -> false
@@ -1751,9 +1808,21 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     }
     if fld == "toStr" {
       r = "i_tostr(".concat(recvC).concat(")")
+      if t == "Float" {
+        r = "f_tostr(".concat(recvC).concat(")")
+      }
     }
     if fld == "toInt" {
       r = "s_toint(".concat(recvC).concat(")")
+      if t == "Float" {
+        r = "f_toi(".concat(recvC).concat(")")
+      }
+    }
+    if fld == "toFloat" {
+      r = "i_tof(".concat(recvC).concat(")")
+      if t == "Str" {
+        r = "s_tofloat(".concat(recvC).concat(")")
+      }
     }
     if fld == "not" {
       r = "(!".concat(recvC).concat(")")
@@ -1899,14 +1968,27 @@ emitArgs(args : List[Expr], ctx : Ctx) : Str {
   out
 }
 
+// `a + b` on Floats is a Float; on Ints, an Int. Ordering and equality are
+// always a Bool (Int), whatever the operands.
+binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+  r = "Int"
+  if exprType(a, ctx) == "Float" {
+    if isFloatArith(op) {
+      r = "Float"
+    }
+  }
+  r
+}
+
 // The static type of an expression, enough to dispatch methods and print.
 exprType(e : Expr, ctx : Ctx) : Str {
   e.match {
     Num(v) -> "Int"
+    FloatLit(s) -> "Float"
     Var(s) -> varType(s, ctx)
     StrLit(s) -> "Str"
     ListLit(es) -> "List"
-    Bin(op, a, b) -> "Int"
+    Bin(op, a, b) -> binType(op, a, b, ctx)
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> "Int"
     Field(recv, fld) -> fieldType(recv, fld, ctx)
@@ -1922,6 +2004,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   r = "Int"
   if fld == "toStr" {
     r = "Str"
+  }
+  if fld == "toFloat" {
+    r = "Float"
   }
   if fld == "screen" {
     r = "Screen"
@@ -2022,6 +2107,7 @@ notEof(toks : List[Tok], i : Int) : Bool {
     Eof -> false
     Ident(s) -> true
     Int(v) -> true
+    Float(f) -> true
     Str(s) -> true
     Punct(p) -> true
   }
@@ -2039,6 +2125,7 @@ isIdent(toks : List[Tok], i : Int) : Bool {
   toks.at(i).match {
     Ident(s) -> true
     Int(v) -> false
+    Float(f) -> false
     Str(s) -> false
     Punct(p) -> false
     Eof -> false
@@ -2049,6 +2136,7 @@ isWord(toks : List[Tok], i : Int, w : Str) : Bool {
   toks.at(i).match {
     Ident(s) -> s == w
     Int(v) -> false
+    Float(f) -> false
     Str(s) -> false
     Punct(p) -> false
     Eof -> false
@@ -2063,6 +2151,7 @@ identAt(toks : List[Tok], i : Int) : Str {
   toks.at(i).match {
     Ident(s) -> s
     Int(v) -> "?"
+    Float(f) -> "?"
     Str(s) -> "?"
     Punct(p) -> "?"
     Eof -> "?"
@@ -2074,6 +2163,7 @@ punctAt(toks : List[Tok], i : Int) : Str {
     Punct(p) -> p
     Ident(s) -> "?"
     Int(v) -> "?"
+    Float(f) -> "?"
     Str(s) -> "?"
     Eof -> "?"
   }
@@ -2084,6 +2174,7 @@ isPunct(toks : List[Tok], i : Int, op : Str) : Bool {
     Punct(p) -> p == op
     Ident(s) -> false
     Int(v) -> false
+    Float(f) -> false
     Str(s) -> false
     Eof -> false
   }
@@ -2139,13 +2230,25 @@ lex(src : Str) : Lexed {
           i = j + 1
         } else {
           if isDigit(c) {
+            start = i
             num = 0
             while (i < n).and(isDigit(src.at(i).code)) {
               num = num * 10 + (src.at(i).code - 48)
               i = i + 1
             }
-            toks.push(Int(num))
-            lines.push(line)
+            // a `.` followed by a digit makes it a float literal; keep the
+            // source text, since the value is a double the lexer can't hold
+            if (i + 1 < n).and(src.at(i).code == 46).and(isDigit(src.at(i + 1).code)) {
+              i = i + 1
+              while (i < n).and(isDigit(src.at(i).code)) {
+                i = i + 1
+              }
+              toks.push(Float(src.slice(start, i)))
+              lines.push(line)
+            } else {
+              toks.push(Int(num))
+              lines.push(line)
+            }
           } else {
             if isAlpha(c) {
               j = i
