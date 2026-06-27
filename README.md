@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Self-host](https://img.shields.io/badge/self--hosting-compiling-EE6C1A)
+![Self-host](https://img.shields.io/badge/self--hosted-fixpoint%20reached-2ea44f)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -118,13 +118,12 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M5c.3** `match` as a value (recursive evaluators: `Add(a, b) -> eval(a) + eval(b)`)
 - [x] **M5c.4** lists (`[…]`, `push`, `length`, `at`, `each`; elements of any type)
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
-- [ ] **Self-host** rewrite the compiler in Simpler. The real compiler,
-  [`selfhost/simpler.smplr`](selfhost/simpler.smplr), now exists and runs the whole
-  pipeline, lex to parse to C, on a growing subset: variant types (payload-less
-  and single-payload) with `match` and its bindings, multiple functions with
-  parameters and calls, integer locals, the arithmetic operators with precedence,
-  and `print`. The C it emits compiles and runs. The subset grows toward the full
-  language, each step checked against the bootstrap:
+- [x] **Self-host** ✅ **the compiler is written in Simpler and compiles itself.**
+  [`selfhost/simpler.smplr`](selfhost/simpler.smplr) runs the whole pipeline, lex to
+  parse to C, and reaches the three-stage byte-identical fixpoint: the bootstrap
+  builds it, it compiles its own source, and that output compiles its own source
+  to a byte-for-byte identical result. The harness checks this on every run. It
+  was grown one runnable step at a time, each verified against the bootstrap:
   - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
   - [x] **variant types and `match`** payload-less cases as a C enum; payload-bearing cases boxed in a uniform `{tag, slots}` object, so recursive and multi-field cases (`Add(Expr, Expr)`) just work; match bindings read each payload back by position
   - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs; it already compiles a recursive tree evaluator
@@ -135,13 +134,25 @@ Early bootstrap. The language grows one runnable milestone at a time:
   - [x] **typed record fields** each field's declared type is stored and resolved, so a `Str` field picks `s_eq` and a `List` field picks `l_len`, the way the compiler reads its own AST
   - [x] **capabilities** `main(sys)` becomes C `int main()`, and `sys.screen.print(x)` lowers like the built-in print (the erased capability path drops out, only the print remains)
   - [x] **string re-escaping** literals are re-escaped on emit (`\n`, `\"`, `\\`, `\t`, `\r`), so a string with a newline survives the round trip into valid C
-  - [ ] the three-stage byte-identical fixpoint: point the compiler at its own source
+  - [x] **reading its own source** (`sys.files.read`, `?`), typed match bindings, and nested-binding type inference, the last gaps the fixpoint exposed
+  - [x] **the three-stage byte-identical fixpoint** ✅ stage2 and stage3 match to the byte
 
-The groundwork is proven: [`selfhost/calc.smplr`](selfhost/calc.smplr) reads an
-expression and folds it to a value *and* to C, all in Simpler, and the real
-compiler above already turns a small program into a working executable. Self-host
-is now a matter of scale, the same folds over a bigger grammar, not a missing
-feature.
+How to see it for yourself, the three-stage bootstrap:
+
+```bash
+cd bootstrap
+cargo build --release
+./target/release/simpler build ../selfhost/simpler.smplr   # bootstrap builds the compiler (stage1)
+cp ../selfhost/simpler.smplr input.smplr
+../selfhost/simpler > stage2.c        # the Simpler compiler compiles its own source
+cc stage2.c -o stage2
+./stage2 > stage3.c                   # and that compiler compiles it again
+diff stage2.c stage3.c                # identical: the fixpoint
+```
+
+The first brick, [`selfhost/calc.smplr`](selfhost/calc.smplr), is still here too:
+a tiny lex-parse-fold pipeline that reads an expression and emits C, the idea in
+miniature.
 
 Every error reports `file:line:` with the offending line, because the whole
 point of effects-in-the-type is a tight, local feedback loop.

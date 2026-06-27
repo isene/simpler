@@ -195,6 +195,28 @@ out="$("$SIMPLER" test "$TMP/t.smplr" 2>/dev/null)"
 rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else nope "test failure detected"; fi
 
+# --- 4. the self-host fixpoint ------------------------------------------------
+# The compiler, written in Simpler, compiles its OWN source to a byte-stable C
+# output. Three stages: the bootstrap builds the self-hosted compiler (stage1);
+# stage1 compiles simpler.smplr to stage2.c; stage2 compiles it again to
+# stage3.c. stage2.c and stage3.c must be byte-identical. That fixpoint is the
+# proof of self-host.
+SH="../selfhost/simpler.smplr"
+"$SIMPLER" build "$SH" >/dev/null 2>&1
+if [ -x ../selfhost/simpler ]; then
+    cp ../selfhost/simpler "$TMP/stage1"; rm -f ../selfhost/simpler
+    cp "$SH" "$TMP/input.smplr"
+    ( cd "$TMP" && ./stage1 > stage2.c 2>/dev/null )
+    if cc -o "$TMP/stage2" "$TMP/stage2.c" 2>/dev/null; then
+        ( cd "$TMP" && ./stage2 > stage3.c 2>/dev/null )
+        if diff -q "$TMP/stage2.c" "$TMP/stage3.c" >/dev/null 2>&1; then ok; else nope "self-host fixpoint: stage2.c != stage3.c"; fi
+    else
+        nope "self-host fixpoint: emitted C does not compile"
+    fi
+else
+    nope "self-host fixpoint: could not build stage1"
+fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

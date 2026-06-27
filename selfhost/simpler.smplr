@@ -61,6 +61,7 @@ Fn = type {
 Case = type {
   cname : Str
   arity : Int
+  ptypes : List[Str]
 }
 
 TyDef = type {
@@ -90,8 +91,10 @@ TyEnv = type {
 Sigs = type {
   recNames : List[Str]
   records : List[RecDef]
+  types : List[TyDef]
   fnNames : List[Str]
   fnRets : List[Str]
+  boxedNullary : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -210,7 +213,17 @@ buildSigs(prog : Prog) : Sigs {
     fnNames.push(f.name)
     fnRets.push(f.ret)
   }
-  Sigs(recNames = recNames, records = prog.records, fnNames = fnNames, fnRets = fnRets)
+  boxedNullary : List[Str] = []
+  prog.types.each { t in
+    if hasPayload(t) {
+      t.cases.each { c in
+        if c.arity == 0 {
+          boxedNullary.push(c.cname)
+        }
+      }
+    }
+  }
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -261,6 +274,7 @@ parseRecord(toks : List[Tok], i : Int) : PRec {
       ty = identAt(toks, j + 1)
       j = j + 2
       if isPunct(toks, j, "[") {
+        ty = ty.concat("[").concat(identAt(toks, j + 1)).concat("]")
         while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
           j = j + 1
         }
@@ -283,18 +297,28 @@ parseTypeDef(toks : List[Tok], i : Int) : PTy {
     cn = identAt(toks, j)
     j = j + 1
     arity = 0
+    ptypes : List[Str] = []
     if isPunct(toks, j, "(") {
       j = j + 1
       while isIdent(toks, j) {
+        pt = identAt(toks, j)
         arity = arity + 1
         j = j + 1
+        if isPunct(toks, j, "[") {
+          pt = pt.concat("[").concat(identAt(toks, j + 1)).concat("]")
+          while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
+            j = j + 1
+          }
+          j = j + 1
+        }
+        ptypes.push(pt)
         if isPunct(toks, j, ",") {
           j = j + 1
         }
       }
       j = j + 1
     }
-    cases.push(Case(cname = cn, arity = arity))
+    cases.push(Case(cname = cn, arity = arity, ptypes = ptypes))
   }
   PTy(ty = TyDef(name = name, cases = cases), next = j + 1)
 }
@@ -319,6 +343,13 @@ parseParams(toks : List[Tok], i : Int) : PNames {
     if isPunct(toks, j, ":") {
       ty = identAt(toks, j + 1)
       j = j + 2
+      if isPunct(toks, j, "[") {
+        ty = ty.concat("[").concat(identAt(toks, j + 1)).concat("]")
+        while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
+          j = j + 1
+        }
+        j = j + 1
+      }
     }
     types.push(ty)
     if isPunct(toks, j, ",") {
@@ -458,7 +489,7 @@ parsePostfix(toks : List[Tok], pos : Int) : Parsed {
       node = pm.node
       i = pm.next
     } else {
-      if isPunct(toks, i + 2, "{") {
+      if isWord(toks, i + 1, "each") {
         pe = parseEach(toks, node, i)
         node = pe.node
         i = pe.next
@@ -737,6 +768,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     pk = pk + 1
   }
   ctx = Ctx(env = env, sigs = sigs)
+  seedEnv(f.body, ctx)
   decls = collectLets(f.body)
   d = 0
   dn = decls.length
@@ -749,7 +781,6 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   while k < m {
     last = (k + 1 == m).and(isMain(f.name).not)
     out = out.concat("\n").concat(emitStmt(f.body.at(k), last, ctx))
-    addBinding(f.body.at(k), ctx)
     k = k + 1
   }
   if isMain(f.name) {
@@ -799,13 +830,53 @@ envGet(env : TyEnv, name : Str) : Str {
   r
 }
 
-addBinding(s : Stmt, ctx : Ctx) : Int {
+// Before emitting a function, record the type of every binding it makes,
+// including those nested in if/while bodies and the parameter of an each
+// loop, so field access and method dispatch resolve everywhere.
+seedEnv(body : List[Stmt], ctx : Ctx) : Int {
+  k = 0
+  m = body.length
+  while k < m {
+    seedStmt(body.at(k), ctx)
+    k = k + 1
+  }
+  0
+}
+
+seedStmt(s : Stmt, ctx : Ctx) : Int {
   s.match {
     Let(name, e) -> envPut(ctx.env, name, inferType(e, ctx))
-    Bare(e) -> 0
-    If(c, t, el) -> 0
-    While(c, b) -> 0
+    Bare(e) -> seedExpr(e, ctx)
+    If(c, t, el) -> seedIf(t, el, ctx)
+    While(c, b) -> seedEnv(b, ctx)
   }
+}
+
+seedIf(t : List[Stmt], el : List[Stmt], ctx : Ctx) : Int {
+  seedEnv(t, ctx)
+  seedEnv(el, ctx)
+  0
+}
+
+seedExpr(e : Expr, ctx : Ctx) : Int {
+  e.match {
+    Each(recv, param, body) -> seedEach(recv, param, body, ctx)
+    Num(v) -> 0
+    Var(s) -> 0
+    StrLit(s) -> 0
+    ListLit(es) -> 0
+    Bin(op, a, b) -> 0
+    Call(name, args) -> 0
+    Match(scrut, arms) -> 0
+    Field(recv, fld) -> 0
+    Method(recv, name, args) -> 0
+  }
+}
+
+seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int {
+  envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
+  seedEnv(body, ctx)
+  0
 }
 
 inferType(e : Expr, ctx : Ctx) : Str {
@@ -980,10 +1051,30 @@ emitPrint(arg : Expr, ctx : Ctx) : Str {
 // `recv.each { x in body }` lowers to a counted C loop over the list.
 emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str {
   recvC = emitExpr(recv, ctx)
+  envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
   out = "  for (long _i = 0; _i < l_len(".concat(recvC).concat("); _i = _i + 1) {")
   out = out.concat("\n  long ").concat(param).concat(" = l_at(").concat(recvC).concat(", _i);")
   out = out.concat(emitBlock(body, ctx))
   out.concat("\n  }")
+}
+
+// "List[Fn]" has element type "Fn"; a bare "List" or a non-list has none.
+isListType(t : Str) : Bool {
+  r = false
+  if t.length > 3 {
+    if t.slice(0, 4) == "List" {
+      r = true
+    }
+  }
+  r
+}
+
+elemOf(t : Str) : Str {
+  r = "Int"
+  if isListType(t) {
+    r = t.slice(5, t.length - 1)
+  }
+  r
 }
 
 emitReturn(e : Expr, ctx : Ctx) : Str {
@@ -1008,6 +1099,7 @@ retVal(e : Expr, ctx : Ctx) : Str {
 emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
   boxed = armHasBind(arms)
   scrutC = emitExpr(scrut, ctx)
+  styp = exprType(scrut, ctx)
   head = scrutC
   if boxed {
     head = boxField(scrutC, "tag")
@@ -1016,23 +1108,58 @@ emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
   k = 0
   m = arms.length
   while k < m {
-    out = out.concat("\n").concat(emitArm(arms.at(k), scrutC, boxed, ctx))
+    out = out.concat("\n").concat(emitArm(arms.at(k), scrutC, boxed, styp, ctx))
     k = k + 1
   }
   out = out.concat("\n  }")
   out.concat("\n  return 0;")
 }
 
-emitArm(a : Arm, scrutC : Str, boxed : Bool, ctx : Ctx) : Str {
+// Each bound payload is given its declared type, so comparisons and method
+// dispatch inside the arm body resolve correctly.
+emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, ctx : Ctx) : Str {
   r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body, ctx)).concat(";")
   if boxed {
     decls = ""
     bi = 0
     while bi < a.binds.length {
+      envPut(ctx.env, a.binds.at(bi), payloadType(styp, a.tag, bi, ctx))
       decls = decls.concat(" long ").concat(a.binds.at(bi)).concat(" = ").concat(boxField(scrutC, slotName(bi))).concat(";")
       bi = bi + 1
     }
     r = "  case T_".concat(a.tag).concat(": {").concat(decls).concat(" return ").concat(emitExpr(a.body, ctx)).concat("; }")
+  }
+  r
+}
+
+// The declared type of payload `idx` of case `caseTag` in variant `tyName`.
+payloadType(tyName : Str, caseTag : Str, idx : Int, ctx : Ctx) : Str {
+  r = "Int"
+  types = ctx.sigs.types
+  k = 0
+  m = types.length
+  while k < m {
+    t = types.at(k)
+    if t.name == tyName {
+      r = casePayloadType(t, caseTag, idx)
+    }
+    k = k + 1
+  }
+  r
+}
+
+casePayloadType(t : TyDef, caseTag : Str, idx : Int) : Str {
+  r = "Int"
+  k = 0
+  m = t.cases.length
+  while k < m {
+    c = t.cases.at(k)
+    if c.cname == caseTag {
+      if idx < c.ptypes.length {
+        r = c.ptypes.at(idx)
+      }
+    }
+    k = k + 1
   }
   r
 }
@@ -1059,7 +1186,7 @@ armHasBind(arms : List[Arm]) : Bool {
 emitExpr(e : Expr, ctx : Ctx) : Str {
   e.match {
     Num(v) -> v.toStr
-    Var(s) -> s
+    Var(s) -> emitVar(s, ctx)
     StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
     ListLit(es) -> "l_new()"
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
@@ -1090,7 +1217,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
   if isRec(t, ctx).not {
     if fld == "length" {
       r = "s_len(".concat(recvC).concat(")")
-      if t == "List" {
+      if isListType(t) {
         r = "l_len(".concat(recvC).concat(")")
       }
     }
@@ -1120,7 +1247,7 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   }
   if name == "at" {
     r = "s_at(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
-    if t == "List" {
+    if isListType(t) {
       r = "l_at(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
     }
   }
@@ -1175,6 +1302,16 @@ cEscape(s : Str) : Str {
   out
 }
 
+// A bare name is a local or enum constant, unless it is a payload-less
+// constructor of a boxed variant, which needs a constructor call.
+emitVar(s : Str, ctx : Ctx) : Str {
+  r = s
+  if hasName(ctx.sigs.boxedNullary, s) {
+    r = s.concat("()")
+  }
+  r
+}
+
 emitArgs(args : List[Expr], ctx : Ctx) : Str {
   out = ""
   k = 0
@@ -1200,7 +1337,7 @@ exprType(e : Expr, ctx : Ctx) : Str {
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> "Int"
     Field(recv, fld) -> fieldType(recv, fld, ctx)
-    Method(recv, name, args) -> methodRet(name)
+    Method(recv, name, args) -> methodRet(recv, name, ctx)
     Each(recv, param, body) -> "Int"
   }
 }
@@ -1247,7 +1384,7 @@ fieldTypeIn(rec : RecDef, fld : Str) : Str {
   r
 }
 
-methodRet(name : Str) : Str {
+methodRet(recv : Expr, name : Str, ctx : Ctx) : Str {
   r = "Int"
   if name == "concat" {
     r = "Str"
@@ -1255,11 +1392,15 @@ methodRet(name : Str) : Str {
   if name == "slice" {
     r = "Str"
   }
-  if name == "at" {
-    r = "Str"
-  }
   if name == "read" {
     r = "Str"
+  }
+  if name == "at" {
+    r = "Str"
+    rt = exprType(recv, ctx)
+    if isListType(rt) {
+      r = elemOf(rt)
+    }
   }
   r
 }
