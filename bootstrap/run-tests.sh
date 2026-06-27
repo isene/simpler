@@ -57,6 +57,10 @@ else
     nope "self-hosted lexer (got: $lout)"
 fi
 
+# the self-hosted parser (lex -> parse -> eval) respects precedence and parens
+cout="$("$SIMPLER" run ../selfhost/calc.smplr 2>/dev/null)"
+[ "$cout" = "25" ] && ok || nope "self-hosted calc parser (got: $cout)"
+
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/e.smplr"

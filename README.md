@@ -4,7 +4,7 @@
 
 **A programming language whose only goal is to be simple.**
 
-![Self-host](https://img.shields.io/badge/self--hosting-lexer-EE6C1A)
+![Self-host](https://img.shields.io/badge/self--hosting-parser-EE6C1A)
 ![Compiler](https://img.shields.io/badge/compiler-Rust-f74c00)
 ![Emits](https://img.shields.io/badge/emits-C-444)
 ![License](https://img.shields.io/badge/license-Unlicense-green)
@@ -120,7 +120,7 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
 - [ ] **Self-host** rewrite the compiler in Simpler, verified against the bootstrap:
   - [x] **lexer** ([`selfhost/lexer.smplr`](selfhost/lexer.smplr), real Simpler, compiled by the bootstrap)
-  - [ ] **parser** a recursive `Expr` tree
+  - [x] **parser** ([`selfhost/calc.smplr`](selfhost/calc.smplr)): recursive descent into a recursive `Expr`, evaluated with `match`
   - [ ] **checker** a fold over the tree
   - [ ] **emitter** C, then the fixpoint test
 

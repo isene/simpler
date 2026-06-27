@@ -1,0 +1,131 @@
+// A parser, written in Simpler.
+//
+// The second self-hosted stage. It scans an arithmetic expression into
+// tokens, parses them with precedence into a recursive `Expr` tree, then
+// evaluates the tree. This is the whole self-host toolkit on one small
+// grammar: a token cursor, recursive descent, a recursive type, and
+// `match` as a value. Compile and run it with the bootstrap:
+//
+//     bootstrap/target/release/simpler run selfhost/calc.smplr
+
+Expr = type {
+  Num(Int)
+  Add(Expr, Expr)
+  Mul(Expr, Expr)
+}
+
+Tok = type {
+  TNum(Int)
+  TOp(Str)
+  TEnd
+}
+
+// A parse result carries the node built and the position to resume from.
+// With value semantics and no tuples, a small record is how a function
+// returns two things.
+Parsed = type {
+  node : Expr
+  next : Int
+}
+
+main(sys) {
+  toks = lex("1 + 2 * 3 + (4 + 5) * 2")
+  p = parseExpr(toks, 0)
+  sys.screen.print(eval(p.node).toStr)
+}
+
+// --- lex: source text to a list of tokens, ending in TEnd ---------------
+
+lex(src : Str) : List[Tok] {
+  toks : List[Tok] = []
+  n = src.length
+  i = 0
+  while i < n {
+    c = src.at(i).code
+    if isSpace(c) {
+      i = i + 1
+    } else {
+      if isDigit(c) {
+        num = 0
+        while (i < n).and(isDigit(src.at(i).code)) {
+          num = num * 10 + (src.at(i).code - 48)
+          i = i + 1
+        }
+        toks.push(TNum(num))
+      } else {
+        toks.push(TOp(src.at(i)))
+        i = i + 1
+      }
+    }
+  }
+  toks.push(TEnd)
+  toks
+}
+
+// --- parse: tokens to an Expr, with * binding tighter than + ------------
+
+parseExpr(toks : List[Tok], pos : Int) : Parsed {
+  p = parseTerm(toks, pos)
+  node = p.node
+  i = p.next
+  while isOp(toks, i, "+") {
+    r = parseTerm(toks, i + 1)
+    node = Add(node, r.node)
+    i = r.next
+  }
+  Parsed(node = node, next = i)
+}
+
+parseTerm(toks : List[Tok], pos : Int) : Parsed {
+  p = parseFactor(toks, pos)
+  node = p.node
+  i = p.next
+  while isOp(toks, i, "*") {
+    r = parseFactor(toks, i + 1)
+    node = Mul(node, r.node)
+    i = r.next
+  }
+  Parsed(node = node, next = i)
+}
+
+// A factor is a number, or a parenthesised expression.
+parseFactor(toks : List[Tok], pos : Int) : Parsed {
+  toks.at(pos).match {
+    TNum(v) -> Parsed(node = Num(v), next = pos + 1)
+    TOp(s) -> parseParen(toks, pos)
+    TEnd -> Parsed(node = Num(0), next = pos)
+  }
+}
+
+// Skip '(', parse the inner expression, skip ')'.
+parseParen(toks : List[Tok], pos : Int) : Parsed {
+  inner = parseExpr(toks, pos + 1)
+  Parsed(node = inner.node, next = inner.next + 1)
+}
+
+// Is the token at `i` the operator `op`?
+isOp(toks : List[Tok], i : Int, op : Str) : Bool {
+  toks.at(i).match {
+    TNum(v) -> false
+    TOp(s) -> s == op
+    TEnd -> false
+  }
+}
+
+// --- eval: an Expr to its value -----------------------------------------
+
+eval(e : Expr) : Int {
+  e.match {
+    Num(v) -> v
+    Add(a, b) -> eval(a) + eval(b)
+    Mul(a, b) -> eval(a) * eval(b)
+  }
+}
+
+isDigit(c : Int) : Bool {
+  c.ge(48).and(c.le(57))
+}
+
+isSpace(c : Int) : Bool {
+  (c == 32).or(c == 9).or(c == 10).or(c == 13)
+}
