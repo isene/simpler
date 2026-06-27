@@ -3,9 +3,14 @@
 // This is the real self-hosted compiler, grown one stage at a time. It
 // lexes source into tokens, parses them into an AST, and emits C, the
 // same pipeline as the Rust bootstrap. The working subset now covers
-// variant types (payload-less) with `match`, multiple functions with
-// integer parameters and calls, integer locals, the arithmetic operators
-// with precedence, and `print`.
+// variant types both payload-less and single-payload, with `match` and
+// its bindings, multiple functions with parameters and calls, integer
+// locals, the arithmetic operators with precedence, and `print`.
+//
+// Variant values use one uniform boxed representation, the same trick the
+// bootstrap uses: every value is a long holding a pointer to a small
+// { tag, payload } object, so all parameters and returns stay long and
+// the emitter needs no type tracking.
 //
 // It emits a complete C program on stdout; pipe that to a C compiler:
 //
@@ -26,6 +31,7 @@ Expr = type {
 
 Arm = type {
   tag : Str
+  binds : List[Str]
   body : Expr
 }
 
@@ -40,9 +46,14 @@ Fn = type {
   body : List[Stmt]
 }
 
+Case = type {
+  cname : Str
+  arity : Int
+}
+
 TyDef = type {
   name : Str
-  cases : List[Str]
+  cases : List[Case]
 }
 
 // A whole program: its type definitions and its functions.
@@ -68,6 +79,11 @@ Parsed = type {
 
 PStmt = type {
   node : Stmt
+  next : Int
+}
+
+PArm = type {
+  arm : Arm
   next : Int
 }
 
@@ -97,10 +113,14 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Light = type { Red Yellow Green }\nrank(c) {\n  c.match {\n    Red -> 1\n    Yellow -> 2\n    Green -> 3\n  }\n}\nmain() {\n  x = rank(Green)\n  print(x + 10)\n}\n"
+  src = "Shape = type { Circle(Int) Square(Int) }\nLight = type { Red Green }\narea(s) {\n  s.match {\n    Circle(r) -> r * r\n    Square(w) -> w * w\n  }\n}\nrank(c) {\n  c.match {\n    Red -> 1\n    Green -> 2\n  }\n}\nmain() {\n  print(area(Circle(6)) + rank(Green))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sys.screen.print("#include <stdio.h>")
+  sys.screen.print("#include <stdlib.h>")
+  sys.screen.print("#include <stdint.h>")
+  sys.screen.print("typedef struct { int tag; long v0; } Obj;")
+  sys.screen.print("long mk(int tag, long v0) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; return (long)(intptr_t)o; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
   }
@@ -139,14 +159,27 @@ isTypeDef(toks : List[Tok], i : Int) : Bool {
   isIdent(toks, i).and(isPunct(toks, i + 1, "="))
 }
 
-// `Name = type { Case Case ... }` -> the case names. Payload-less for now.
+// `Name = type { Case Case(T) ... }` -> the cases, each with its arity.
 parseTypeDef(toks : List[Tok], i : Int) : PTy {
   name = identAt(toks, i)
-  cases : List[Str] = []
+  cases : List[Case] = []
   j = i + 4
   while inBlock(toks, j) {
-    cases.push(identAt(toks, j))
+    cn = identAt(toks, j)
     j = j + 1
+    arity = 0
+    if isPunct(toks, j, "(") {
+      j = j + 1
+      while isIdent(toks, j) {
+        arity = arity + 1
+        j = j + 1
+        if isPunct(toks, j, ",") {
+          j = j + 1
+        }
+      }
+      j = j + 1
+    }
+    cases.push(Case(cname = cn, arity = arity))
   }
   PTy(ty = TyDef(name = name, cases = cases), next = j + 1)
 }
@@ -154,22 +187,36 @@ parseTypeDef(toks : List[Tok], i : Int) : PTy {
 parseFn(toks : List[Tok], i : Int) : PFn {
   name = identAt(toks, i)
   pp = parseParams(toks, i + 1)
-  pb = parseBlock(toks, pp.next)
+  b = skipToBrace(toks, pp.next)
+  pb = parseBlock(toks, b)
   PFn(fn = Fn(name = name, params = pp.names, body = pb.body), next = pb.next)
 }
 
-// `( name , name )` -> the parameter names, resuming after `)`.
+// `( name : Type , ... )` -> the parameter names. Types are skipped: the
+// uniform representation makes every parameter a long.
 parseParams(toks : List[Tok], i : Int) : PNames {
   names : List[Str] = []
   j = i + 1
   while isIdent(toks, j) {
     names.push(identAt(toks, j))
     j = j + 1
+    if isPunct(toks, j, ":") {
+      j = j + 2
+    }
     if isPunct(toks, j, ",") {
       j = j + 1
     }
   }
   PNames(names = names, next = j + 1)
+}
+
+// Skip a return type and effects between `)` and the body `{`.
+skipToBrace(toks : List[Tok], j : Int) : Int {
+  k = j
+  while isPunct(toks, k, "{").not.and(notEof(toks, k)) {
+    k = k + 1
+  }
+  k
 }
 
 // `{ stmt* }` -> the body, resuming after `}`.
@@ -244,7 +291,8 @@ parseFactor(toks : List[Tok], pos : Int) : Parsed {
 }
 
 // An identifier is a variable (or a payload-less constructor, which emits
-// the same way), or a call if a `(` follows.
+// the same way), or a call if a `(` follows. A single-payload constructor
+// like `Circle(6)` is just a call to its generated constructor.
 parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
   name = identAt(toks, pos)
   r = Parsed(node = Var(name), next = pos + 1)
@@ -275,7 +323,7 @@ parseArgs(toks : List[Tok], i : Int) : PArgs {
   PArgs(list = list, next = j + 1)
 }
 
-// `recv.match { Case -> expr ... }`. Payload-less arms for now.
+// `recv.match { Case(binds) -> expr ... }`.
 isDotMatch(toks : List[Tok], i : Int) : Bool {
   isPunct(toks, i, ".").and(isWord(toks, i + 1, "match"))
 }
@@ -284,18 +332,47 @@ parseMatch(toks : List[Tok], scrut : Expr, i : Int) : Parsed {
   arms : List[Arm] = []
   j = i + 3
   while inBlock(toks, j) {
-    tag = identAt(toks, j)
-    ae = parseExpr(toks, j + 2)
-    arms.push(Arm(tag = tag, body = ae.node))
-    j = ae.next
+    pa = parseArm(toks, j)
+    arms.push(pa.arm)
+    j = pa.next
   }
   Parsed(node = Match(scrut, arms), next = j + 1)
 }
 
+// `Case(b1, b2) -> expr` or `Case -> expr`.
+parseArm(toks : List[Tok], j : Int) : PArm {
+  tag = identAt(toks, j)
+  binds : List[Str] = []
+  k = j + 1
+  if isPunct(toks, k, "(") {
+    k = k + 1
+    while isIdent(toks, k) {
+      binds.push(identAt(toks, k))
+      k = k + 1
+      if isPunct(toks, k, ",") {
+        k = k + 1
+      }
+    }
+    k = k + 1
+  }
+  ae = parseExpr(toks, k + 1)
+  PArm(arm = Arm(tag = tag, binds = binds, body = ae.node), next = ae.next)
+}
+
 // --- emit: the AST folded to C ------------------------------------------
 
-// A payload-less variant is a C enum: each case becomes an int constant.
+// A payload-less variant is a C enum (each case an int constant). A
+// variant with payloads gets a tag enum and a constructor per case that
+// boxes the payload into an Obj.
 emitType(t : TyDef) : Str {
+  r = emitEnumType(t)
+  if hasPayload(t) {
+    r = emitBoxedType(t)
+  }
+  r
+}
+
+emitEnumType(t : TyDef) : Str {
   out = "enum {"
   k = 0
   m = t.cases.length
@@ -303,10 +380,44 @@ emitType(t : TyDef) : Str {
     if k > 0 {
       out = out.concat(",")
     }
-    out = out.concat(" ").concat(t.cases.at(k))
+    out = out.concat(" ").concat(t.cases.at(k).cname)
     k = k + 1
   }
   out.concat(" };")
+}
+
+emitBoxedType(t : TyDef) : Str {
+  out = "enum {"
+  k = 0
+  m = t.cases.length
+  while k < m {
+    if k > 0 {
+      out = out.concat(",")
+    }
+    out = out.concat(" T_").concat(t.cases.at(k).cname)
+    k = k + 1
+  }
+  out = out.concat(" };")
+  k = 0
+  while k < m {
+    cn = t.cases.at(k).cname
+    out = out.concat("\nlong ").concat(cn).concat("(long v0) { return mk(T_").concat(cn).concat(", v0); }")
+    k = k + 1
+  }
+  out
+}
+
+hasPayload(t : TyDef) : Bool {
+  has = false
+  k = 0
+  m = t.cases.length
+  while k < m {
+    if t.cases.at(k).arity > 0 {
+      has = true
+    }
+    k = k + 1
+  }
+  has
 }
 
 // A prototype, so functions may be defined in any order.
@@ -388,19 +499,46 @@ retVal(e : Expr) : Str {
   "  return ".concat(emitExpr(e)).concat(";")
 }
 
-// A match in return position becomes a switch, each arm returning its
-// value. The trailing return is unreachable but keeps C happy.
+// A match in return position becomes a switch. Arms that bind a payload
+// read it back out of the Obj; the trailing return keeps C happy.
 emitSwitch(scrut : Expr, arms : List[Arm]) : Str {
-  out = "  switch (".concat(emitExpr(scrut)).concat(") {")
+  boxed = armHasBind(arms)
+  scrutC = emitExpr(scrut)
+  head = scrutC
+  if boxed {
+    head = boxField(scrutC, "tag")
+  }
+  out = "  switch (".concat(head).concat(") {")
   k = 0
   m = arms.length
   while k < m {
-    a = arms.at(k)
-    out = out.concat("\n  case ").concat(a.tag).concat(": return ").concat(emitExpr(a.body)).concat(";")
+    out = out.concat("\n").concat(emitArm(arms.at(k), scrutC, boxed))
     k = k + 1
   }
   out = out.concat("\n  }")
   out.concat("\n  return 0;")
+}
+
+emitArm(a : Arm, scrutC : Str, boxed : Bool) : Str {
+  r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body)).concat(";")
+  if boxed {
+    r = "  case T_".concat(a.tag).concat(": { long ").concat(a.binds.at(0)).concat(" = ").concat(boxField(scrutC, "v0")).concat("; return ").concat(emitExpr(a.body)).concat("; }")
+  }
+  r
+}
+
+boxField(scrutC : Str, field : Str) : Str {
+  "((Obj*)(intptr_t)".concat(scrutC).concat(")->").concat(field)
+}
+
+armHasBind(arms : List[Arm]) : Bool {
+  has = false
+  if arms.length > 0 {
+    if arms.at(0).binds.length > 0 {
+      has = true
+    }
+  }
+  has
 }
 
 emitExpr(e : Expr) : Str {

@@ -120,13 +120,15 @@ Early bootstrap. The language grows one runnable milestone at a time:
 - [x] **M6** `while`, a general loop (the one control-flow shape a scanner needs)
 - [ ] **Self-host** rewrite the compiler in Simpler. The real compiler,
   [`selfhost/simpler.smplr`](selfhost/simpler.smplr), now exists and runs the whole
-  pipeline, lex to parse to C, on a growing subset: variant types with `match`,
-  multiple functions with parameters and calls, integer locals, the arithmetic
-  operators with precedence, and `print`. The C it emits compiles and runs. The
-  subset grows toward the full language, each step checked against the bootstrap:
+  pipeline, lex to parse to C, on a growing subset: variant types (payload-less
+  and single-payload) with `match` and its bindings, multiple functions with
+  parameters and calls, integer locals, the arithmetic operators with precedence,
+  and `print`. The C it emits compiles and runs. The subset grows toward the full
+  language, each step checked against the bootstrap:
   - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
-  - [x] **parser + emitter** for variant types and `match` (lowered to a C enum and switch), functions, parameters, calls, integer locals, arithmetic, and `print`
-  - [ ] grow further: variant payloads, record types, message sends, effects
+  - [x] **variant types and `match`** payload-less cases as a C enum, single-payload cases boxed (a uniform `{tag, payload}` object), match bindings read the payload back
+  - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs
+  - [ ] grow further: multi-payload and recursive variants, record types, message sends, effects
   - [ ] the checker: types, effects, capabilities
   - [ ] the three-stage byte-identical fixpoint
 
