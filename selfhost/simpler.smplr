@@ -160,7 +160,7 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nmain() {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  print(msg)\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
+  src = "Point = type { x : Int, y : Int }\nBox = type { label : Str, items : List[Int] }\nExpr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nsumTo(n) {\n  total = 0\n  i = 1\n  while i < n {\n    total = total + i\n    i = i + 1\n  }\n  total\n}\nclassify(x) {\n  r = 0\n  if x < 5 {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nshout(w : Str) : Str {\n  w.concat(\"!\")\n}\nisHi(w : Str) : Int {\n  r = 0\n  if w == \"hi\" {\n    r = 1\n  } else {\n    r = 2\n  }\n  r\n}\nsumList(xs) {\n  total = 0\n  xs.each { n in\n    total = total + n\n  }\n  total\n}\nboxScore(b : Box) : Int {\n  r = 0\n  if b.label == \"hi\" {\n    r = b.items.length\n  } else {\n    r = 0\n  }\n  r\n}\nmain(sys) {\n  p = Point(x = 3, y = 4)\n  msg = shout(\"hi\")\n  nums : List[Int] = []\n  nums.push(10)\n  nums.push(20)\n  bx = Box(label = \"hi\", items = nums)\n  sys.screen.print(msg)\n  sys.screen.print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg) + sumTo(5) + classify(9) + p.x + p.y + msg.length + isHi(\"hi\") + sumList(nums) + nums.length + boxScore(bx))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sigs = buildSigs(prog)
@@ -719,10 +719,12 @@ emitProto(f : Fn) : Str {
 
 emitFn(f : Fn, sigs : Sigs) : Str {
   rt = "long"
+  sig = paramDecls(f)
   if isMain(f.name) {
     rt = "int"
+    sig = ""
   }
-  out = rt.concat(" ").concat(f.name).concat("(").concat(paramDecls(f)).concat(") {")
+  out = rt.concat(" ").concat(f.name).concat("(").concat(sig).concat(") {")
   env = newEnv()
   pk = 0
   pn = f.params.length
@@ -933,7 +935,7 @@ stmtExpr(e : Expr, ctx : Ctx) : Str {
     Bin(op, a, b) -> exprStmt(e, ctx)
     Match(scrut, arms) -> exprStmt(e, ctx)
     Field(recv, fld) -> exprStmt(e, ctx)
-    Method(recv, name, args) -> exprStmt(e, ctx)
+    Method(recv, name, args) -> emitMethodStmt(name, args, e, ctx)
   }
 }
 
@@ -946,16 +948,29 @@ exprStmt(e : Expr, ctx : Ctx) : Str {
 emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
   if name == "print" {
-    arg = args.at(0)
-    fmt = "%ld"
-    cast = ""
-    if exprType(arg, ctx) == "Str" {
-      fmt = "%s"
-      cast = "(const char*)(intptr_t)"
-    }
-    r = "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(emitExpr(arg, ctx)).concat(");")
+    r = emitPrint(args.at(0), ctx)
   }
   r
+}
+
+// `sys.screen.print(x)` is a capability call: the receiver path is erased,
+// only the print at the end matters.
+emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
+  r = "  ".concat(emitExpr(e, ctx)).concat(";")
+  if name == "print" {
+    r = emitPrint(args.at(0), ctx)
+  }
+  r
+}
+
+emitPrint(arg : Expr, ctx : Ctx) : Str {
+  fmt = "%ld"
+  cast = ""
+  if exprType(arg, ctx) == "Str" {
+    fmt = "%s"
+    cast = "(const char*)(intptr_t)"
+  }
+  "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(emitExpr(arg, ctx)).concat(");")
 }
 
 // `recv.each { x in body }` lowers to a counted C loop over the list.
