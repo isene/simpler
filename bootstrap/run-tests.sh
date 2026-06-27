@@ -100,6 +100,11 @@ main(sys) { sys.screen.print(name(Red)) }' \
 reject "Int operands" \
     'main(sys) { x = 1 + "a" sys.screen.print(x) }' \
     "needs Int operands"
+# a function argument of the wrong type
+reject "argument type" \
+    'greet(s : Str) : Int { 0 }
+main(sys) { sys.screen.print(greet(5)) }' \
+    "expects Str, got Int"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

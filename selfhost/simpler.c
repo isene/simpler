@@ -54,8 +54,8 @@ typedef struct { long types; long records; long fns; } ProgT;
 long Prog(long types, long records, long fns) { ProgT* o = malloc(sizeof(ProgT)); o->types = types; o->records = records; o->fns = fns; return (long)(intptr_t)o; }
 typedef struct { long names; long tys; } TyEnvT;
 long TyEnv(long names, long tys) { TyEnvT* o = malloc(sizeof(TyEnvT)); o->names = names; o->tys = tys; return (long)(intptr_t)o; }
-typedef struct { long recNames; long records; long types; long fnNames; long fnRets; long boxedNullary; } SigsT;
-long Sigs(long recNames, long records, long types, long fnNames, long fnRets, long boxedNullary) { SigsT* o = malloc(sizeof(SigsT)); o->recNames = recNames; o->records = records; o->types = types; o->fnNames = fnNames; o->fnRets = fnRets; o->boxedNullary = boxedNullary; return (long)(intptr_t)o; }
+typedef struct { long recNames; long records; long types; long fns; long fnNames; long fnRets; long boxedNullary; } SigsT;
+long Sigs(long recNames, long records, long types, long fns, long fnNames, long fnRets, long boxedNullary) { SigsT* o = malloc(sizeof(SigsT)); o->recNames = recNames; o->records = records; o->types = types; o->fns = fns; o->fnNames = fnNames; o->fnRets = fnRets; o->boxedNullary = boxedNullary; return (long)(intptr_t)o; }
 typedef struct { long env; long sigs; } CtxT;
 long Ctx(long env, long sigs) { CtxT* o = malloc(sizeof(CtxT)); o->env = env; o->sigs = sigs; return (long)(intptr_t)o; }
 typedef struct { long node; long next; } ParsedT;
@@ -128,6 +128,8 @@ long seedExpr(long e, long ctx);
 long seedEach(long recv, long param, long body, long ctx);
 long inferType(long e, long ctx);
 long callRet(long name, long ctx);
+long variantOf(long name, long ctx);
+long hasCase(long t, long name);
 long isRec(long ty, long ctx);
 long collectLets(long body);
 long collectBody(long body, long names);
@@ -163,7 +165,13 @@ long emitExpr(long e, long ctx);
 long emitBin(long op, long a, long b, long ctx);
 long checkBinOp(long op, long a, long b, long ctx);
 long isArithOp(long op);
+long emitCall(long name, long args, long ctx);
+long checkCall(long name, long args, long ctx);
+long checkArgTypes(long name, long ptypes, long args, long ctx);
+long compatible(long want, long got, long ctx);
+long intLike(long t);
 long notInt(long t, long ctx);
+long varType(long s, long ctx);
 long isVariant(long t, long ctx);
 long emitField(long recv, long fld, long ctx);
 long emitMethod(long recv, long name, long args, long ctx);
@@ -275,7 +283,7 @@ long buildSigs(long prog) {
   }
   }
   }
-  return Sigs(recNames, ((ProgT*)(intptr_t)prog)->records, ((ProgT*)(intptr_t)prog)->types, fnNames, fnRets, boxedNullary);
+  return Sigs(recNames, ((ProgT*)(intptr_t)prog)->records, ((ProgT*)(intptr_t)prog)->types, ((ProgT*)(intptr_t)prog)->fns, fnNames, fnRets, boxedNullary);
 }
 long parse(long toks) {
   long types = 0;
@@ -1010,11 +1018,16 @@ long inferType(long e, long ctx) {
 }
 long callRet(long name, long ctx) {
   long r = 0;
+  long vt = 0;
   long k = 0;
   long m = 0;
   r = (long)(intptr_t)"Int";
   if (hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, name)) {
   r = name;
+  }
+  vt = variantOf(name, ctx);
+  if ((!s_eq(vt, (long)(intptr_t)""))) {
+  r = vt;
   }
   k = 0;
   m = l_len(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames);
@@ -1025,6 +1038,40 @@ long callRet(long name, long ctx) {
   k = (k + 1);
   }
   return r;
+}
+long variantOf(long name, long ctx) {
+  long r = 0;
+  long types = 0;
+  long k = 0;
+  long m = 0;
+  long t = 0;
+  r = (long)(intptr_t)"";
+  types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+  k = 0;
+  m = l_len(types);
+  while ((k < m)) {
+  t = l_at(types, k);
+  if (hasCase(t, name)) {
+  r = ((TyDefT*)(intptr_t)t)->name;
+  }
+  k = (k + 1);
+  }
+  return r;
+}
+long hasCase(long t, long name) {
+  long found = 0;
+  long k = 0;
+  long m = 0;
+  found = false;
+  k = 0;
+  m = l_len(((TyDefT*)(intptr_t)t)->cases);
+  while ((k < m)) {
+  if (s_eq(((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->cname, name)) {
+  found = true;
+  }
+  k = (k + 1);
+  }
+  return found;
 }
 long isRec(long ty, long ctx) {
   return hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, ty);
@@ -1243,7 +1290,7 @@ long emitArm(long a, long scrutC, long boxed, long styp, long ctx) {
   long r = 0;
   long decls = 0;
   long bi = 0;
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": return "), emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), (long)(intptr_t)";");
+  r = (long)(intptr_t)"";
   if (boxed) {
   decls = (long)(intptr_t)"";
   bi = 0;
@@ -1253,6 +1300,8 @@ long emitArm(long a, long scrutC, long boxed, long styp, long ctx) {
   bi = (bi + 1);
   }
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case T_", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": {"), decls), (long)(intptr_t)" return "), emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), (long)(intptr_t)"; }");
+  } else {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": return "), emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), (long)(intptr_t)";");
   }
   return r;
 }
@@ -1366,7 +1415,7 @@ long emitExpr(long e, long ctx) {
   case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)\"", cEscape(s)), (long)(intptr_t)"\""); }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"l_new()"; }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return emitBin(op, a, b, ctx); }
-  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return s_concat(s_concat(s_concat(name, (long)(intptr_t)"("), emitArgs(args, ctx)), (long)(intptr_t)")"); }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return emitCall(name, args, ctx); }
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return (long)(intptr_t)"0"; }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return emitField(recv, fld, ctx); }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return emitMethod(recv, name, args, ctx); }
@@ -1399,6 +1448,69 @@ long checkBinOp(long op, long a, long b, long ctx) {
 long isArithOp(long op) {
   return (((((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/")) || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">"));
 }
+long emitCall(long name, long args, long ctx) {
+  checkCall(name, args, ctx);
+  return s_concat(s_concat(s_concat(name, (long)(intptr_t)"("), emitArgs(args, ctx)), (long)(intptr_t)")");
+}
+long checkCall(long name, long args, long ctx) {
+  long fns = 0;
+  long k = 0;
+  long m = 0;
+  long f = 0;
+  fns = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fns;
+  k = 0;
+  m = l_len(fns);
+  while ((k < m)) {
+  f = l_at(fns, k);
+  if (s_eq(((FnT*)(intptr_t)f)->name, name)) {
+  checkArgTypes(name, ((FnT*)(intptr_t)f)->ptypes, args, ctx);
+  }
+  k = (k + 1);
+  }
+  return 0;
+}
+long checkArgTypes(long name, long ptypes, long args, long ctx) {
+  long n = 0;
+  long k = 0;
+  long pt = 0;
+  long at = 0;
+  n = l_len(args);
+  if ((n == l_len(ptypes))) {
+  k = 0;
+  while ((k < n)) {
+  pt = l_at(ptypes, k);
+  at = exprType(l_at(args, k), ctx);
+  if ((!compatible(pt, at, ctx))) {
+  fail(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr((k + 1))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at));
+  }
+  k = (k + 1);
+  }
+  }
+  return 0;
+}
+long compatible(long want, long got, long ctx) {
+  long r = 0;
+  r = false;
+  if (s_eq(want, got)) {
+  r = true;
+  }
+  if (s_eq(want, (long)(intptr_t)"")) {
+  r = true;
+  }
+  if (s_eq(got, (long)(intptr_t)"")) {
+  r = true;
+  }
+  if ((intLike(want) && intLike(got))) {
+  r = true;
+  }
+  if ((isListType(want) && isListType(got))) {
+  r = true;
+  }
+  return r;
+}
+long intLike(long t) {
+  return (s_eq(t, (long)(intptr_t)"Int") || s_eq(t, (long)(intptr_t)"Bool"));
+}
 long notInt(long t, long ctx) {
   long r = 0;
   r = false;
@@ -1413,6 +1525,16 @@ long notInt(long t, long ctx) {
   }
   if (isVariant(t, ctx)) {
   r = true;
+  }
+  return r;
+}
+long varType(long s, long ctx) {
+  long r = 0;
+  long vt = 0;
+  r = envGet(((CtxT*)(intptr_t)ctx)->env, s);
+  vt = variantOf(s, ctx);
+  if ((!s_eq(vt, (long)(intptr_t)""))) {
+  r = vt;
   }
   return r;
 }
@@ -1557,7 +1679,7 @@ long emitArgs(long args, long ctx) {
 long exprType(long e, long ctx) {
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Int"; }
-  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return envGet(((CtxT*)(intptr_t)ctx)->env, s); }
+  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return varType(s, ctx); }
   case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Str"; }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"List"; }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return (long)(intptr_t)"Int"; }

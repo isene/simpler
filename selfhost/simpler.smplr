@@ -92,6 +92,7 @@ Sigs = type {
   recNames : List[Str]
   records : List[RecDef]
   types : List[TyDef]
+  fns : List[Fn]
   fnNames : List[Str]
   fnRets : List[Str]
   boxedNullary : List[Str]
@@ -224,7 +225,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -884,10 +885,16 @@ inferType(e : Expr, ctx : Ctx) : Str {
   exprType(e, ctx)
 }
 
+// The type a call produces: a record constructor yields its record, a variant
+// constructor yields its variant, a function yields its declared return type.
 callRet(name : Str, ctx : Ctx) : Str {
   r = "Int"
   if hasName(ctx.sigs.recNames, name) {
     r = name
+  }
+  vt = variantOf(name, ctx)
+  if (vt == "").not {
+    r = vt
   }
   k = 0
   m = ctx.sigs.fnNames.length
@@ -898,6 +905,35 @@ callRet(name : Str, ctx : Ctx) : Str {
     k = k + 1
   }
   r
+}
+
+// The variant type that has a case named `name`, or "" if none.
+variantOf(name : Str, ctx : Ctx) : Str {
+  r = ""
+  types = ctx.sigs.types
+  k = 0
+  m = types.length
+  while k < m {
+    t = types.at(k)
+    if hasCase(t, name) {
+      r = t.name
+    }
+    k = k + 1
+  }
+  r
+}
+
+hasCase(t : TyDef, name : Str) : Bool {
+  found = false
+  k = 0
+  m = t.cases.length
+  while k < m {
+    if t.cases.at(k).cname == name {
+      found = true
+    }
+    k = k + 1
+  }
+  found
 }
 
 isRec(ty : Str, ctx : Ctx) : Bool {
@@ -1120,8 +1156,10 @@ emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
 // Each bound payload is given its declared type, so comparisons and method
 // dispatch inside the arm body resolve correctly.
 emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, ctx : Ctx) : Str {
-  r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body, ctx)).concat(";")
+  r = ""
   if boxed {
+    // type the payload bindings before emitting the body, so checks in it see
+    // the right types
     decls = ""
     bi = 0
     while bi < a.binds.length {
@@ -1130,6 +1168,8 @@ emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, ctx : Ctx) : Str {
       bi = bi + 1
     }
     r = "  case T_".concat(a.tag).concat(": {").concat(decls).concat(" return ").concat(emitExpr(a.body, ctx)).concat("; }")
+  } else {
+    r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body, ctx)).concat(";")
   }
   r
 }
@@ -1234,7 +1274,7 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
     StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
     ListLit(es) -> "l_new()"
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
-    Call(name, args) -> name.concat("(").concat(emitArgs(args, ctx)).concat(")")
+    Call(name, args) -> emitCall(name, args, ctx)
     Match(scrut, arms) -> "0"
     Field(recv, fld) -> emitField(recv, fld, ctx)
     Method(recv, name, args) -> emitMethod(recv, name, args, ctx)
@@ -1273,6 +1313,71 @@ isArithOp(op : Str) : Bool {
   (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "<").or(op == ">")
 }
 
+emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
+  checkCall(name, args, ctx)
+  name.concat("(").concat(emitArgs(args, ctx)).concat(")")
+}
+
+// A call to a user function must pass arguments of the declared types.
+// Calls to constructors and builtins are not in the fn table and are skipped.
+checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
+  fns = ctx.sigs.fns
+  k = 0
+  m = fns.length
+  while k < m {
+    f = fns.at(k)
+    if f.name == name {
+      checkArgTypes(name, f.ptypes, args, ctx)
+    }
+    k = k + 1
+  }
+  0
+}
+
+checkArgTypes(name : Str, ptypes : List[Str], args : List[Expr], ctx : Ctx) : Int {
+  n = args.length
+  if n == ptypes.length {
+    k = 0
+    while k < n {
+      pt = ptypes.at(k)
+      at = exprType(args.at(k), ctx)
+      if compatible(pt, at, ctx).not {
+        fail("argument ".concat((k + 1).toStr).concat(" of ").concat(name).concat(": expects ").concat(pt).concat(", got ").concat(at))
+      }
+      k = k + 1
+    }
+  }
+  0
+}
+
+// Two types are compatible when they match, when either is unknown (the
+// inference is permissive on purpose), or when both are lists (the uniform
+// representation makes element types interchangeable for passing).
+compatible(want : Str, got : Str, ctx : Ctx) : Bool {
+  r = false
+  if want == got {
+    r = true
+  }
+  if want == "" {
+    r = true
+  }
+  if got == "" {
+    r = true
+  }
+  if intLike(want).and(intLike(got)) {
+    r = true
+  }
+  if isListType(want).and(isListType(got)) {
+    r = true
+  }
+  r
+}
+
+// Bool is represented as Int, so the two are interchangeable for passing.
+intLike(t : Str) : Bool {
+  (t == "Int").or(t == "Bool")
+}
+
 // A type that is clearly not an Int: a string, a list, or a user type.
 notInt(t : Str, ctx : Ctx) : Bool {
   r = false
@@ -1287,6 +1392,17 @@ notInt(t : Str, ctx : Ctx) : Bool {
   }
   if isVariant(t, ctx) {
     r = true
+  }
+  r
+}
+
+// A bare name is a local, or a payload-less variant constructor (which has
+// the variant's type, e.g. `Neg` is a `Sign`).
+varType(s : Str, ctx : Ctx) : Str {
+  r = envGet(ctx.env, s)
+  vt = variantOf(s, ctx)
+  if (vt == "").not {
+    r = vt
   }
   r
 }
@@ -1426,7 +1542,7 @@ emitArgs(args : List[Expr], ctx : Ctx) : Str {
 exprType(e : Expr, ctx : Ctx) : Str {
   e.match {
     Num(v) -> "Int"
-    Var(s) -> envGet(ctx.env, s)
+    Var(s) -> varType(s, ctx)
     StrLit(s) -> "Str"
     ListLit(es) -> "List"
     Bin(op, a, b) -> "Int"
