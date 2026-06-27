@@ -124,6 +124,21 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sum" "$TMP/sum.c" 2>/dev/null && [ "$("$TMP/sum" 10,20,3,9)" = "$(printf '4\n42')" ]; then ok; else nope "Str.split fields"; fi
 
+# sumcol.smplr, a real CSV column-summer, built by the self-hosted compiler:
+# reads a file, splits into lines, splits each on commas, sums one column.
+# Exercises read + split + toInt + nested each/if with a binding inside the
+# loop body (the case that needs hoisting through .each).
+cp ../selfhost/sumcol.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sc.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/sc" "$TMP/sc.c" 2>/dev/null; then
+    printf 'a,10,x\nb,20,y\nc,3,z\nd,9,w\n' > "$TMP/data.csv"
+    if [ "$("$TMP/sc" "$TMP/data.csv" 1)" = "42" ] && [ "$("$TMP/sc" "$TMP/data.csv" 5)" = "0" ]; then ok; else nope "sumcol column sum"; fi
+    rm -f "$TMP/data.csv"
+else
+    nope "sumcol compiles"
+fi
+
 # the self-hosted compiler now rejects programs the Rust rejects.
 reject() { # description  source  expected_substring
     printf '%s' "$2" > "$TMP/input.smplr"

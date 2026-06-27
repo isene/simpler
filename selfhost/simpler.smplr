@@ -983,9 +983,26 @@ collectBody(body : List[Stmt], names : List[Str]) : Int {
 collectStmt(s : Stmt, names : List[Str]) : Int {
   s.match {
     Let(name, e) -> pushUnique(names, name)
-    Bare(e) -> 0
+    Bare(e) -> collectExpr(e, names)
     If(c, t, el) -> collectIf(t, el, names)
     While(c, b) -> collectBody(b, names)
+  }
+}
+
+// A bare `.each { x in ... }` carries its own block; its bindings are real
+// locals and must be hoisted too. Other expressions hold no statements.
+collectExpr(e : Expr, names : List[Str]) : Int {
+  e.match {
+    Each(recv, param, body) -> collectBody(body, names)
+    Num(v) -> 0
+    Var(s) -> 0
+    StrLit(s) -> 0
+    ListLit(es) -> 0
+    Bin(op, a, b) -> 0
+    Call(name, args) -> 0
+    Match(scrut, arms) -> 0
+    Field(recv, fld) -> 0
+    Method(recv, name, args) -> 0
   }
 }
 

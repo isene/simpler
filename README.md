@@ -119,6 +119,11 @@ methods (`.length`, `.at`, `.each`) work on it. A numeric argument becomes an
 what it is given. `"a,b,c".split(",")` returns a `List[Str]`, so a line of text
 splits into fields that compose straight into `.each` and `.toInt`.
 
+[`selfhost/sumcol.smplr`](selfhost/sumcol.smplr) puts it together: a CSV
+column-summer (`sumcol <file> <col>`) that reads a file, splits it into lines,
+splits each line on commas, and sums one column, the read-split-fold shape of a
+real reporting tool, in the language's own primitives.
+
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
 and `test`), but the language no longer depends on it:

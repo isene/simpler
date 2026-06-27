@@ -140,6 +140,7 @@ long isRec(long ty, long ctx);
 long collectLets(long body);
 long collectBody(long body, long names);
 long collectStmt(long s, long names);
+long collectExpr(long e, long names);
 long collectIf(long t, long el, long names);
 long pushUnique(long names, long name);
 long hasName(long names, long name);
@@ -1137,9 +1138,24 @@ long collectBody(long body, long names) {
 long collectStmt(long s, long names) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long e = ((Obj*)(intptr_t)s)->v1; return pushUnique(names, name); }
-  case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return 0; }
+  case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return collectExpr(e, names); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return collectIf(t, el, names); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return collectBody(b, names); }
+  }
+  return 0;
+}
+long collectExpr(long e, long names) {
+  switch (((Obj*)(intptr_t)e)->tag) {
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return collectBody(body, names); }
+  case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return 0; }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return 0; }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return 0; }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return 0; }
+  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return 0; }
+  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return 0; }
   }
   return 0;
 }
