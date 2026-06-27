@@ -3,14 +3,16 @@
 // This is the real self-hosted compiler, grown one stage at a time. It
 // lexes source into tokens, parses them into an AST, and emits C, the
 // same pipeline as the Rust bootstrap. The working subset now covers
-// variant types both payload-less and single-payload, with `match` and
-// its bindings, multiple functions with parameters and calls, integer
-// locals, the arithmetic operators with precedence, and `print`.
+// variant types, payload-less and payload-bearing, including recursive
+// and multi-field cases, with `match` and its bindings, multiple
+// functions with parameters and calls, integer locals, the arithmetic
+// operators with precedence, and `print`.
 //
 // Variant values use one uniform boxed representation, the same trick the
 // bootstrap uses: every value is a long holding a pointer to a small
-// { tag, payload } object, so all parameters and returns stay long and
-// the emitter needs no type tracking.
+// { tag, payloads } object, so all parameters and returns stay long and
+// the emitter needs no type tracking. A recursive type just stores child
+// pointers in those slots.
 //
 // It emits a complete C program on stdout; pipe that to a C compiler:
 //
@@ -113,14 +115,14 @@ PArgs = type {
 }
 
 main(sys) {
-  src = "Shape = type { Circle(Int) Square(Int) }\nLight = type { Red Green }\narea(s) {\n  s.match {\n    Circle(r) -> r * r\n    Square(w) -> w * w\n  }\n}\nrank(c) {\n  c.match {\n    Red -> 1\n    Green -> 2\n  }\n}\nmain() {\n  print(area(Circle(6)) + rank(Green))\n}\n"
+  src = "Expr = type { Num(Int) Add(Expr, Expr) Mul(Expr, Expr) }\nSign = type { Pos Neg }\neval(e) {\n  e.match {\n    Num(v) -> v\n    Add(a, b) -> eval(a) + eval(b)\n    Mul(a, b) -> eval(a) * eval(b)\n  }\n}\nflip(s) {\n  s.match {\n    Pos -> 0\n    Neg -> 1\n  }\n}\nmain() {\n  print(eval(Add(Num(2), Mul(Num(3), Num(4)))) + flip(Neg))\n}\n"
   toks = lex(src)
   prog = parse(toks)
   sys.screen.print("#include <stdio.h>")
   sys.screen.print("#include <stdlib.h>")
   sys.screen.print("#include <stdint.h>")
-  sys.screen.print("typedef struct { int tag; long v0; } Obj;")
-  sys.screen.print("long mk(int tag, long v0) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; return (long)(intptr_t)o; }")
+  sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
+  sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
   }
@@ -401,7 +403,8 @@ emitBoxedType(t : TyDef) : Str {
   k = 0
   while k < m {
     cn = t.cases.at(k).cname
-    out = out.concat("\nlong ").concat(cn).concat("(long v0) { return mk(T_").concat(cn).concat(", v0); }")
+    ar = t.cases.at(k).arity
+    out = out.concat("\nlong ").concat(cn).concat("(").concat(ctorParams(ar)).concat(") { return mk(T_").concat(cn).concat(", ").concat(ctorArgs(ar)).concat("); }")
     k = k + 1
   }
   out
@@ -522,7 +525,13 @@ emitSwitch(scrut : Expr, arms : List[Arm]) : Str {
 emitArm(a : Arm, scrutC : Str, boxed : Bool) : Str {
   r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body)).concat(";")
   if boxed {
-    r = "  case T_".concat(a.tag).concat(": { long ").concat(a.binds.at(0)).concat(" = ").concat(boxField(scrutC, "v0")).concat("; return ").concat(emitExpr(a.body)).concat("; }")
+    decls = ""
+    bi = 0
+    while bi < a.binds.length {
+      decls = decls.concat(" long ").concat(a.binds.at(bi)).concat(" = ").concat(boxField(scrutC, slotName(bi))).concat(";")
+      bi = bi + 1
+    }
+    r = "  case T_".concat(a.tag).concat(": {").concat(decls).concat(" return ").concat(emitExpr(a.body)).concat("; }")
   }
   r
 }
@@ -531,12 +540,51 @@ boxField(scrutC : Str, field : Str) : Str {
   "((Obj*)(intptr_t)".concat(scrutC).concat(")->").concat(field)
 }
 
+slotName(bi : Int) : Str {
+  "v".concat(bi.toStr)
+}
+
+// A constructor's parameter list, `long v0, long v1`, by arity.
+ctorParams(arity : Int) : Str {
+  out = ""
+  k = 0
+  while k < arity {
+    if k > 0 {
+      out = out.concat(", ")
+    }
+    out = out.concat("long ").concat(slotName(k))
+    k = k + 1
+  }
+  out
+}
+
+// The arguments passed to `mk`: the payloads, zero-padded to the slot count.
+ctorArgs(arity : Int) : Str {
+  out = ""
+  k = 0
+  while k < 3 {
+    if k > 0 {
+      out = out.concat(", ")
+    }
+    slot = "0"
+    if k < arity {
+      slot = slotName(k)
+    }
+    out = out.concat(slot)
+    k = k + 1
+  }
+  out
+}
+
 armHasBind(arms : List[Arm]) : Bool {
   has = false
-  if arms.length > 0 {
-    if arms.at(0).binds.length > 0 {
+  k = 0
+  m = arms.length
+  while k < m {
+    if arms.at(k).binds.length > 0 {
       has = true
     }
+    k = k + 1
   }
   has
 }

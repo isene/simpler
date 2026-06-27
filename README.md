@@ -126,9 +126,9 @@ Early bootstrap. The language grows one runnable milestone at a time:
   and `print`. The C it emits compiles and runs. The subset grows toward the full
   language, each step checked against the bootstrap:
   - [x] **lexer** the full Simpler token set: identifiers, ints, strings with escapes, comments, every operator including `->` and `==`
-  - [x] **variant types and `match`** payload-less cases as a C enum, single-payload cases boxed (a uniform `{tag, payload}` object), match bindings read the payload back
-  - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs
-  - [ ] grow further: multi-payload and recursive variants, record types, message sends, effects
+  - [x] **variant types and `match`** payload-less cases as a C enum; payload-bearing cases boxed in a uniform `{tag, slots}` object, so recursive and multi-field cases (`Add(Expr, Expr)`) just work; match bindings read each payload back by position
+  - [x] **functions, calls, locals, arithmetic, `print`** an AST out as C that builds and runs; it already compiles a recursive tree evaluator
+  - [ ] grow further: record types, the `Str` and `List` payloads and methods the compiler itself uses, message sends, effects
   - [ ] the checker: types, effects, capabilities
   - [ ] the three-stage byte-identical fixpoint
 
