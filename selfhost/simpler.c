@@ -158,6 +158,8 @@ long payloadType(long tyName, long caseTag, long idx, long ctx);
 long casePayloadType(long t, long caseTag, long idx);
 long boxField(long scrutC, long field);
 long checkExhaustive(long styp, long arms, long ctx);
+long checkArities(long t, long arms);
+long caseArityIn(long t, long tag);
 long checkCases(long t, long arms);
 long armCovers(long arms, long cname);
 long armHasBind(long arms);
@@ -1363,10 +1365,47 @@ long checkExhaustive(long styp, long arms, long ctx) {
   t = l_at(types, k);
   if (s_eq(((TyDefT*)(intptr_t)t)->name, styp)) {
   checkCases(t, arms);
+  checkArities(t, arms);
   }
   k = (k + 1);
   }
   return 0;
+}
+long checkArities(long t, long arms) {
+  long k = 0;
+  long m = 0;
+  long a = 0;
+  long ar = 0;
+  k = 0;
+  m = l_len(arms);
+  while ((k < m)) {
+  a = l_at(arms, k);
+  ar = caseArityIn(t, ((ArmT*)(intptr_t)a)->tag);
+  if ((!(ar < 0))) {
+  if ((!(l_len(((ArmT*)(intptr_t)a)->binds) == ar))) {
+  fail(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"match case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)" binds "), i_tostr(l_len(((ArmT*)(intptr_t)a)->binds))), (long)(intptr_t)", expected "), i_tostr(ar)));
+  }
+  }
+  k = (k + 1);
+  }
+  return 0;
+}
+long caseArityIn(long t, long tag) {
+  long r = 0;
+  long k = 0;
+  long m = 0;
+  long c = 0;
+  r = (0 - 1);
+  k = 0;
+  m = l_len(((TyDefT*)(intptr_t)t)->cases);
+  while ((k < m)) {
+  c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
+  if (s_eq(((CaseT*)(intptr_t)c)->cname, tag)) {
+  r = ((CaseT*)(intptr_t)c)->arity;
+  }
+  k = (k + 1);
+  }
+  return r;
 }
 long checkCases(long t, long arms) {
   long k = 0;

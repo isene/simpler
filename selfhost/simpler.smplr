@@ -1221,10 +1221,42 @@ checkExhaustive(styp : Str, arms : List[Arm], ctx : Ctx) : Int {
     t = types.at(k)
     if t.name == styp {
       checkCases(t, arms)
+      checkArities(t, arms)
     }
     k = k + 1
   }
   0
+}
+
+// Each arm must bind exactly as many values as its case carries.
+checkArities(t : TyDef, arms : List[Arm]) : Int {
+  k = 0
+  m = arms.length
+  while k < m {
+    a = arms.at(k)
+    ar = caseArityIn(t, a.tag)
+    if (ar < 0).not {
+      if (a.binds.length == ar).not {
+        fail("match case ".concat(a.tag).concat(" binds ").concat(a.binds.length.toStr).concat(", expected ").concat(ar.toStr))
+      }
+    }
+    k = k + 1
+  }
+  0
+}
+
+caseArityIn(t : TyDef, tag : Str) : Int {
+  r = 0 - 1
+  k = 0
+  m = t.cases.length
+  while k < m {
+    c = t.cases.at(k)
+    if c.cname == tag {
+      r = c.arity
+    }
+    k = k + 1
+  }
+  r
 }
 
 checkCases(t : TyDef, arms : List[Arm]) : Int {

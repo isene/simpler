@@ -115,6 +115,12 @@ reject "return type" \
     'twice(n : Int) : Int { "no" }
 main(sys) { sys.screen.print(twice(2)) }' \
     "return type mismatch"
+# a match arm that binds the wrong number of payloads
+reject "binding count" \
+    'Expr = type { Num(Int) Add(Expr, Expr) }
+ev(e : Expr) : Int { e.match { Num(n) -> n  Add(a) -> 1 } }
+main(sys) { sys.screen.print(ev(Num(1))) }' \
+    "binds 1, expected 2"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

@@ -168,7 +168,8 @@ first lexer to a compiler that compiles itself:
   - [x] **argument types** a call checks each argument against the parameter's declared type; `greet(5)` where `greet` wants a `Str` is rejected
   - [x] **record field types** a constructor checks each field value against its declared type; `Point(x = 1, y = "a")` is rejected
   - [x] **return types** a function's value must match its declared return type; `twice(n) : Int { "no" }` is rejected (`match`-bodied functions are skipped, their type is not inferred)
-  - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed)
+  - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
+  - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed): a larger subsystem the self-hosted compiler does not yet model
   - [ ] source locations on errors (`file:line:`)
 
 See it for yourself, the fixpoint with no Rust at all:
