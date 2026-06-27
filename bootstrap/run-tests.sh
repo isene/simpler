@@ -82,12 +82,24 @@ rm -f "$TMP/input.smplr"
 sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
 if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
 
-# the self-hosted compiler now rejects programs the Rust rejects. A match that
-# misses a case is a compile error.
-printf 'Color = type { Red Green Blue }\nname(c : Color) : Int { c.match { Red -> 1 Green -> 2 } }\nmain(sys) { sys.screen.print(name(Red)) }\n' > "$TMP/input.smplr"
-err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; rc=$?
-rm -f "$TMP/input.smplr"
-if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "non-exhaustive match"; then ok; else nope "self-host: non-exhaustive match not rejected (rc=$rc: $err)"; fi
+# the self-hosted compiler now rejects programs the Rust rejects.
+reject() { # description  source  expected_substring
+    printf '%s' "$2" > "$TMP/input.smplr"
+    local err rc
+    err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; rc=$?
+    rm -f "$TMP/input.smplr"
+    if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "$3"; then ok; else nope "self-host reject: $1 (rc=$rc: $err)"; fi
+}
+# a match missing a case
+reject "non-exhaustive match" \
+    'Color = type { Red Green Blue }
+name(c : Color) : Int { c.match { Red -> 1 Green -> 2 } }
+main(sys) { sys.screen.print(name(Red)) }' \
+    "non-exhaustive match"
+# arithmetic on a non-Int operand
+reject "Int operands" \
+    'main(sys) { x = 1 + "a" sys.screen.print(x) }' \
+    "needs Int operands"
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring

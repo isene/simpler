@@ -161,6 +161,10 @@ long armCovers(long arms, long cname);
 long armHasBind(long arms);
 long emitExpr(long e, long ctx);
 long emitBin(long op, long a, long b, long ctx);
+long checkBinOp(long op, long a, long b, long ctx);
+long isArithOp(long op);
+long notInt(long t, long ctx);
+long isVariant(long t, long ctx);
 long emitField(long recv, long fld, long ctx);
 long emitMethod(long recv, long name, long args, long ctx);
 long cEscape(long s);
@@ -1372,6 +1376,7 @@ long emitExpr(long e, long ctx) {
 }
 long emitBin(long op, long a, long b, long ctx) {
   long r = 0;
+  checkBinOp(op, a, b, ctx);
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", emitExpr(a, ctx)), (long)(intptr_t)" "), op), (long)(intptr_t)" "), emitExpr(b, ctx)), (long)(intptr_t)")");
   if (s_eq(op, (long)(intptr_t)"==")) {
   if (s_eq(exprType(a, ctx), (long)(intptr_t)"Str")) {
@@ -1379,6 +1384,54 @@ long emitBin(long op, long a, long b, long ctx) {
   }
   }
   return r;
+}
+long checkBinOp(long op, long a, long b, long ctx) {
+  if (isArithOp(op)) {
+  if (notInt(exprType(a, ctx), ctx)) {
+  fail(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"));
+  }
+  if (notInt(exprType(b, ctx), ctx)) {
+  fail(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"));
+  }
+  }
+  return 0;
+}
+long isArithOp(long op) {
+  return (((((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/")) || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">"));
+}
+long notInt(long t, long ctx) {
+  long r = 0;
+  r = false;
+  if (s_eq(t, (long)(intptr_t)"Str")) {
+  r = true;
+  }
+  if (isListType(t)) {
+  r = true;
+  }
+  if (isRec(t, ctx)) {
+  r = true;
+  }
+  if (isVariant(t, ctx)) {
+  r = true;
+  }
+  return r;
+}
+long isVariant(long t, long ctx) {
+  long found = 0;
+  long types = 0;
+  long k = 0;
+  long m = 0;
+  found = false;
+  types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+  k = 0;
+  m = l_len(types);
+  while ((k < m)) {
+  if (s_eq(((TyDefT*)(intptr_t)l_at(types, k))->name, t)) {
+  found = true;
+  }
+  k = (k + 1);
+  }
+  return found;
 }
 long emitField(long recv, long fld, long ctx) {
   long t = 0;

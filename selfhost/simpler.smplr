@@ -1244,6 +1244,7 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
 
 // `==` on strings is a library call; on integers it is the C operator.
 emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+  checkBinOp(op, a, b, ctx)
   r = "(".concat(emitExpr(a, ctx)).concat(" ").concat(op).concat(" ").concat(emitExpr(b, ctx)).concat(")")
   if op == "==" {
     if exprType(a, ctx) == "Str" {
@@ -1251,6 +1252,57 @@ emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
     }
   }
   r
+}
+
+// Arithmetic and ordering need Int operands, the same rule the Rust enforces.
+// `==` is left alone: it is overloaded over Int and Str. Only operands of a
+// type that is definitely not an Int are rejected; unknowns stay permissive.
+checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int {
+  if isArithOp(op) {
+    if notInt(exprType(a, ctx), ctx) {
+      fail("operator ".concat(op).concat(" needs Int operands"))
+    }
+    if notInt(exprType(b, ctx), ctx) {
+      fail("operator ".concat(op).concat(" needs Int operands"))
+    }
+  }
+  0
+}
+
+isArithOp(op : Str) : Bool {
+  (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "<").or(op == ">")
+}
+
+// A type that is clearly not an Int: a string, a list, or a user type.
+notInt(t : Str, ctx : Ctx) : Bool {
+  r = false
+  if t == "Str" {
+    r = true
+  }
+  if isListType(t) {
+    r = true
+  }
+  if isRec(t, ctx) {
+    r = true
+  }
+  if isVariant(t, ctx) {
+    r = true
+  }
+  r
+}
+
+isVariant(t : Str, ctx : Ctx) : Bool {
+  found = false
+  types = ctx.sigs.types
+  k = 0
+  m = types.length
+  while k < m {
+    if types.at(k).name == t {
+      found = true
+    }
+    k = k + 1
+  }
+  found
 }
 
 // A `.field` is a record field read, or a no-argument method on a builtin.

@@ -164,7 +164,8 @@ first lexer to a compiler that compiles itself:
   C seed.)
   - [x] **error reporting** a `fail` primitive: a compile error prints to stderr and stops the compiler
   - [x] **`match` exhaustiveness** every case of the matched variant must have an arm, else a compile error
-  - [ ] type mismatches (`1 + "a"`, wrong argument, field, and operand types)
+  - [x] **operand types** arithmetic and ordering (`+ - * / < >`) require Int operands; `1 + "a"` is rejected
+  - [ ] the rest of type-checking: argument, field, and return types
   - [ ] effects (`!IO`/`!Fail` coverage) and capabilities (can only touch what was handed)
   - [ ] source locations on errors (`file:line:`)
 
