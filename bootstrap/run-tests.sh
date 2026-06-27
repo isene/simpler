@@ -93,9 +93,11 @@ if cc -o "$TMP/ln" "$TMP/ln.c" 2>/dev/null; then
     # the input and output filenames come from the command line (sys.args)
     ( cd "$TMP" && ./ln in.txt out.txt )
     if [ "$(cat "$TMP/out.txt" 2>/dev/null)" = "$(printf '1\talpha\n2\tbeta\n')" ]; then ok; else nope "linenum tool read/write (got: $(cat "$TMP/out.txt" 2>/dev/null))"; fi
-    # with too few args it prints usage instead of touching the disk
-    usage="$( cd "$TMP" && ./ln 2>&1 )"
-    if [ "$usage" = "usage: linenum <in> <out>" ]; then ok; else nope "linenum usage (got: $usage)"; fi
+    # with too few args it fails like a Unix tool: usage to stderr, exit 1,
+    # and stdout stays empty
+    out="$( cd "$TMP" && ./ln 2>/dev/null )"; rc=$?
+    err="$( cd "$TMP" && ./ln 2>&1 1>/dev/null )"
+    if [ "$rc" -eq 1 ] && [ -z "$out" ] && [ "$err" = "usage: linenum <in> <out>" ]; then ok; else nope "linenum usage (rc=$rc out=$out err=$err)"; fi
     rm -f "$TMP/in.txt" "$TMP/out.txt"
 else
     nope "linenum tool compiles"
@@ -134,6 +136,8 @@ rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sc" "$TMP/sc.c" 2>/dev/null; then
     printf 'a,10,x\nb,20,y\nc,3,z\nd,9,w\n' > "$TMP/data.csv"
     if [ "$("$TMP/sc" "$TMP/data.csv" 1)" = "42" ] && [ "$("$TMP/sc" "$TMP/data.csv" 5)" = "0" ]; then ok; else nope "sumcol column sum"; fi
+    # misuse fails with a nonzero exit (fail: stderr + exit 1)
+    "$TMP/sc" >/dev/null 2>&1; if [ "$?" -ne 0 ]; then ok; else nope "sumcol misuse exits nonzero"; fi
     rm -f "$TMP/data.csv"
 else
     nope "sumcol compiles"

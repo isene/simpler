@@ -11,11 +11,10 @@
 main(sys) {
   args = sys.args
   if args.length < 2 {
-    sys.screen.print("usage: linenum <in> <out>")
-  } else {
-    src = sys.files.read(args.at(0))?
-    sys.files.write(args.at(1), number(src))
+    fail("usage: linenum <in> <out>")
   }
+  src = sys.files.read(args.at(0))?
+  sys.files.write(args.at(1), number(src))
 }
 
 // Walk the source one character at a time, emitting "N\t" at the start of

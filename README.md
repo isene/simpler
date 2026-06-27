@@ -122,7 +122,9 @@ splits into fields that compose straight into `.each` and `.toInt`.
 [`selfhost/sumcol.smplr`](selfhost/sumcol.smplr) puts it together: a CSV
 column-summer (`sumcol <file> <col>`) that reads a file, splits it into lines,
 splits each line on commas, and sums one column, the read-split-fold shape of a
-real reporting tool, in the language's own primitives.
+real reporting tool, in the language's own primitives. Both tools report a usage
+error with `fail("...")`, which writes the message to stderr and exits nonzero,
+so they behave in a shell pipeline the way a real command does.
 
 The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
 fuller reference (it also checks effects and exhaustiveness, and provides `fmt`

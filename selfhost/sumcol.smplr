@@ -14,11 +14,10 @@
 main(sys) {
   args = sys.args
   if args.length < 2 {
-    sys.screen.print("usage: sumcol <file> <col>")
-  } else {
-    src = sys.files.read(args.at(0))?
-    sys.screen.print(sumColumn(src, args.at(1).toInt).toStr)
+    fail("usage: sumcol <file> <col>")
   }
+  src = sys.files.read(args.at(0))?
+  sys.screen.print(sumColumn(src, args.at(1).toInt).toStr)
 }
 
 // Sum the integers in column `col` over every non-empty line of `src`.
