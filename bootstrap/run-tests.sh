@@ -163,6 +163,28 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/mp" "$TMP/mp.c" 2>/dev/null && [ "$("$TMP/mp")" = "$(printf '2\n[  7]\n[hi  ]\n[toolong]')" ]; then ok; else nope "mod/padLeft/padRight (got: $("$TMP/mp" 2>/dev/null))"; fi
 
+# Uniform function call: x.f is f(x) for a user function, so a chain of unary
+# words desugars to nested calls and can be packaged into one bigger word. UFCS
+# coexists with real record fields (p.x is the field, p.mag2 is mag2(p)).
+printf '%s' 'parse(s : Str) : Str { s.trim }
+shout(s : Str) : Str { s.concat("!") }
+wrap(s : Str) : Str { "[".concat(s).concat("]") }
+loud(s : Str) : Str { wrap(shout(parse(s))) }
+Point = type { x : Int, y : Int }
+mag2(p : Point) : Int { p.x * p.x + p.y * p.y }
+main(sys) {
+  data = "  hi  "
+  sys.screen.print(data.parse.shout.wrap)
+  sys.screen.print(data.loud)
+  p = Point(x = 3, y = 4)
+  sys.screen.print(p.mag2.toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > ufcs.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/ufcs" "$TMP/ufcs.c" 2>/dev/null && [ "$("$TMP/ufcs")" = "$(printf '[hi!]\n[hi!]\n25')" ]; then ok; else nope "UFCS x.f = f(x) (got: $("$TMP/ufcs" 2>/dev/null))"; fi
+# the chain compiles to the exact nested-call form
+( cd "$TMP" && grep -q 'wrap(shout(parse(data)))' ufcs.c ) && ok || nope "UFCS desugars to nested calls"
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

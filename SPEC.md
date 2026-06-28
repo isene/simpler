@@ -41,6 +41,25 @@ Four pieces of punctuation carry the whole syntax, with no overlap:
 `=` binds; it is a **statement, never an expression**. So it cannot hide inside
 a condition, and `if a == b` can never be a mistyped `=`.
 
+A send resolves to a built-in method or to one of your own functions:
+**`x.f` means `f(x)`**. So a one-argument function can be written as a send, and
+a row of them reads left to right, each word feeding the next:
+
+```
+data.parse.normalize.render      // exactly render(normalize(parse(data)))
+```
+
+Package that row into one function and it becomes a single send:
+
+```
+render_good(s : Str) : Str { render(normalize(parse(s))) }
+data.render_good                 // the whole pipeline as one word
+```
+
+Functions and methods are the same kind of brick. You build small words and snap
+them together into bigger ones. (A real record field always wins over a function
+of the same name, so `point.x` reads the field, not a call.)
+
 ## 2. Program structure
 
 A program is one `.smplr` file: zero or more type definitions and functions,

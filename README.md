@@ -269,6 +269,9 @@ first lexer to a compiler that compiles itself:
     `toInt`/`toFloat`/`toStr` on top of `concat`/`slice`/`at`/`length`; `Int.mod`
   - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`
     ranking) and list `sort`, plus 64-bit `Int` and `Float` with negatives
+  - [x] **composition**: uniform function call, `x.f` is `f(x)`, so a chain of
+    your own words (`data.parse.normalize.render`) is the nested call form and
+    packages into a single word; functions and methods are one kind of brick
   - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
     `wordfreq`, `sortlines`, `average`, `numstats`, each built by the
     self-hosted compiler and checked end to end

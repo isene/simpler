@@ -1898,12 +1898,54 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
       r = "l_sort(".concat(recvC).concat(", ").concat(flag).concat(")")
     }
   }
+  if useUFCS(t, fld, ctx) {
+    r = fld.concat("(").concat(recvC).concat(")")
+  }
   r
 }
 
 // The capability accessors on `sys`: erased at runtime, so they emit as 0.
 isCapField(fld : Str) : Bool {
   (fld == "screen").or(fld == "files").or(fld == "mail")
+}
+
+// The no-argument builtin fields, so UFCS never shadows one.
+isBuiltinField(fld : Str) : Bool {
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(isCapField(fld))
+}
+
+// Does record type `t` declare a field named `fld`?
+recHasField(t : Str, fld : Str, ctx : Ctx) : Bool {
+  found = false
+  recs = ctx.sigs.records
+  k = 0
+  m = recs.length
+  while k < m {
+    rec = recs.at(k)
+    if rec.name == t {
+      if hasName(rec.fields, fld) {
+        found = true
+      }
+    }
+    k = k + 1
+  }
+  found
+}
+
+// Uniform function call: `x.f` means `f(x)` when `f` is a user function and is
+// not a builtin field or a real field of `x`. This makes a user function and a
+// method the same kind of brick, so `data.parse.normalize.render` is exactly
+// `render(normalize(parse(data)))` and you can package that into one word.
+useUFCS(t : Str, fld : Str, ctx : Ctx) : Bool {
+  r = false
+  if hasName(ctx.sigs.fnNames, fld) {
+    if isBuiltinField(fld).not {
+      if recHasField(t, fld, ctx).not {
+        r = true
+      }
+    }
+  }
+  r
 }
 
 // A `.method(args)` on a builtin value.
@@ -2104,6 +2146,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   }
   if isRec(t, ctx) {
     r = recFieldType(t, fld, ctx)
+  }
+  if useUFCS(t, fld, ctx) {
+    r = callRet(fld, ctx)
   }
   r
 }

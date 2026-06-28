@@ -233,6 +233,9 @@ long varType(long s, long ctx);
 long isVariant(long t, long ctx);
 long emitField(long recv, long fld, long ctx);
 long isCapField(long fld);
+long isBuiltinField(long fld);
+long recHasField(long t, long fld, long ctx);
+long useUFCS(long t, long fld, long ctx);
 long emitMethod(long recv, long name, long args, long ctx);
 long cEscape(long s);
 long emitVar(long s, long ctx);
@@ -2107,10 +2110,49 @@ long emitField(long recv, long fld, long ctx) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_sort(", recvC), (long)(intptr_t)", "), flag), (long)(intptr_t)")");
   }
   }
+  if (useUFCS(t, fld, ctx)) {
+  r = s_concat(s_concat(s_concat(fld, (long)(intptr_t)"("), recvC), (long)(intptr_t)")");
+  }
   return r;
 }
 long isCapField(long fld) {
   return ((s_eq(fld, (long)(intptr_t)"screen") || s_eq(fld, (long)(intptr_t)"files")) || s_eq(fld, (long)(intptr_t)"mail"));
+}
+long isBuiltinField(long fld) {
+  return ((((((((((((s_eq(fld, (long)(intptr_t)"length") || s_eq(fld, (long)(intptr_t)"code")) || s_eq(fld, (long)(intptr_t)"toStr")) || s_eq(fld, (long)(intptr_t)"toInt")) || s_eq(fld, (long)(intptr_t)"toFloat")) || s_eq(fld, (long)(intptr_t)"trim")) || s_eq(fld, (long)(intptr_t)"not")) || s_eq(fld, (long)(intptr_t)"keys")) || s_eq(fld, (long)(intptr_t)"byValue")) || s_eq(fld, (long)(intptr_t)"sort")) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin")) || isCapField(fld));
+}
+long recHasField(long t, long fld, long ctx) {
+  long found = 0;
+  long recs = 0;
+  long k = 0;
+  long m = 0;
+  long rec = 0;
+  found = false;
+  recs = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->records;
+  k = 0L;
+  m = l_len(recs);
+  while ((k < m)) {
+  rec = l_at(recs, k);
+  if (s_eq(((RecDefT*)(intptr_t)rec)->name, t)) {
+  if (hasName(((RecDefT*)(intptr_t)rec)->fields, fld)) {
+  found = true;
+  }
+  }
+  k = (k + 1L);
+  }
+  return found;
+}
+long useUFCS(long t, long fld, long ctx) {
+  long r = 0;
+  r = false;
+  if (hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, fld)) {
+  if ((!isBuiltinField(fld))) {
+  if ((!recHasField(t, fld, ctx))) {
+  r = true;
+  }
+  }
+  }
+  return r;
 }
 long emitMethod(long recv, long name, long args, long ctx) {
   long t = 0;
@@ -2309,6 +2351,9 @@ long fieldType(long recv, long fld, long ctx) {
   }
   if (isRec(t, ctx)) {
   r = recFieldType(t, fld, ctx);
+  }
+  if (useUFCS(t, fld, ctx)) {
+  r = callRet(fld, ctx);
   }
   return r;
 }
