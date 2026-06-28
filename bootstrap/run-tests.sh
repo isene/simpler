@@ -312,6 +312,21 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/flt" "$TMP/flt.c" 2>/dev/null && [ "$("$TMP/flt")" = "$(printf '4.75\n2.8\nbigger\n3.5\n3.5\n3.14\n1')" ]; then ok; else nope "Float ops (got: $("$TMP/flt" 2>/dev/null))"; fi
 
+# the Float math layer (libm wrappers): sin/cos/sqrt/abs/floor and atan2. A
+# program that uses them links with -lm; ordinary programs and the compiler
+# itself do not.
+printf '%s' 'main(sys) {
+  pi = 3.14159265358979
+  sys.screen.print((pi / 2.0).sin.toStr)
+  sys.screen.print(2.0.sqrt.toStr)
+  sys.screen.print((0.0 - 3.5).abs.toStr)
+  sys.screen.print(3.7.floor.toStr)
+  sys.screen.print(1.0.atan2(1.0).toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > math.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.41421\n3.5\n3\n0.785398')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
+
 # .each evaluates its receiver once: iterating sys.stdin.split(...) directly
 # must see every field, not consume stdin on the first re-evaluation. Also
 # checks nested .each (the temps shadow cleanly).

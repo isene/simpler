@@ -257,7 +257,10 @@ remainder), `n.ge(m)` / `n.le(m)` (`Bool`, for `>=` / `<=`), arithmetic and
 ordering.
 
 **`Float`**: `x.toStr` (`Str`, compact: `5.0` renders as `5`, no trailing
-zeros), `x.toInt` (`Int`, truncates), arithmetic and ordering.
+zeros), `x.toInt` (`Int`, truncates), arithmetic and ordering. Math (all
+`Float`): `x.sin`, `x.cos`, `x.tan`, `x.asin`, `x.acos`, `x.sqrt`, `x.floor`,
+`x.abs`, and `x.atan2(y)`. These wrap the C math library, so a program that uses
+them must link it: `cc out.c -o out -lm`.
 
 **`Bool`**: `b.not`, `b.and(c)`, `b.or(c)` (all `Bool`).
 

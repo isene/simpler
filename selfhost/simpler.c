@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <math.h>
 #include <string.h>
 typedef struct { int tag; long v0; long v1; long v2; } Obj;
 long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }
@@ -234,6 +235,7 @@ long isVariant(long t, long ctx);
 long emitField(long recv, long fld, long ctx);
 long isCapField(long fld);
 long isBuiltinField(long fld);
+long isMathField(long fld);
 long recHasField(long t, long fld, long ctx);
 long useUFCS(long t, long fld, long ctx);
 long emitMethod(long recv, long name, long args, long ctx);
@@ -282,6 +284,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdio.h>");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdlib.h>");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdint.h>");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <math.h>");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <string.h>");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { int tag; long v0; long v1; long v2; } Obj;");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }");
@@ -2084,6 +2087,30 @@ long emitField(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"trim")) {
   r = s_concat(s_concat((long)(intptr_t)"s_trim(", recvC), (long)(intptr_t)")");
   }
+  if (s_eq(fld, (long)(intptr_t)"sin")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(sin(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"cos")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(cos(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"tan")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(tan(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"asin")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(asin(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"acos")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(acos(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"sqrt")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(sqrt(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"floor")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(floor(l2d(", recvC), (long)(intptr_t)")))");
+  }
+  if (s_eq(fld, (long)(intptr_t)"abs")) {
+  r = s_concat(s_concat((long)(intptr_t)"d2l(fabs(l2d(", recvC), (long)(intptr_t)")))");
+  }
   if (s_eq(fld, (long)(intptr_t)"not")) {
   r = s_concat(s_concat((long)(intptr_t)"(!", recvC), (long)(intptr_t)")");
   }
@@ -2119,7 +2146,10 @@ long isCapField(long fld) {
   return ((s_eq(fld, (long)(intptr_t)"screen") || s_eq(fld, (long)(intptr_t)"files")) || s_eq(fld, (long)(intptr_t)"mail"));
 }
 long isBuiltinField(long fld) {
-  return ((((((((((((s_eq(fld, (long)(intptr_t)"length") || s_eq(fld, (long)(intptr_t)"code")) || s_eq(fld, (long)(intptr_t)"toStr")) || s_eq(fld, (long)(intptr_t)"toInt")) || s_eq(fld, (long)(intptr_t)"toFloat")) || s_eq(fld, (long)(intptr_t)"trim")) || s_eq(fld, (long)(intptr_t)"not")) || s_eq(fld, (long)(intptr_t)"keys")) || s_eq(fld, (long)(intptr_t)"byValue")) || s_eq(fld, (long)(intptr_t)"sort")) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin")) || isCapField(fld));
+  return (((((((((((((s_eq(fld, (long)(intptr_t)"length") || s_eq(fld, (long)(intptr_t)"code")) || s_eq(fld, (long)(intptr_t)"toStr")) || s_eq(fld, (long)(intptr_t)"toInt")) || s_eq(fld, (long)(intptr_t)"toFloat")) || s_eq(fld, (long)(intptr_t)"trim")) || s_eq(fld, (long)(intptr_t)"not")) || s_eq(fld, (long)(intptr_t)"keys")) || s_eq(fld, (long)(intptr_t)"byValue")) || s_eq(fld, (long)(intptr_t)"sort")) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin")) || isMathField(fld)) || isCapField(fld));
+}
+long isMathField(long fld) {
+  return (((((((s_eq(fld, (long)(intptr_t)"sin") || s_eq(fld, (long)(intptr_t)"cos")) || s_eq(fld, (long)(intptr_t)"tan")) || s_eq(fld, (long)(intptr_t)"asin")) || s_eq(fld, (long)(intptr_t)"acos")) || s_eq(fld, (long)(intptr_t)"sqrt")) || s_eq(fld, (long)(intptr_t)"floor")) || s_eq(fld, (long)(intptr_t)"abs"));
 }
 long recHasField(long t, long fld, long ctx) {
   long found = 0;
@@ -2193,6 +2223,9 @@ long emitMethod(long recv, long name, long args, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"mod")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" % "), emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"atan2")) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("), emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")))");
   }
   if (s_eq(name, (long)(intptr_t)"padLeft")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "), emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
@@ -2325,6 +2358,9 @@ long fieldType(long recv, long fld, long ctx) {
   if (s_eq(fld, (long)(intptr_t)"trim")) {
   r = (long)(intptr_t)"Str";
   }
+  if (isMathField(fld)) {
+  r = (long)(intptr_t)"Float";
+  }
   if (s_eq(fld, (long)(intptr_t)"screen")) {
   r = (long)(intptr_t)"Screen";
   }
@@ -2418,6 +2454,9 @@ long methodRet(long recv, long name, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"padRight")) {
   r = (long)(intptr_t)"Str";
+  }
+  if (s_eq(name, (long)(intptr_t)"atan2")) {
+  r = (long)(intptr_t)"Float";
   }
   if (s_eq(name, (long)(intptr_t)"has")) {
   r = (long)(intptr_t)"Bool";
