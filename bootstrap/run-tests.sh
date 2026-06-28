@@ -183,7 +183,7 @@ main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/ufcs" "$TMP/ufcs.c" 2>/dev/null && [ "$("$TMP/ufcs")" = "$(printf '[hi!]\n[hi!]\n25')" ]; then ok; else nope "UFCS x.f = f(x) (got: $("$TMP/ufcs" 2>/dev/null))"; fi
 # the chain compiles to the exact nested-call form
-( cd "$TMP" && grep -q 'wrap(shout(parse(data)))' ufcs.c ) && ok || nope "UFCS desugars to nested calls"
+( cd "$TMP" && grep -q 'u_wrap(u_shout(u_parse(data)))' ufcs.c ) && ok || nope "UFCS desugars to nested calls"
 
 # slug.smplr, the UFCS showcase, AI-written from SPEC.md alone: small Str->Str
 # words snapped into a `slug` chain, applied as `line.slug`. A real filter.
@@ -194,7 +194,7 @@ if cc -o "$TMP/slug" "$TMP/slug.c" 2>/dev/null; then
     in="$(printf '  Hello, World.  \na b c\nno.commas,here\n\n   \n')"
     if [ "$(printf '%s' "$in" | "$TMP/slug")" = "$(printf 'Hello-World\na-b-c\nnocommashere')" ]; then ok; else nope "slug filter (got: $(printf '%s' "$in" | "$TMP/slug"))"; fi
     # the chain really compiled to the nested-call form
-    ( cd "$TMP" && grep -q 'hyphenated(noPeriods(noCommas(s_trim' slug.c ) && ok || nope "slug chain desugars"
+    ( cd "$TMP" && grep -q 'u_hyphenated(u_noPeriods(u_noCommas(s_trim' slug.c ) && ok || nope "slug chain desugars"
 else
     nope "slug compiles"
 fi
@@ -326,6 +326,22 @@ printf '%s' 'main(sys) {
 ( cd "$TMP" && ./seedc > math.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.41421\n3.5\n3\n0.785398')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
+
+# orbit.smplr, an ephemeris ported from the Fe2O3 Rust `orbit` library by an AI
+# (sun rise/set, moon phase, Julian date). Verified against orbit's own test
+# values: equator equinox day length ~12h, moon full on 2025-01-13, new on
+# 2025-01-29. Exercises the whole Float math layer; links with -lm.
+cp ../selfhost/orbit.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > orbit.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/orbit" "$TMP/orbit.c" -lm 2>/dev/null; then
+    o="$("$TMP/orbit")"
+    if printf '%s' "$o" | grep -q "sunrise 06:04, sunset 18:11" \
+       && printf '%s' "$o" | grep -q "2025-01-13.*(~98%)" \
+       && printf '%s' "$o" | grep -q "2025-01-29.*(~0%)"; then ok; else nope "orbit ephemeris (got: $o)"; fi
+else
+    nope "orbit compiles"
+fi
 
 # .each evaluates its receiver once: iterating sys.stdin.split(...) directly
 # must see every field, not consume stdin on the first re-evaluation. Also

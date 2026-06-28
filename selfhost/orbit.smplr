@@ -1,0 +1,215 @@
+// orbit.smplr — ephemeris core ported from orbit/src/lib.rs (Rust).
+// Scope: Julian date, sun rise/set (HH:MM), moon phase (illumination + name).
+// Colors, symbols, planet tables and TUI formatting are intentionally omitted.
+//
+// Trig methods on Float take/return RADIANS, so every degree value is
+// converted explicitly. Angle wrapping uses floor-based modulo. All
+// arithmetic is fully parenthesized because operator precedence is not
+// specified in SPEC.md.
+
+// Records: a function returns one value, so paired results use a record.
+SunTimes = type { rise : Str, set : Str }
+MoonInfo = type { illum : Float, name : Str }
+
+// ── small helpers ───────────────────────────────────────────────────
+
+// floor-based modulo: result lands in [0, m) for any sign of x.
+// This stands in for Rust's `x.rem_euclid(m)` / `x % m` on the
+// non-negative angles used here.
+modpos(x : Float, m : Float) : Float {
+  x - (((x / m).floor) * m)
+}
+
+// zero-pad a small non-negative integer to two digits ("6" -> "06").
+// padLeft only pads with spaces, so a manual leading zero is needed.
+pad2(n : Int) : Str {
+  s = n.toStr
+  out = s
+  if n < 10 {
+    out = "0".concat(s)
+  }
+  out
+}
+
+// fractional hours -> "HH:MM" (minutes rounded, like Rust format_hhmm).
+// Float has no .round, so round = floor(x + 0.5).
+fmtHHMM(hours : Float) : Str {
+  h = modpos(hours, 24.0)
+  hh = (h.floor).toInt
+  mmf = ((h - (h.floor)) * 60.0)
+  mm = ((mmf + 0.5).floor).toInt
+  hhOut = hh
+  mmOut = mm
+  if mm > 59 {
+    hhOut = (hh + 1).mod(24)
+    mmOut = 0
+  }
+  (pad2(hhOut).concat(":")).concat(pad2(mmOut))
+}
+
+// ── Julian date ─────────────────────────────────────────────────────
+
+// Calendar -> Julian Date (the float/floor formula used for moon phase).
+julianDate(y : Int, m : Int, d : Int) : Float {
+  yf = y.toFloat
+  mf = m.toFloat
+  df = d.toFloat
+  a = (((mf + 9.0) / 12.0).floor)
+  b = (((7.0 * (yf + a)) / 4.0).floor)
+  c = (((275.0 * mf) / 9.0).floor)
+  (((((367.0 * yf) - b) + c) + df) + 1721013.5)
+}
+
+// Julian Date including a time of day.
+julianDateTime(y : Int, m : Int, d : Int, hh : Int, mm : Int, ss : Int) : Float {
+  secs = (((hh * 3600) + (mm * 60)) + ss).toFloat
+  julianDate(y, m, d) + (secs / 86400.0)
+}
+
+// Days since 2000-01-01 (the integer formula the Rust Ephemeris uses
+// for the sun position). Integer division truncates, matching Rust.
+epochDay(y : Int, m : Int, d : Int) : Float {
+  a = ((m + 9) / 12)
+  b = ((7 * (y + a)) / 4)
+  c = ((275 * m) / 9)
+  (((((367 * y) - b) + c) + d) - 730530).toFloat
+}
+
+// ── Moon phase ──────────────────────────────────────────────────────
+
+phaseNames() : List[Str] {
+  ns : List[Str] = []
+  ns.push("New Moon")
+  ns.push("Waxing Crescent")
+  ns.push("First Quarter")
+  ns.push("Waxing Gibbous")
+  ns.push("Full Moon")
+  ns.push("Waning Gibbous")
+  ns.push("Last Quarter")
+  ns.push("Waning Crescent")
+  ns
+}
+
+// Illuminated fraction (0..1) and phase name for a calendar date.
+moonPhase(year : Int, month : Int, day : Int) : MoonInfo {
+  jd = julianDate(year, month, day)
+  daysSince = jd - 2451550.1
+  cycles = daysSince / 29.530588853
+  phase = cycles - (cycles.floor)
+  illum = ((1.0 - (((phase * 2.0) * 3.14159265358979).cos)) / 2.0)
+  idx = ((phase * 8.0).floor).toInt
+  MoonInfo(illum = illum, name = (phaseNames().at(idx)))
+}
+
+// ── Sun rise / set ──────────────────────────────────────────────────
+
+// Sun rise and set as "HH:MM" local times for a date and location.
+// tz is the offset from UT in hours. Returns sentinel strings
+// ("always"/"never") for polar day/night, mirroring the Rust path.
+sunTimes(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : SunTimes {
+  d2r = (3.14159265358979 / 180.0)
+  r2d = (180.0 / 3.14159265358979)
+
+  d = epochDay(year, month, day)
+  t = (d / 36525.0)
+  ecl = (((23.439279444 - ((46.8150 / 3600.0) * t)) - (((0.00059 / 3600.0) * t) * t)) + ((((0.001813 / 3600.0) * t) * t) * t))
+
+  ws0 = (282.9404 + (0.0000470935 * d))
+  e = (0.016709 - (0.000000001151 * d))
+  m0 = (356.0470 + (0.9856002585 * d))
+
+  ws = modpos((ws0 + 360.0), 360.0)
+  ms = modpos(m0, 360.0)
+
+  msr = (ms * d2r)
+  es = (ms + (((r2d * e) * (msr.sin)) * (1.0 + (e * (msr.cos)))))
+  esr = (es * d2r)
+  x = ((esr.cos) - e)
+  y = ((esr.sin) * ((1.0 - (e * e)).sqrt))
+  v = ((y.atan2(x)) * r2d)
+  r = (((x * x) + (y * y)).sqrt)
+  tlon = modpos((v + ws), 360.0)
+  tlonr = (tlon * d2r)
+  xs = (r * (tlonr.cos))
+  ys = (r * (tlonr.sin))
+  xe = xs
+  eclr = (ecl * d2r)
+  ye = (ys * (eclr.cos))
+  ze = (ys * (eclr.sin))
+  sunRa = modpos((((ye.atan2(xe)) * r2d) + 360.0), 360.0)
+  sunDec = ((ze.atan2((((xe * xe) + (ye * ye)).sqrt))) * r2d)
+
+  ls = modpos((ws + ms), 360.0)
+
+  h0 = -0.8333
+  transit = (((((sunRa - ls) - lon) / 15.0) + 12.0) + tz)
+  transit = modpos((transit + 24.0), 24.0)
+
+  sinH0 = ((h0 * d2r).sin)
+  phi = (lat * d2r)
+  delta = (sunDec * d2r)
+  denom = ((phi.cos) * (delta.cos))
+
+  riseStr = "never"
+  setStr = "always"
+  if (denom.abs) > 0.000000000001 {
+    cosLha = ((sinH0 - ((phi.sin) * (delta.sin))) / denom)
+    if cosLha < -1.0 {
+      riseStr = "always"
+      setStr = "never"
+    } else {
+      if cosLha > 1.0 {
+        riseStr = "never"
+        setStr = "always"
+      } else {
+        lhaH = (((cosLha.acos) * r2d) / 15.0)
+        riseH = modpos(((transit - lhaH) + 24.0), 24.0)
+        setH = modpos(((transit + lhaH) + 24.0), 24.0)
+        riseStr = fmtHHMM(riseH)
+        setStr = fmtHHMM(setH)
+      }
+    }
+  }
+  SunTimes(rise = riseStr, set = setStr)
+}
+
+// ── Demonstration ───────────────────────────────────────────────────
+
+main(sys) {
+  // Julian date (date, and date+time).
+  jd = julianDate(2026, 3, 20)
+  sys.screen.print("Julian date 2026-03-20 00:00 = ".concat(jd.toStr))
+  jdt = julianDateTime(2026, 3, 20, 12, 0, 0)
+  sys.screen.print("Julian date 2026-03-20 12:00 = ".concat(jdt.toStr))
+
+  // Sun at the equator on the 2026 vernal equinox.
+  // Expect sunrise near 06:00 and sunset near 18:00 (day length ~12h).
+  st = sunTimes(2026, 3, 20, 0.0, 0.0, 0.0)
+  line = "Equator (lat 0, lon 0, tz 0) 2026-03-20: sunrise "
+  line = line.concat(st.rise)
+  line = line.concat(", sunset ")
+  line = line.concat(st.set)
+  sys.screen.print(line)
+
+  // Moon illumination: 2025-01-13 should be ~full (>0.97),
+  // 2025-01-29 should be ~new (<0.03).
+  m1 = moonPhase(2025, 1, 13)
+  p1 = ((m1.illum * 100.0).floor).toInt
+  l1 = "Moon 2025-01-13: ".concat(m1.name)
+  l1 = l1.concat(", illuminated fraction ")
+  l1 = l1.concat(m1.illum.toStr)
+  l1 = l1.concat(" (~")
+  l1 = l1.concat(p1.toStr)
+  l1 = l1.concat("%)")
+  sys.screen.print(l1)
+
+  m2 = moonPhase(2025, 1, 29)
+  p2 = ((m2.illum * 100.0).floor).toInt
+  l2 = "Moon 2025-01-29: ".concat(m2.name)
+  l2 = l2.concat(", illuminated fraction ")
+  l2 = l2.concat(m2.illum.toStr)
+  l2 = l2.concat(" (~")
+  l2 = l2.concat(p2.toStr)
+  l2 = l2.concat("%)")
+  sys.screen.print(l2)
+}

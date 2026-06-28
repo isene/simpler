@@ -275,14 +275,21 @@ first lexer to a compiler that compiles itself:
     your own words (`data.parse.normalize.render`) is the nested call form and
     packages into a single word; functions and methods are one kind of brick
   - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
-    `wordfreq`, `sortlines`, `average`, `numstats`, `slug`, each built by the
-    self-hosted compiler and checked end to end
+    `wordfreq`, `sortlines`, `average`, `numstats`, `slug`, and `orbit` (an
+    ephemeris: sun rise/set, moon phase), each built by the self-hosted compiler
+    and checked end to end
   - [x] **the corpus holds up**: `numstats` and `slug` were each written by an AI
     from [SPEC.md](SPEC.md) alone, with no sight of the compiler or the other
     examples, then compiled and run unchanged, a round-trip test that the spec is
     a sufficient corpus to write Simpler. `slug` is the composition showcase:
     small `Str -> Str` words snapped into one (`s.trim.noCommas.noPeriods.
     hyphenated`) and applied as `line.slug`
+  - [x] **`orbit`**, the ephemeris from the [Fe2O3](https://isene.org/fe2o3/)
+    suite, ported to Simpler by an AI and matching the Rust original's test
+    values. Porting it surfaced and drove two robustness fixes: a method call's
+    `(` must sit on the same line as its name (so `expr.field` on one line and
+    `(...)` on the next are two statements, not a bogus method call), and user
+    function names are mangled so they never clash with a C library symbol
 
 See it for yourself, the fixpoint with no Rust at all:
 

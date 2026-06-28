@@ -807,8 +807,16 @@ ctorArgs(arity : Int) : Str {
 
 // --- emit: functions ----------------------------------------------------
 
+// A user function's C name is prefixed, so it cannot collide with a C library
+// symbol (the agent's `modf` clashed with libm's `modf`). main keeps its name;
+// runtime helpers, Map, fail, and record/variant constructors are not user
+// functions (not in fnNames) and so are left alone.
+mangle(name : Str) : Str {
+  "u_".concat(name)
+}
+
 emitProto(f : Fn) : Str {
-  "long ".concat(f.name).concat("(").concat(paramDecls(f)).concat(");")
+  "long ".concat(mangle(f.name)).concat("(").concat(paramDecls(f)).concat(");")
 }
 
 emitFn(f : Fn, sigs : Sigs) : Str {
@@ -818,7 +826,11 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     rt = "int"
     sig = "int argc, char** argv"
   }
-  out = rt.concat(" ").concat(f.name).concat("(").concat(sig).concat(") {")
+  nm = f.name
+  if isMain(f.name).not {
+    nm = mangle(f.name)
+  }
+  out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
   env = newEnv()
   pk = 0
   pn = f.params.length
@@ -1671,7 +1683,11 @@ isArithOp(op : Str) : Bool {
 
 emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
   checkCall(name, args, ctx)
-  name.concat("(").concat(emitArgs(args, ctx)).concat(")")
+  cn = name
+  if hasName(ctx.sigs.fnNames, name) {
+    cn = mangle(name)
+  }
+  cn.concat("(").concat(emitArgs(args, ctx)).concat(")")
 }
 
 // A function's value (its last bare expression) must match its declared return
@@ -1924,7 +1940,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
     }
   }
   if useUFCS(t, fld, ctx) {
-    r = fld.concat("(").concat(recvC).concat(")")
+    r = mangle(fld).concat("(").concat(recvC).concat(")")
   }
   r
 }
@@ -2431,7 +2447,16 @@ lex(src : Str) : Lexed {
                 lines.push(line)
                 i = i + 2
               } else {
-                toks.push(Punct(src.at(i)))
+                // a `(` that opens a line is a grouping paren starting a new
+                // statement, never a method-call's argument list. Mark it `s(`
+                // so the parser does not glue `expr.field` to a following
+                // `(...)` line into a bogus method call.
+                fol = (lines.length == 0).or((lines.at(lines.length - 1) == line).not)
+                if (src.at(i).code == 40).and(fol) {
+                  toks.push(Punct("s("))
+                } else {
+                  toks.push(Punct(src.at(i)))
+                }
                 lines.push(line)
                 i = i + 1
               }
