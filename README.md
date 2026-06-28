@@ -273,12 +273,14 @@ first lexer to a compiler that compiles itself:
     your own words (`data.parse.normalize.render`) is the nested call form and
     packages into a single word; functions and methods are one kind of brick
   - [x] **shipped tools** in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
-    `wordfreq`, `sortlines`, `average`, `numstats`, each built by the
+    `wordfreq`, `sortlines`, `average`, `numstats`, `slug`, each built by the
     self-hosted compiler and checked end to end
-  - [x] **the corpus holds up**: `numstats` was written by an AI from
-    [SPEC.md](SPEC.md) alone, with no sight of the compiler or the other
-    examples, then compiled and run unchanged, a round-trip test that the spec
-    is a sufficient corpus to write Simpler
+  - [x] **the corpus holds up**: `numstats` and `slug` were each written by an AI
+    from [SPEC.md](SPEC.md) alone, with no sight of the compiler or the other
+    examples, then compiled and run unchanged, a round-trip test that the spec is
+    a sufficient corpus to write Simpler. `slug` is the composition showcase:
+    small `Str -> Str` words snapped into one (`s.trim.noCommas.noPeriods.
+    hyphenated`) and applied as `line.slug`
 
 See it for yourself, the fixpoint with no Rust at all:
 

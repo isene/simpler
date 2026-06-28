@@ -185,6 +185,20 @@ if cc -o "$TMP/ufcs" "$TMP/ufcs.c" 2>/dev/null && [ "$("$TMP/ufcs")" = "$(printf
 # the chain compiles to the exact nested-call form
 ( cd "$TMP" && grep -q 'wrap(shout(parse(data)))' ufcs.c ) && ok || nope "UFCS desugars to nested calls"
 
+# slug.smplr, the UFCS showcase, AI-written from SPEC.md alone: small Str->Str
+# words snapped into a `slug` chain, applied as `line.slug`. A real filter.
+cp ../selfhost/slug.smplr "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > slug.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/slug" "$TMP/slug.c" 2>/dev/null; then
+    in="$(printf '  Hello, World.  \na b c\nno.commas,here\n\n   \n')"
+    if [ "$(printf '%s' "$in" | "$TMP/slug")" = "$(printf 'Hello-World\na-b-c\nnocommashere')" ]; then ok; else nope "slug filter (got: $(printf '%s' "$in" | "$TMP/slug"))"; fi
+    # the chain really compiled to the nested-call form
+    ( cd "$TMP" && grep -q 'hyphenated(noPeriods(noCommas(s_trim' slug.c ) && ok || nope "slug chain desugars"
+else
+    nope "slug compiles"
+fi
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

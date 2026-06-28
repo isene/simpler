@@ -1,0 +1,41 @@
+// slug: turn each input line into a URL/file slug.
+//
+//     slug <file>         // read a named file
+//     cat names.txt | slug    // or read standard input
+//
+// A line is trimmed, its commas and periods are dropped, and its spaces
+// become hyphens. Blank lines are skipped.
+//
+// This is the worked example of Simpler's composition: small single-purpose
+// words, each Str -> Str, snapped together. `s.trim.noCommas.noPeriods.
+// hyphenated` is exactly `hyphenated(noPeriods(noCommas(s.trim)))`, and the
+// whole chain is packaged into one word, `slug`, so a line becomes `line.slug`.
+// It was written by an AI from SPEC.md alone, with no sight of the compiler or
+// the other examples, then compiled and run unchanged.
+//
+//     cp slug.smplr input.smplr && ./simpler > t.c && cc t.c -o slug
+//     slug names.txt
+
+// Small single-purpose words. Each is Str -> Str, so they snap together.
+noCommas(s : Str) : Str { s.replace(",", "") }
+noPeriods(s : Str) : Str { s.replace(".", "") }
+hyphenated(s : Str) : Str { s.replace(" ", "-") }
+
+// The whole transform packaged as one word: a left-to-right chain of a
+// built-in method (trim) and three user words.
+slug(s : Str) : Str { s.trim.noCommas.noPeriods.hyphenated }
+
+main(sys) {
+  args = sys.args
+  text = ""
+  if args.length > 0 {
+    text = sys.files.read(args.at(0))?
+  } else {
+    text = sys.stdin
+  }
+  text.split("\n").each { line in
+    if line.trim.length > 0 {
+      sys.screen.print(line.slug)
+    }
+  }
+}
