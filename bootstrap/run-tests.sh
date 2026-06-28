@@ -151,6 +151,18 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/trim" "$TMP/trim.c" 2>/dev/null && [ "$("$TMP/trim")" = "$(printf '[hi]\n[x]\n0')" ]; then ok; else nope "Str.trim (got: $("$TMP/trim" 2>/dev/null))"; fi
 
+# Int.mod and Str.padLeft/padRight: remainder and field alignment, the pieces
+# a report tool needs. padding leaves an already-wide string unchanged.
+printf '%s' 'main(sys) {
+  sys.screen.print(17.mod(5).toStr)
+  sys.screen.print("[".concat("7".padLeft(3)).concat("]"))
+  sys.screen.print("[".concat("hi".padRight(4)).concat("]"))
+  sys.screen.print("[".concat("toolong".padLeft(3)).concat("]"))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > mp.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/mp" "$TMP/mp.c" 2>/dev/null && [ "$("$TMP/mp")" = "$(printf '2\n[  7]\n[hi  ]\n[toolong]')" ]; then ok; else nope "mod/padLeft/padRight (got: $("$TMP/mp" 2>/dev/null))"; fi
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

@@ -227,12 +227,15 @@ arguments. Dispatch is by the receiver's static type.
 | `s.split(d)` | `List[Str]` | split on the first character of `d` |
 | `s.contains(t)` | `Bool` | is `t` a substring |
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
+| `s.padLeft(n)` | `Str` | pad with spaces to width `n` (right-align) |
+| `s.padRight(n)` | `Str` | pad with spaces to width `n` (left-align) |
 | `s.toInt` | `Int` | parse (0 if not a number) |
 | `s.toFloat` | `Float` | parse (0 if not a number) |
 | `s == t` | `Bool` | equality |
 
-**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), `n.ge(m)` / `n.le(m)`
-(`Bool`, for `>=` / `<=`), arithmetic and ordering.
+**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), `n.mod(m)` (`Int`,
+remainder), `n.ge(m)` / `n.le(m)` (`Bool`, for `>=` / `<=`), arithmetic and
+ordering.
 
 **`Float`**: `x.toStr` (`Str`, compact: `5.0` renders as `5`, no trailing
 zeros), `x.toInt` (`Int`, truncates), arithmetic and ordering.
@@ -347,7 +350,8 @@ these; they do not exist:
 - No `import` / modules / globals (capabilities replace them).
 - No `return`, `break`, or `continue` (a function's value is its last
   expression; loops are `while` and `.each`).
-- No `<=`, `>=`, `%`, `&&`, `||` operators (use `.le`, `.ge`, `.and`, `.or`).
+- No `<=`, `>=`, `%`, `&&`, `||` operators (use `.le`, `.ge`, `.mod`, `.and`,
+  `.or`).
 - No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).
