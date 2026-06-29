@@ -325,7 +325,19 @@ printf '%s' 'main(sys) {
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > math.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
-if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.41421\n3.5\n3\n0.785398')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
+if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.4142135623731\n3.5\n3\n0.785398163397448')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
+
+# scientific-notation Float literals (1.5e3, 2.0e-3, 1.151e-9), and that toStr
+# prints a large value in full rather than collapsing to %g exponential.
+printf '%s' 'main(sys) {
+  sys.screen.print((1.5e3).toStr)
+  sys.screen.print((2.0e-3).toStr)
+  sys.screen.print((1.151e-9 * 1000000000.0).toStr)
+  sys.screen.print((2461119.5).toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sci.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/sci" "$TMP/sci.c" 2>/dev/null && [ "$("$TMP/sci")" = "$(printf '1500\n0.002\n1.151\n2461119.5')" ]; then ok; else nope "Float sci literals / toStr precision (got: $("$TMP/sci" 2>/dev/null))"; fi
 
 # orbit.smplr, an ephemeris ported from the Fe2O3 Rust `orbit` library by an AI
 # (sun rise/set, moon phase, Julian date). Verified against orbit's own test

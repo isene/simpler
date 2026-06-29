@@ -201,7 +201,7 @@ main(sys) {
   sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
   sys.screen.print("double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }")
   sys.screen.print("long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }")
-  sys.screen.print("long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%g\", l2d(x)); return (long)(intptr_t)r; }")
+  sys.screen.print("long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }")
   sys.screen.print("long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }")
   sys.screen.print("long i_tof(long n) { return d2l((double)n); }")
   sys.screen.print("long f_toi(long x) { return (long)l2d(x); }")
@@ -2425,6 +2425,19 @@ lex(src : Str) : Lexed {
               i = i + 1
               while (i < n).and(isDigit(src.at(i).code)) {
                 i = i + 1
+              }
+              // optional exponent: e or E, an optional sign, then digits (1.5e-9)
+              if (i < n).and((src.at(i).code == 101).or(src.at(i).code == 69)) {
+                j = i + 1
+                if (j < n).and((src.at(j).code == 43).or(src.at(j).code == 45)) {
+                  j = j + 1
+                }
+                if (j < n).and(isDigit(src.at(j).code)) {
+                  i = j
+                  while (i < n).and(isDigit(src.at(i).code)) {
+                    i = i + 1
+                  }
+                }
               }
               toks.push(Float(src.slice(start, i)))
               lines.push(line)

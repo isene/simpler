@@ -19,7 +19,7 @@ long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*
 long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, "%ld", n); return (long)(intptr_t)r; }
 double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }
 long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }
-long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, "%g", l2d(x)); return (long)(intptr_t)r; }
+long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, "%.15g", l2d(x)); return (long)(intptr_t)r; }
 long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }
 long i_tof(long n) { return d2l((double)n); }
 long f_toi(long x) { return (long)l2d(x); }
@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }");
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%g\", l2d(x)); return (long)(intptr_t)r; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tof(long n) { return d2l((double)n); }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_toi(long x) { return (long)l2d(x); }");
@@ -2631,6 +2631,18 @@ long u_lex(long src) {
   i = (i + 1L);
   while (((i < n) && u_isDigit(s_code(s_at(src, i))))) {
   i = (i + 1L);
+  }
+  if (((i < n) && ((s_code(s_at(src, i)) == 101L) || (s_code(s_at(src, i)) == 69L)))) {
+  j = (i + 1L);
+  if (((j < n) && ((s_code(s_at(src, j)) == 43L) || (s_code(s_at(src, j)) == 45L)))) {
+  j = (j + 1L);
+  }
+  if (((j < n) && u_isDigit(s_code(s_at(src, j))))) {
+  i = j;
+  while (((i < n) && u_isDigit(s_code(s_at(src, i))))) {
+  i = (i + 1L);
+  }
+  }
   }
   l_push(toks, Float(s_slice(src, start, i)));
   l_push(lines, line);

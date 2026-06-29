@@ -177,7 +177,8 @@ eval(e : Expr) : Int {
 
 ```
 42        -3            // Int (a leading - negates)
-3.14      -0.5      0.0  // Float (a dot with a digit on each side)
+3.14   -0.5   0.0   1.5e3   2.0e-9   // Float (a dot with a digit each
+                                     // side, plus an optional e exponent)
 "hi\n"                  // Str, escapes: \n \t \r \" \\
 true      false         // Bool
 []        [1, 2, 3]     // List ([] needs an annotation)
@@ -256,8 +257,9 @@ arguments. Dispatch is by the receiver's static type.
 remainder), `n.ge(m)` / `n.le(m)` (`Bool`, for `>=` / `<=`), arithmetic and
 ordering.
 
-**`Float`**: `x.toStr` (`Str`, compact: `5.0` renders as `5`, no trailing
-zeros), `x.toInt` (`Int`, truncates), arithmetic and ordering. Math (all
+**`Float`**: `x.toStr` (`Str`, up to 15 significant figures with trailing zeros
+trimmed, so `5.0` is `5` and a Julian date prints in full), `x.toInt` (`Int`,
+truncates), arithmetic and ordering. Math (all
 `Float`): `x.sin`, `x.cos`, `x.tan`, `x.asin`, `x.acos`, `x.sqrt`, `x.floor`,
 `x.abs`, and `x.atan2(y)`. These wrap the C math library, so a program that uses
 them must link it: `cc out.c -o out -lm`.
