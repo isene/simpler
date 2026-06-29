@@ -198,6 +198,11 @@ a == b   a < b    a > b
 -x                          // negation
 ```
 
+**Precedence is conventional, not the flat left-to-right of a pure message
+language.** A `.` send binds tightest, then unary `-`, then `* /`, then `+ -`,
+then `== < >`; all binary operators are left-associative. So `2 + 3 * 4` is
+`14`, and `a.b * 2` is `(a.b) * 2`. When in doubt, parenthesize.
+
 ## 7. Control flow
 
 ```
