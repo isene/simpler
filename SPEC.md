@@ -302,7 +302,8 @@ nothing at runtime.
 |------|------|--------|---------|
 | `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool`, with a newline |
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
-| `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` |
+| `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` (truncates) |
+| `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |
 

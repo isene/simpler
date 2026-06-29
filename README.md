@@ -263,8 +263,8 @@ first lexer to a compiler that compiles itself:
 - [x] **A language for real programs** past self-hosting, the pieces an everyday
   command-line tool needs, each grown with a working example and a regression
   test:
-  - [x] **I/O**: `sys.files.read`/`write`, `sys.args`, `sys.stdin`, and `fail` to
-    stderr with a non-zero exit, so a program is a real Unix filter
+  - [x] **I/O**: `sys.files.read`/`write`/`append`, `sys.args`, `sys.stdin`, and
+    `fail` to stderr with a non-zero exit, so a program is a real Unix filter
   - [x] **text**: `split`, `contains`, `replace`, `trim`, `padLeft`/`padRight`,
     `toInt`/`toFloat`/`toStr` on top of `concat`/`slice`/`at`/`length`; `Int.mod`
   - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`

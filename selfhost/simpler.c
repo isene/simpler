@@ -44,6 +44,7 @@ int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t
 long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }
 const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }
 long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
+long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, "a"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
 long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }
 long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
@@ -328,6 +329,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
@@ -1685,6 +1687,9 @@ long u_effMethodE(long recv, long name, long args, long used, long ctx) {
   if (s_eq(name, (long)(intptr_t)"write")) {
   l_push(used, (long)(intptr_t)"IO");
   }
+  if (s_eq(name, (long)(intptr_t)"append")) {
+  l_push(used, (long)(intptr_t)"IO");
+  }
   u_effExpr(recv, used, ctx);
   u_effArgs(args, used, ctx);
   return 0L;
@@ -2225,6 +2230,9 @@ long u_emitMethod(long recv, long name, long args, long ctx) {
   }
   if (s_eq(name, (long)(intptr_t)"write")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(", u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
+  }
+  if (s_eq(name, (long)(intptr_t)"append")) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(", u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
   if (s_eq(name, (long)(intptr_t)"split")) {
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");

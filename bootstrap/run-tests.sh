@@ -339,6 +339,24 @@ printf '%s' 'main(sys) {
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sci" "$TMP/sci.c" 2>/dev/null && [ "$("$TMP/sci")" = "$(printf '1500\n0.002\n1.151\n2461119.5')" ]; then ok; else nope "Float sci literals / toStr precision (got: $("$TMP/sci" 2>/dev/null))"; fi
 
+# sys.files.append: write truncates, append adds to the end. A program that
+# writes once then appends twice should leave all three lines in the file.
+printf '%s' 'main(sys) {
+  sys.files.write("af.txt", "first\n")
+  sys.files.append("af.txt", "second\n")
+  sys.files.append("af.txt", "third\n")
+  sys.screen.print(sys.files.read("af.txt")?)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > af.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/af" "$TMP/af.c" 2>/dev/null; then
+    out="$( cd "$TMP" && ./af )"
+    if [ "$out" = "$(printf 'first\nsecond\nthird')" ]; then ok; else nope "sys.files.append (got: $out)"; fi
+    rm -f "$TMP/af.txt"
+else
+    nope "append compiles"
+fi
+
 # orbit.smplr, an ephemeris ported from the Fe2O3 Rust `orbit` library by an AI
 # (sun rise/set, moon phase, Julian date). Verified against orbit's own test
 # values: equator equinox day length ~12h, moon full on 2025-01-13, new on
