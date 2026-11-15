@@ -988,6 +988,46 @@ check_err "effects written before the return type" \
   0
 }
 main(sys) { f([1]) }' "the return type comes before the effects"
+# a program's own names never collide with the names the C output uses
+echo 'T = type { EOF NULL Obj(Int) FILE(Str) }
+P = type {
+  o : Int
+  int : Int
+}
+PT = type { A B }
+show(t : T) : Str {
+  t.match {
+    EOF -> "e"
+    NULL -> "n"
+    Obj(n) -> n.toStr
+    FILE(s) -> s
+  }
+}
+f(char : Int, l_new : Int, s_len : Int) : Int { char + l_new + s_len }
+main(sys) {
+  p = P(o = 1, int = 2)
+  long = 4
+  printf = 7
+  mk = 8
+  _t0 = 9
+  xs = [1, 2]
+  sys.screen.print(show(EOF).concat(show(Obj(7))).concat(show(FILE("f"))))
+  sys.screen.print(p.o + p.int + long + printf + mk + _t0 + xs.length + f(1, 2, 3))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > names.c 2>/dev/null )
+if cc -o "$TMP/names" "$TMP/names.c" 2>/dev/null && [ "$("$TMP/names" | tr '\n' ' ')" = "e7f 39 " ]; then ok; else nope "names the C output also uses"; fi
+check_err "a type name nobody declared, in a signature" \
+    'f(s : str) : Int { 1 }
+main(sys) { f("a") }' "input.smplr:1: no type named str"
+check_err "a type name nobody declared, in a record" \
+    'main(sys) { 0 }
+P = type {
+  n : int
+}' "input.smplr:2: no type named int;"
+check_err "a type name nobody declared, on a local" \
+    'main(sys) {
+  xs : List[string] = []
+}' "input.smplr:2: no type named string"
 # a function may not change a list or map it was handed, unless it says !Mut
 check_err "!Mut: a push on a handed list" \
     'add(xs : List[Int]) {
@@ -1085,6 +1125,13 @@ accepts() { # description  source
     local err
     if err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; then ok; else nope "$1 (got: $err)"; fi
 }
+accepts "Map[Int] is the same type as Map" \
+    'g(m : Map[Int]) : Int { m.get("a") }
+main(sys) {
+  m = Map()
+  m.set("a", 4)
+  sys.screen.print(g(m))
+}'
 accepts "a new list built from a handed one needs no !Mut" \
     'P = type {
   val : Int

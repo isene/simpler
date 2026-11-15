@@ -127,7 +127,7 @@ sorted = nums.sort       // a new list, ascending
 ```
 
 **`Map`** is a `Str`-keyed map. Values are `Int` by default; annotate
-`Map[Str]` for string values.
+`Map[Str]` for string values. `Map[Int]` is the same type as `Map`.
 
 ```
 counts = Map()                       // Str -> Int

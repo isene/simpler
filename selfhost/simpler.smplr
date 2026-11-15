@@ -78,12 +78,14 @@ Case = type {
 TyDef = type {
   name : Str
   cases : List[Case]
+  line : Int
 }
 
 RecDef = type {
   name : Str
   fields : List[Str]
   ftypes : List[Str]
+  line : Int
 }
 
 Prog = type {
@@ -658,6 +660,9 @@ parseType(toks : Lexed, i : Int) : PType {
     }
     k = expect(toks, k, "]")
   }
+  if ty == "Map[Int]" {
+    ty = "Map"
+  }
   PType(ty = ty, next = k)
 }
 
@@ -688,7 +693,7 @@ parseRecord(toks : Lexed, i : Int) : PRec {
       j = j + 1
     }
   }
-  PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes), next = expect(toks, j, "}"))
+  PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes, line = lineOf(toks, i)), next = expect(toks, j, "}"))
 }
 
 parseTypeDef(toks : Lexed, i : Int, seen : List[Str]) : PTy !Mut {
@@ -710,7 +715,7 @@ parseTypeDef(toks : Lexed, i : Int, seen : List[Str]) : PTy !Mut {
     }
     cases.push(Case(cname = cn, arity = ptypes.length, ptypes = ptypes))
   }
-  PTy(ty = TyDef(name = name, cases = cases), next = expect(toks, j, "}"))
+  PTy(ty = TyDef(name = name, cases = cases, line = lineOf(toks, i)), next = expect(toks, j, "}"))
 }
 
 parseFn(toks : Lexed, i : Int) : PFn {
@@ -1170,15 +1175,15 @@ emitRecord(rec : RecDef) : Str {
     out = out.concat(" long ").concat(rec.fields.at(k)).concat(";")
     k = k + 1
   }
-  out = out.concat(" } ").concat(rec.name).concat("T;")
-  out = out.concat("\nlong ").concat(rec.name).concat("(").concat(recParams(rec)).concat(") { ").concat(rec.name).concat("T* o = malloc(sizeof(").concat(rec.name).concat("T));")
+  out = out.concat(" } ").concat("R_").concat(rec.name).concat(";")
+  out = out.concat("\nlong ").concat(rec.name).concat("(").concat(recParams(rec)).concat(") { R_").concat(rec.name).concat("* _o = malloc(sizeof(R_").concat(rec.name).concat("));")
   k = 0
   while k < m {
     fn = rec.fields.at(k)
-    out = out.concat(" o->").concat(fn).concat(" = ").concat(fn).concat(";")
+    out = out.concat(" _o->").concat(fn).concat(" = ").concat(fn).concat(";")
     k = k + 1
   }
-  out.concat(" return (long)(intptr_t)o; }")
+  out.concat(" return (long)(intptr_t)_o; }")
 }
 
 recParams(rec : RecDef) : Str {
@@ -1450,6 +1455,9 @@ inferType(e : Expr, ctx : Ctx) : Str !Mut {
 // has no element type to infer from its value.
 letType(ty : Str, e : Expr, ctx : Ctx) : Str !Mut {
   r = inferType(e, ctx)
+  if typeKnown(ty, ctx.sigs).not {
+    failAt(noType(ty), ctx)
+  }
   if (ty == "").not {
     r = ty
   }
@@ -2084,7 +2092,77 @@ paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
   found
 }
 
+// A type name nobody declared (`str`, `string`, `int`) is refused where it is written.
+typeBase(t : Str) : Str {
+  r = t
+  if t.length > 5 {
+    if t.slice(0, 5) == "List[" {
+      r = typeBase(t.slice(5, t.length - 1))
+    }
+  }
+  if t.length > 4 {
+    if t.slice(0, 4) == "Map[" {
+      r = typeBase(t.slice(4, t.length - 1))
+    }
+  }
+  r
+}
+
+typeKnown(t : Str, sigs : Sigs) : Bool {
+  b = typeBase(t)
+  r = b == "" || plainType(b) || b == "List" || b == "Map" || hasName(sigs.recNames, b)
+  sigs.types.each { td in
+    if td.name == b {
+      r = true
+    }
+  }
+  r
+}
+
+noType(t : Str) : Str {
+  b = typeBase(t)
+  // show the name as the program wrote it, without the "_c" the lexer added
+  if b.length > 2 {
+    cut = b.slice(0, b.length - 2)
+    if safeName(cut, cTaken()) == b {
+      b = cut
+    }
+  }
+  "no type named ".concat(b).concat("; the types are Int, Float, Str, Bool, List[T], Map, Map[Str] and the ones the program declares")
+}
+
+checkTypes(prog : Prog, sigs : Sigs) : Int {
+  prog.records.each { r in
+    r.ftypes.each { t in
+      if typeKnown(t, sigs).not {
+        fail("input.smplr:".concat(r.line.toStr).concat(": ").concat(noType(t)))
+      }
+    }
+  }
+  prog.types.each { td in
+    td.cases.each { c in
+      c.ptypes.each { t in
+        if typeKnown(t, sigs).not {
+          fail("input.smplr:".concat(td.line.toStr).concat(": ").concat(noType(t)))
+        }
+      }
+    }
+  }
+  prog.fns.each { f in
+    f.ptypes.each { t in
+      if typeKnown(t, sigs).not {
+        fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(noType(t)))
+      }
+    }
+    if typeKnown(f.ret, sigs).not {
+      fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(noType(f.ret)))
+    }
+  }
+  0
+}
+
 retPass(prog : Prog, sigs : Sigs) : Int !Mut {
+  checkTypes(prog, sigs)
   changed = true
   while changed {
     changed = false
@@ -2971,7 +3049,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   checkSysField(t, fld, ctx)
   checkField(t, fld, ctx)
   recvC = emitExpr(recv, ctx)
-  r = "((".concat(t).concat("T*)(intptr_t)").concat(recvC).concat(")->").concat(fld)
+  r = "((R_".concat(t).concat("*)(intptr_t)").concat(recvC).concat(")->").concat(fld)
   if isRec(t, ctx).not {
     if fld == "length" {
       r = "s_len(".concat(recvC).concat(")")
@@ -3685,6 +3763,7 @@ isMulOp(toks : Lexed, i : Int) : Bool {
 lex(src : Str) : Lexed {
   toks : List[Tok] = []
   lines : List[Int] = []
+  taken = cTaken()
   n = src.length
   i = 0
   line = 1
@@ -3765,7 +3844,7 @@ lex(src : Str) : Lexed {
               while (j < n).and(isAlnum(src.at(j).code)) {
                 j = j + 1
               }
-              toks.push(Ident(src.slice(i, j)))
+              toks.push(Ident(safeName(src.slice(i, j), taken)))
               lines.push(line)
               i = j
             } else {
@@ -3821,6 +3900,45 @@ twoIs(src : Str, i : Int, n : Int, a : Int, b : Int) : Bool {
 
 isDigit(c : Int) : Bool {
   c.ge(48).and(c.le(57))
+}
+
+// Names the C output already uses. A program's own name that matches one gets
+// "_c" added, so the C always compiles (a case named Obj, a variable named int).
+cTaken() : List[Str] {
+  ["auto", "break", "case", "char", "const", "continue", "default", "do", "double", "enum", "extern", "float", "for",
+   "goto", "inline", "int", "long", "register", "restrict", "short", "signed", "sizeof", "static", "struct", "switch",
+   "typedef", "union", "unsigned", "void", "volatile", "Obj", "SList", "SMap", "FILE", "NULL", "EOF", "NAN", "INFINITY",
+   "BUFSIZ", "RAND_MAX", "EXIT_SUCCESS", "EXIT_FAILURE", "SEEK_SET", "SEEK_CUR", "SEEK_END", "HUGE_VAL", "mk", "l2d",
+   "d2l", "argc", "argv", "printf", "fprintf", "sprintf", "snprintf", "malloc", "realloc",
+   "free", "exit", "strlen", "strcmp", "strcpy", "strcat", "strstr", "memcpy", "atol", "atof", "qsort", "getchar",
+   "fopen", "fclose", "fputs", "fread", "fseek", "ftell", "pow", "fmod", "ceil", "fabs", "round"]
+}
+
+safeName(s : Str, taken : List[Str]) : Str {
+  r = s
+  n = s.length
+  if n > 1 {
+    c0 = s.at(0).code
+    c1 = s.at(1).code
+    if c0 == 95 || (c1 == 95 && (c0 == 108 || c0 == 115 || c0 == 109 || c0 == 105 || c0 == 102 || c0 == 117 || c0 == 84)) {
+      r = s.concat("_c")
+    } else {
+      if hasName(taken, s) {
+        r = s.concat("_c")
+      }
+      if n > 3 {
+        if s.slice(0, 4) == "cmp_" {
+          r = s.concat("_c")
+        }
+      }
+      if n > 7 {
+        if s.slice(0, 8) == "simpler_" {
+          r = s.concat("_c")
+        }
+      }
+    }
+  }
+  r
 }
 
 isAlpha(c : Int) : Bool {
