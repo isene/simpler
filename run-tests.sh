@@ -800,6 +800,14 @@ check_err "a write with only a reads line" \
 main(sys) {
   sys.files.write("a.txt", "x")
 }' 'this program may not write a file; say which at the top, as in: writes "notes.txt"'
+printf '%s' 'reads "./"
+main(sys) {
+  sys.screen.print(sys.files.read("here.txt")?)
+  sys.screen.print(sys.files.read(sys.args.at(0))?)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > dot.c 2>/dev/null && cc -o dot dot.c 2>/dev/null && echo h > here.txt && mkdir -p sub && echo s > sub/s.txt )
+if [ "$( cd "$TMP" && ./dot sub/s.txt 2>&1 | tr -d '\n' )" = "hs" ]; then ok; else nope "a bare name under ./"; fi
+if ( cd "$TMP" && ./dot /etc/hostname 2>&1 | grep -q 'may not read "/etc/hostname"' ) && ( cd "$TMP" && ./dot sub/../../x 2>&1 | grep -q 'may not read' ); then ok; else nope "./ does not reach the root or climb out"; fi
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"

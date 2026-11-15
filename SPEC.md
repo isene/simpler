@@ -343,7 +343,8 @@ nothing at runtime.
 **A program says which files it may touch.** A `reads` line and a `writes`
 line at the top of the file name them; `.write` and `.append` both count as
 writing. A name is one file, a name ending in `/` is everything under that
-folder, and the word `args` is any file named on the command line.
+folder, and the word `args` is any file named on the command line. `"./"` is the
+folder the program runs in, so it covers `"a.txt"` as well as `"./a.txt"`.
 
 ```
 reads "config.txt", "data/", args
