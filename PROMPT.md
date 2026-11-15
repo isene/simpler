@@ -125,7 +125,8 @@ main(sys) {
 - The value of a function is its last line, written alone: `out`. Use `return x` only to leave early.
 - Only the LAST line of a block may be a value alone. Every other line is `name = value`, `if`, `while`,
   a `for`, a `.push`, a `.set` or a `.print`.
-- A name keeps one type. After `s = "12"` write `n = s.toInt`, never `s = s.toInt`.
+- A name keeps one type through the whole function, also in another block or loop: if `k` was a
+  text in one loop, a later counter needs another name. After `s = "12"` write `n = s.toInt`.
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()`.
 - Text is in quotes: `"a"` or `'a'`. A character is a one-letter text: `s.at(i)`. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code`; a number has no `.code`.
@@ -166,11 +167,13 @@ main(sys) {
 ## Every method there is
 
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
-  `s.contains(t)`, `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
+  `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
+  `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.abs`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
-  gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list)
+  gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
+  `xs.join(sep)` (a list of texts as one text)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 
-There is nothing else: no `filter`, `map`, `join`, `reverse`, `indexOf`, `substring`,
+There is nothing else: no `filter`, `map`, `reverse`, `indexOf`, `substring`,
 `pop`, `println`, `len`, no `xs[i]`, no `s[i]`, no string formatting, no `let` or `var`.

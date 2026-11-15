@@ -274,6 +274,9 @@ main(sys) {
   sys.screen.print("long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }")
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
   sys.screen.print("long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long s_find(long h, long n) { const char* p = (const char*)(intptr_t)h; const char* q = strstr(p, (const char*)(intptr_t)n); return q ? (long)(q - p) : -1; }")
+  sys.screen.print("long s_case(long s, long up) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); char* r = (char*)malloc(n + 1); for (long i = 0; i <= n; i++) { char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; r[i] = c; } return (long)(intptr_t)r; }")
+  sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)malloc(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
   sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); long pad = n - len; for (long i = 0; i < pad; i++) r[i] = 32; for (long i = 0; i < len; i++) r[pad + i] = p[i]; r[n] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); for (long i = 0; i < len; i++) r[i] = p[i]; for (long i = len; i < n; i++) r[i] = 32; r[n] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }")
@@ -1291,6 +1294,9 @@ parsePostfix(toks : Lexed, pos : Int) : Parsed {
   p = parseFactor(toks, pos)
   node = p.node
   i = p.next
+  if isPunct(toks, i, "?") {
+    i = i + 1
+  }
   while isPunct(toks, i, ".") {
     if isWord(toks, i + 1, "match") {
       pm = parseMatch(toks, node, i)
@@ -1313,9 +1319,9 @@ parsePostfix(toks : Lexed, pos : Int) : Parsed {
         }
       }
     }
-  }
-  if isPunct(toks, i, "?") {
-    i = i + 1
+    if isPunct(toks, i, "?") {
+      i = i + 1
+    }
   }
   Parsed(node = node, next = i)
 }
@@ -3527,6 +3533,12 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "trim" {
       r = "s_trim(".concat(recvC).concat(")")
     }
+    if fld == "upper" {
+      r = "s_case(".concat(recvC).concat(", 1)")
+    }
+    if fld == "lower" {
+      r = "s_case(".concat(recvC).concat(", 0)")
+    }
     if fld == "sin" {
       r = "d2l(sin(l2d(".concat(recvC).concat(")))")
     }
@@ -3596,7 +3608,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -3722,11 +3734,11 @@ isNumType(t : Str) : Bool {
 }
 
 isTextField(fld : Str) : Bool {
-  (fld == "length") || (fld == "trim") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
+  (fld == "length") || (fld == "trim") || (fld == "upper") || (fld == "lower") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
 }
 
 isTextMethod(name : Str) : Bool {
-  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
+  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "find") || (name == "join") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
 }
 
 // A method must exist on its receiver, and `at` / `push` take the right type.
@@ -3754,6 +3766,19 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
       pt = exprType(args.at(1), ctx)
       if compatible(elemOf(t), pt, ctx).not {
         failAt("set expects ".concat(elemOf(t)).concat(", got ").concat(pt), ctx)
+      }
+    }
+    if (name == "join") && (args.length == 1) {
+      if t != "List[Str]" {
+        failAt("join puts a list of texts together; ".concat(t).concat(" has no method join"), ctx)
+      }
+      if exprType(args.at(0), ctx) != "Str" {
+        failAt("join expects the text to put between, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
+    if (name == "find") && (args.length == 1) {
+      if (t != "Str") || (exprType(args.at(0), ctx) != "Str") {
+        failAt("find looks for a text in a text and gives its place, or -1", ctx)
       }
     }
     if name == "remove" {
@@ -3906,6 +3931,12 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "contains" {
     r = "s_contains(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "find" {
+    r = "s_find(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "join" {
+    r = "l_join(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "startsWith" {
     r = "s_starts(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -4111,7 +4142,7 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if fld == "toFloat" {
     r = "Float"
   }
-  if fld == "trim" {
+  if (fld == "trim") || (fld == "upper") || (fld == "lower") {
     r = "Str"
   }
   if fld == "not" {
@@ -4220,6 +4251,12 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
     r = "Bool"
   }
   if name == "replace" {
+    r = "Str"
+  }
+  if name == "find" {
+    r = "Int"
+  }
+  if name == "join" {
     r = "Str"
   }
   if name == "padLeft" {

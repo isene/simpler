@@ -268,6 +268,8 @@ arguments. Dispatch is by the receiver's static type.
 | `s.startsWith(t)`, `s.endsWith(t)` | `Bool` | does `s` begin or end with `t` |
 | `s.split(d)` | `List[Str]` | split on the first character of `d` |
 | `s.contains(t)` | `Bool` | is `t` a substring |
+| `s.find(t)` | `Int` | the place where `t` first starts, or -1 |
+| `s.upper`, `s.lower` | `Str` | the letters a to z in capitals or in small letters |
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
 | `s.padLeft(n)` | `Str` | pad with spaces to width `n` (right-align) |
 | `s.padRight(n)` | `Str` | pad with spaces to width `n` (left-align) |
@@ -292,7 +294,7 @@ them must link it: `cc out.c -o out -lm`.
 **`List[T]`**: `xs.length` (`Int`), `xs.at(i)` (`T`), `xs.push(x)`,
 `xs.set(i, x)` (put `x` at place `i`), `xs.remove(i)` (take the item at `i` out and give it;
 the last one is `xs.remove(xs.length - 1)`),
-`xs.sort` (new sorted `List[T]`), `xs.each { x in ... }`.
+`xs.sort` (new sorted `List[T]`), `xs.join(sep)` (a `List[Str]` as one text, `sep` between the items), `xs.each { x in ... }`.
 
 **`Map`**: `m.set(k, v)`, `m.get(k)` (value type), `m.has(k)` (`Bool`),
 `m.keys` (`List[Str]`), `m.byValue` (`List[Str]`, descending by value).

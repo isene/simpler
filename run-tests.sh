@@ -974,6 +974,26 @@ main(sys) {
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > feed.c 2>/dev/null && cc -w -o feed feed.c 2>/dev/null )
 if [ "$( cd "$TMP" && ./feed 2>&1 | tr '\n' '|' )" = "HELLO|a b |0|" ]; then ok; else nope "feeding text to a program, and a host that does not answer"; fi
+printf '%s' 'main(sys) {
+  s = "key=Value=x"
+  p = s.find("=")
+  sys.screen.print(p)
+  sys.screen.print(s.find("zz"))
+  sys.screen.print(s.slice(0, p).upper + s.lower)
+  sys.screen.print(["a", "b", "c"].join(", "))
+  e : List[Str] = []
+  sys.screen.print("[" + e.join("-") + "]")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > find.c 2>/dev/null && cc -w -o find find.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./find 2>&1 | tr '\n' '|' )" = "3|-1|KEYkey=value=x|a, b, c|[]|" ]; then ok; else nope "find, upper, lower and join"; fi
+printf '%s' 'reads "./"
+main(sys) {
+  sys.screen.print(sys.files.read("input.smplr")?.split("\n").at(0).trim)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > qm.c 2>/dev/null && cc -w -o qm qm.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./qm 2>&1 )" = 'reads "./"' ]; then ok; else nope "a method after the question mark"; fi
+check_err "join on a list of numbers" \
+    'main(sys) { sys.screen.print([1, 2].join(",")) }' 'join puts a list of texts together; List[Int] has no method join'
 check_err "running a program with no runs line" \
     'main(sys) { sys.programs.run("ls", []) }' 'say which at the top, as in: runs "git"'
 check_err "running a program the line does not name" \
