@@ -193,6 +193,18 @@ main(sys) {
   lexed = lex(src)
   prog = parse(lexed)
   sigs = buildSigs(prog)
+  // `simpler what` lists everything the program can touch, and writes no C.
+  if sys.args.length > 0 && sys.args.at(0) == "what" {
+    if hasName(sigs.fnNames, "main").not {
+      fail("input.smplr:1: no main function found")
+    }
+    // every check runs first, so the list is given only for a program that compiles
+    prog.fns.each { f in
+      emitFn(f, sigs)
+    }
+    sys.screen.print(whatProg(prog, sigs))
+    return
+  }
   sys.screen.print("#include <stdio.h>")
   sys.screen.print("#include <stdlib.h>")
   sys.screen.print("#include <stdint.h>")
@@ -281,6 +293,172 @@ main(sys) {
   }
   if testing {
     sys.screen.print(emitTests(prog.fns))
+  }
+}
+
+// --- what: everything a program can touch -------------------------------
+// A program reaches the world only through main's `sys`, and the compiler
+// refuses any other way. So the uses found here are all there are.
+
+What = type {
+  kinds : List[Str]
+  acts : List[Str]
+  fns : List[Str]
+}
+
+whatProg(prog : Prog, sigs : Sigs) : Str {
+  ks : List[Str] = []
+  as : List[Str] = []
+  fs : List[Str] = []
+  w = What(kinds = ks, acts = as, fns = fs)
+  prog.fns.each { f in
+    whatBody(f.body, f.name, w, sigs)
+  }
+  out = ""
+  ["screen", "files", "mail", "stdin", "args"].each { kind in
+    out = out.concat(whatKind(w, kind))
+  }
+  out.concat("nothing else: the language has no network and cannot start other programs")
+}
+
+// One line per thing done with `kind`, with the functions that do it.
+whatKind(w : What, kind : Str) : Str {
+  out = ""
+  done : List[Str] = []
+  k = 0
+  while k < w.acts.length {
+    act = w.acts.at(k)
+    if w.kinds.at(k) == kind && hasName(done, act).not {
+      done.push(act)
+      who = ""
+      j = k
+      while j < w.acts.length {
+        if w.kinds.at(j) == kind && w.acts.at(j) == act {
+          if (who == "").not {
+            who = who.concat(", ")
+          }
+          who = who.concat(w.fns.at(j))
+        }
+        j = j + 1
+      }
+      out = out.concat(kind.padRight(8)).concat(act).concat("  (in ").concat(who).concat(")\n")
+    }
+    k = k + 1
+  }
+  if out == "" {
+    out = kind.padRight(8).concat("not used\n")
+  }
+  out
+}
+
+whatAdd(w : What, kind : Str, act : Str, fn : Str) : Int {
+  k = 0
+  while k < w.acts.length {
+    if w.kinds.at(k) == kind && w.acts.at(k) == act && w.fns.at(k) == fn {
+      return 0
+    }
+    k = k + 1
+  }
+  w.kinds.push(kind)
+  w.acts.push(act)
+  w.fns.push(fn)
+  0
+}
+
+whatBody(body : List[Stmt], fn : Str, w : What, sigs : Sigs) : Int {
+  body.each { s in
+    whatStmt(s, fn, w, sigs)
+  }
+  0
+}
+
+whatStmt(s : Stmt, fn : Str, w : What, sigs : Sigs) : Int {
+  s.match {
+    Let(name, ty, e) -> whatExpr(e, fn, w, sigs)
+    Bare(e) -> whatExpr(e, fn, w, sigs)
+    If(c, t, el) -> whatExpr(c, fn, w, sigs) + whatBody(t, fn, w, sigs) + whatBody(el, fn, w, sigs)
+    While(c, b) -> whatExpr(c, fn, w, sigs) + whatBody(b, fn, w, sigs)
+    Ret(e) -> whatExpr(e, fn, w, sigs)
+    Line(n) -> 0
+  }
+}
+
+whatExpr(e : Expr, fn : Str, w : What, sigs : Sigs) : Int {
+  e.match {
+    Num(v) -> 0
+    FloatLit(s) -> 0
+    Var(s) -> 0
+    StrLit(s) -> 0
+    ListLit(es) -> whatAll(es, fn, w, sigs)
+    Bin(op, a, b) -> whatExpr(a, fn, w, sigs) + whatExpr(b, fn, w, sigs)
+    Call(name, args) -> whatAll(args, fn, w, sigs)
+    Match(scrut, arms) -> whatExpr(scrut, fn, w, sigs) + whatArms(arms, fn, w, sigs)
+    Field(recv, fld) -> whatField(recv, fld, fn, w, sigs)
+    Method(recv, name, args) -> whatMethod(recv, name, args, fn, w, sigs)
+    Each(recv, param, body) -> whatExpr(recv, fn, w, sigs) + whatBody(body, fn, w, sigs)
+  }
+}
+
+whatAll(es : List[Expr], fn : Str, w : What, sigs : Sigs) : Int {
+  es.each { x in
+    whatExpr(x, fn, w, sigs)
+  }
+  0
+}
+
+whatArms(arms : List[Arm], fn : Str, w : What, sigs : Sigs) : Int {
+  arms.each { a in
+    whatExpr(a.body, fn, w, sigs)
+  }
+  0
+}
+
+whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int {
+  if fld == "stdin" {
+    whatAdd(w, "stdin", "reads all of standard input", fn)
+  }
+  if fld == "args" {
+    whatAdd(w, "args", "reads the command line", fn)
+  }
+  whatExpr(recv, fn, w, sigs)
+}
+
+whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs : Sigs) : Int {
+  if hasName(sigs.fnNames, name).not && args.length > 0 {
+    if name == "print" {
+      whatAdd(w, "screen", "prints", fn)
+    }
+    if name == "read" {
+      whatAdd(w, "files", "reads ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "write" {
+      whatAdd(w, "files", "writes ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "append" {
+      whatAdd(w, "files", "adds to ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "send" {
+      whatAdd(w, "mail", "sends", fn)
+    }
+  }
+  whatExpr(recv, fn, w, sigs)
+  whatAll(args, fn, w, sigs)
+}
+
+// A path written out in the program is shown; any other is made while it runs.
+whatPath(e : Expr) : Str {
+  e.match {
+    StrLit(s) -> "\"".concat(s).concat("\"")
+    Num(v) -> "a path made while running"
+    FloatLit(s) -> "a path made while running"
+    Var(s) -> "a path made while running"
+    ListLit(es) -> "a path made while running"
+    Bin(op, a, b) -> "a path made while running"
+    Call(name, args) -> "a path made while running"
+    Match(scrut, arms) -> "a path made while running"
+    Field(recv, fld) -> "a path made while running"
+    Method(recv, name, args) -> "a path made while running"
+    Each(recv, param, body) -> "a path made while running"
   }
 }
 

@@ -434,6 +434,13 @@ cc out.c -o wordfreq
 
 `./simpler test > tests.c` writes the test runner in place of the program.
 
+`./simpler what` writes no C. It lists everything the program can touch: what
+it prints, each file it reads or writes (by name when the name is written out
+in the program), mail, standard input and the command line, each with the
+functions that do it. The list is complete, since a program reaches the world
+only through `sys` and the compiler refuses any other way. A program can still
+run for ever or use up memory.
+
 The values of a call run left to right: in `f(a(), b())`, `a` runs first.
 
 A running program never goes on with a wrong value. A list or text index past

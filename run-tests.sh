@@ -746,6 +746,32 @@ main(sys) {
   sys.screen.print(n)
 }' \
     "input.smplr:11: no variable named n"
+# `simpler what` lists everything a program can touch
+printf '%s' 'save(files : Files, name : Str, text : Str) : Int !IO {
+  files.write(name.concat(".txt"), text)
+  0
+}
+show(out : Screen, text : Str) : Int !IO {
+  out.print(text)
+  0
+}
+main(sys) {
+  text = sys.files.read("notes.txt")?
+  show(sys.screen, text)
+  save(sys.files, "copy", text)
+}' > "$TMP/input.smplr"
+want='screen  prints  (in show)
+files   writes a path made while running  (in save)
+files   reads "notes.txt"  (in main)
+mail    not used
+stdin   not used
+args    not used
+nothing else: the language has no network and cannot start other programs'
+if [ "$( cd "$TMP" && ./seedc what 2>&1 )" = "$want" ]; then ok; else nope "simpler what: $( cd "$TMP" && ./seedc what 2>&1 )"; fi
+# it lists nothing for a program the compiler refuses
+printf '%s' 'sneak(n : Int) : Int { sys.files.write("x", "y") }
+main(sys) { sneak(1) }' > "$TMP/input.smplr"
+if ( cd "$TMP" && ./seedc what >/dev/null 2>&1 ); then nope "simpler what on a refused program"; else ok; fi
 # a running program stops with its line, never goes on with a wrong value
 stops() { # description  source  input  expected message
     printf '%s' "$2" > "$TMP/input.smplr"
