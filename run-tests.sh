@@ -965,6 +965,15 @@ main(sys) {
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > runs.c 2>/dev/null && cc -w -o runs runs.c 2>/dev/null )
 if [ "$( cd "$TMP" && ./runs 2>&1 )" = 'input.smplr:4: this program may not fetch "https://example.com@evil.example/"' ]; then ok; else nope "a host made while running is checked"; fi
+printf '%s' 'runs "tr", "sort"
+fetches "nohost.invalid"
+main(sys) {
+  sys.screen.print(sys.programs.feed("tr", ["a-z", "A-Z"], "hello\n").trim)
+  sys.screen.print(sys.programs.feed("sort", [], "b\na\n").replace("\n", " "))
+  sys.screen.print(sys.net.reach("http://nohost.invalid/"))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > feed.c 2>/dev/null && cc -w -o feed feed.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./feed 2>&1 | tr '\n' '|' )" = "HELLO|a b |0|" ]; then ok; else nope "feeding text to a program, and a host that does not answer"; fi
 check_err "running a program with no runs line" \
     'main(sys) { sys.programs.run("ls", []) }' 'say which at the top, as in: runs "git"'
 check_err "running a program the line does not name" \

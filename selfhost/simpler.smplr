@@ -303,13 +303,15 @@ main(sys) {
   sys.screen.print(mayTable("simpler_wr", prog.writes))
   sys.screen.print(mayTable("simpler_rn", prog.runs))
   sys.screen.print(mayTable("simpler_ft", prog.fetches))
-  sys.screen.print("long simpler_exec(char** av, int capture, int* code) { int fd[2] = {0, 0}; if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
+  sys.screen.print("long simpler_exec(char** av, int capture, int* code, long input) { int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = tmpfile(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
   sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"input.smplr:%ld: this program may not run \\\"%s\\\"\\n\", line, p); exit(1); return 0; }")
-  sys.screen.print("long simpler_run(long name, long args, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
-  sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code); return code; }")
+  sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
+  sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
   sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); for (int k = 0; simpler_ft[k]; k++) if (strlen(simpler_ft[k]) == hn && strncmp(simpler_ft[k], h, hn) == 0) return url; } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
-  sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code); char* nl = strrchr(out, 10); long st = nl ? atol(nl + 1) : 0; if (code != 0 || st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } *nl = 0; return (long)(intptr_t)out; }")
+  sys.screen.print("long simpler_curl(long url, long body, long post, long* st) { char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
+  sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } return out; }")
+  sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
   sys.screen.print("long simpler_now() { return (long)time(0); }")
   sys.screen.print("long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)malloc(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }")
@@ -725,10 +727,10 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     if name == "send" {
       whatAdd(w, "mail", "sends", fn)
     }
-    if (name == "run") || (name == "status") {
+    if (name == "run") || (name == "status") || (name == "feed") {
       whatAdd(w, "program", "runs ".concat(whatPath(args.at(0))), fn)
     }
-    if name == "fetch" {
+    if (name == "fetch") || (name == "reach") {
       whatAdd(w, "net", "fetches ".concat(whatPath(args.at(0))), fn)
     }
     if name == "post" {
@@ -2864,7 +2866,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if name == "print" {
     used.push("IO")
   }
-  if (name == "send") || (name == "run") || (name == "status") || (name == "fetch") || (name == "post") {
+  if (name == "send") || (name == "run") || (name == "status") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "reach") {
     used.push("IO")
   }
   if name == "read" {
@@ -3652,10 +3654,10 @@ capNeed(name : Str) : Str {
   if name == "send" {
     r = "Mail"
   }
-  if (name == "run") || (name == "status") {
+  if (name == "run") || (name == "status") || (name == "feed") {
     r = "Programs"
   }
-  if (name == "fetch") || (name == "post") {
+  if (name == "fetch") || (name == "post") || (name == "reach") {
     r = "Net"
   }
   if name == "date" {
@@ -3784,11 +3786,14 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "post") {
     r = 2
+  }
+  if name == "feed" {
+    r = 3
   }
   r
 }
@@ -3830,7 +3835,23 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     runCheck(args.at(0), ctx)
     wantType(args.at(0), "Str", name, ctx)
     wantType(args.at(1), "List[Str]", name, ctx)
-    r = "simpler_".concat(name).concat("(").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    mid = ", "
+    if name == "run" {
+      mid = ", 0, "
+    }
+    r = "simpler_".concat(name).concat("(").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(mid).concat(ln).concat(")")
+  }
+  if name == "feed" {
+    runCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    wantType(args.at(1), "List[Str]", name, ctx)
+    wantType(args.at(2), "Str", name, ctx)
+    r = "simpler_run(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(emitExpr(args.at(2), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "reach" {
+    fetchCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    r = "simpler_reach(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "fetch" {
     fetchCheck(args.at(0), ctx)
@@ -4189,7 +4210,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "exists" {
     r = "Bool"
   }
-  if (name == "run") || (name == "fetch") || (name == "post") || (name == "date") || (name == "var") {
+  if (name == "run") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "date") || (name == "var") {
     r = "Str"
   }
   if (name == "split") || (name == "list") {
