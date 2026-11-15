@@ -65,7 +65,7 @@ measure:
 | Nothing is touched unseen | one command lists every file, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, and any other file is refused |
 | As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, and 16 of 100 to 250 lines | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust |
 | No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, all of it the model thinking |
-| The whole language fits in a prompt | size of `SPEC.md` | about 4,000 tokens |
+| The whole language fits in a prompt | size of `PROMPT.md`, the page a model gets | about 2,000 tokens |
 
 Speed and code a person likes to read are not goals.
 
@@ -319,8 +319,8 @@ miniature.
 
 ## Read more
 
-- **[SPEC.md](SPEC.md)** the entire language in one file, the corpus an AI reads
-  once to write Simpler
+- **[PROMPT.md](PROMPT.md)** the language on one page, the text a model gets before it writes
+- **[SPEC.md](SPEC.md)** the entire language in one file, the full reference
 - **[PLAN.md](PLAN.md)** how it gets built, milestone by milestone
 - **[DESIGN.md](DESIGN.md)** the visual and verbal language
 - **[Simpler.pdf](Simpler.pdf)** all of the above as a short book

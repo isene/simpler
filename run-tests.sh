@@ -890,6 +890,15 @@ check_err "a loop over a map" \
   m = Map()
   m.each { k in sys.screen.print(k) }
 }' "a loop goes over a list or the letters of a text, not Map"
+# every program on the one page a model gets must compile
+awk -v d="$TMP" '/^```/ { if (inb) { inb = 0; close(f) } else { inb = 1; n++; f = d "/page" n ".smplr" } next } inb { print > f }' PROMPT.md
+pagebad=0
+for f in "$TMP"/page*.smplr; do
+  grep -q 'main(sys)' "$f" || continue
+  cp "$f" "$TMP/input.smplr"
+  ( cd "$TMP" && ./seedc > page.c 2>/dev/null && cc -w -o page page.c -lm 2>/dev/null ) || pagebad=1
+done
+if [ "$pagebad" = 0 ]; then ok; else nope "the programs in PROMPT.md compile"; fi
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"
