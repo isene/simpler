@@ -11,6 +11,8 @@
 //     cp sortlines.smplr input.smplr && ./simpler > t.c && cc t.c -o sortlines
 //     sortlines names.txt
 
+reads args
+
 main(sys) {
   args = sys.args
   text = ""

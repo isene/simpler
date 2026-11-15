@@ -92,6 +92,8 @@ Prog = type {
   types : List[TyDef]
   records : List[RecDef]
   fns : List[Fn]
+  reads : List[Str]
+  writes : List[Str]
 }
 
 // Local type environment: parallel names and their types.
@@ -111,6 +113,8 @@ Sigs = type {
   boxedNullary : List[Str]
   retP : List[Str]
   mutP : List[Str]
+  reads : List[Str]
+  writes : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -192,6 +196,8 @@ PArgs = type {
   next : Int
 }
 
+reads "input.smplr"
+
 main(sys) {
   src = sys.files.read("input.smplr")?
   lexed = lex(src)
@@ -271,6 +277,9 @@ main(sys) {
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
+  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) return path; } fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\"\\n\", line, verb, p); exit(1); return 0; }")
+  sys.screen.print(mayTable("simpler_rd", prog.reads))
+  sys.screen.print(mayTable("simpler_wr", prog.writes))
   sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
   sys.screen.print("long simpler_failed = 0;")
@@ -312,6 +321,128 @@ What = type {
   fns : List[Str]
 }
 
+// A line at the top says which files the program may touch:
+//   reads "notes.txt", "data/", args      writes "out/"
+// A name ending in / is a folder; args is any file named on the command line.
+isMayLine(toks : Lexed, i : Int) : Bool {
+  (isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))
+}
+
+isStrTok(toks : Lexed, i : Int) : Bool {
+  tokAt(toks, i).match {
+    Ident(s) -> false
+    Int(v) -> false
+    Float(f) -> false
+    Str(s) -> true
+    Punct(p) -> false
+    Eof -> false
+  }
+}
+
+strAt(toks : Lexed, i : Int) : Str {
+  tokAt(toks, i).match {
+    Ident(s) -> "?"
+    Int(v) -> "?"
+    Float(f) -> "?"
+    Str(s) -> s
+    Punct(p) -> "?"
+    Eof -> "?"
+  }
+}
+
+parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str]) : Int !Mut {
+  w = isWord(toks, i, "writes")
+  j = i + 1
+  more = true
+  while more {
+    name = "<args>"
+    if isWord(toks, j, "args").not {
+      if isStrTok(toks, j).not {
+        failTok(toks, j, "expected a file name in quotes, or the word args")
+      }
+      name = strAt(toks, j)
+    }
+    if w {
+      writes.push(name)
+    } else {
+      reads.push(name)
+    }
+    j = j + 1
+    more = isPunct(toks, j, ",")
+    if more {
+      j = j + 1
+    }
+  }
+  j
+}
+
+// The C list of the names a reads or writes line gave, ended by 0.
+mayTable(cname : Str, names : List[Str]) : Str {
+  out = "const char* ".concat(cname).concat("[] = {")
+  names.each { n in
+    out = out.concat("\"").concat(cEscape(n)).concat("\", ")
+  }
+  out.concat("0};")
+}
+
+// Is the path s one the line allows: the same name, or under a folder it names?
+mayName(s : Str, names : List[Str]) : Bool {
+  r = false
+  names.each { e in
+    if e == s {
+      r = true
+    }
+    n = e.length
+    if n > 0 {
+      if s.length >= n {
+        if e.at(n - 1) == "/" {
+          if s.slice(0, n) == e {
+            if s.contains("..").not {
+              r = true
+            }
+          }
+        }
+      }
+    }
+  }
+  r
+}
+
+// A path written out in the program is checked here; any other is checked while it runs.
+mayCheck(arg : Expr, names : List[Str], verb : Str, word : Str, ctx : Ctx) : Int {
+  if names.length == 0 {
+    failAt("this program may not ".concat(verb).concat(" a file; say which at the top, as in: ").concat(word).concat(" \"notes.txt\""), ctx)
+  }
+  p = whatPath(arg)
+  if p.at(0) == "\"" {
+    if mayName(p.slice(1, p.length - 1), names).not {
+      failAt("this program may not ".concat(verb).concat(" ").concat(p).concat("; add it to the ").concat(word).concat(" line at the top"), ctx)
+    }
+  }
+  0
+}
+
+// What a reads or writes line allows, in words.
+mayText(names : List[Str]) : Str {
+  out = ""
+  names.each { n in
+    if (out == "").not {
+      out = out.concat(", ")
+    }
+    if n == "<args>" {
+      out = out.concat("any file named on the command line")
+    } else {
+      if n.length > 0 {
+        if n.at(n.length - 1) == "/" {
+          out = out.concat("anything under ")
+        }
+      }
+      out = out.concat("\"").concat(n).concat("\"")
+    }
+  }
+  out
+}
+
 whatProg(prog : Prog, sigs : Sigs) : Str {
   ks : List[Str] = []
   as : List[Str] = []
@@ -335,6 +466,12 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   }
   if (muts == "").not {
     out = out.concat("lists   changes a list or map it was handed  (in ").concat(muts).concat(")\n")
+  }
+  if prog.reads.length > 0 {
+    out = out.concat("may read   ").concat(mayText(prog.reads)).concat("\n")
+  }
+  if prog.writes.length > 0 {
+    out = out.concat("may write  ").concat(mayText(prog.writes)).concat("\n")
   }
   out.concat("nothing else: the language has no network and cannot start other programs")
 }
@@ -519,7 +656,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -530,34 +667,40 @@ parse(toks : Lexed) : Prog {
   fns : List[Fn] = []
   seen : List[Str] = []
   i = 0
+  reads : List[Str] = []
+  writes : List[Str] = []
   while notEof(toks, i) {
-    if isIdent(toks, i) {
-      once(seen, identAt(toks, i), toks, i)
-    }
-    if isTypeDef(toks, i) {
-      if isWord(toks, i + 2, "type").not {
-        failTok(toks, i + 2, "expected the word type")
-      }
-      expect(toks, i + 3, "{")
-      if isRecordDef(toks, i) {
-        pr = parseRecord(toks, i)
-        records.push(pr.rec)
-        i = pr.next
-      } else {
-        pt = parseTypeDef(toks, i, seen)
-        types.push(pt.ty)
-        i = pt.next
-      }
+    if isMayLine(toks, i) {
+      i = parseMay(toks, i, reads, writes)
     } else {
-      if (isIdent(toks, i) && isPunct(toks, i + 1, "(")).not {
-        failTok(toks, i, "expected a function or a type")
+      if isIdent(toks, i) {
+        once(seen, identAt(toks, i), toks, i)
       }
-      pf = parseFn(toks, i)
-      fns.push(pf.fn)
-      i = pf.next
+      if isTypeDef(toks, i) {
+        if isWord(toks, i + 2, "type").not {
+          failTok(toks, i + 2, "expected the word type")
+        }
+        expect(toks, i + 3, "{")
+        if isRecordDef(toks, i) {
+          pr = parseRecord(toks, i)
+          records.push(pr.rec)
+          i = pr.next
+        } else {
+          pt = parseTypeDef(toks, i, seen)
+          types.push(pt.ty)
+          i = pt.next
+        }
+      } else {
+        if (isIdent(toks, i) && isPunct(toks, i + 1, "(")).not {
+          failTok(toks, i, "expected a function or a type")
+        }
+        pf = parseFn(toks, i)
+        fns.push(pf.fn)
+        i = pf.next
+      }
     }
   }
-  Prog(types = types, records = records, fns = fns)
+  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -1260,6 +1403,9 @@ emitFn(f : Fn, sigs : Sigs) : Str !Mut {
     nm = mangle(f.name)
   }
   out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
+  if isMain(f.name) {
+    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv;")
+  }
   ctx = fnCtx(f, sigs)
   checkReturn(f, ctx)
   checkEffects(f, ctx)
@@ -3343,13 +3489,16 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     r = "l_push(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "read" {
-    r = "(long)(intptr_t)simpler_read((const char*)(intptr_t)".concat(emitExpr(args.at(0), ctx)).concat(")")
+    mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
+    r = "(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_rd, ").concat(ln).concat(", \"read\"))")
   }
   if name == "write" {
-    r = "simpler_write(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+    mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
+    r = "simpler_write(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(emitExpr(args.at(1), ctx)).concat(")")
   }
   if name == "append" {
-    r = "simpler_append(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+    mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
+    r = "simpler_append(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(emitExpr(args.at(1), ctx)).concat(")")
   }
   if name == "split" {
     r = "s_split(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")

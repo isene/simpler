@@ -25,6 +25,8 @@ hyphenated(s : Str) : Str { s.replace(" ", "-") }
 // built-in method (trim) and three user words.
 slug(s : Str) : Str { s.trim.noCommas.noPeriods.hyphenated }
 
+reads args
+
 main(sys) {
   args = sys.args
   text = ""

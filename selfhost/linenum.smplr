@@ -8,6 +8,9 @@
 //     cp linenum.smplr input.smplr && ./simpler > t.c && cc t.c -o ln
 //     ./ln in.txt out.txt
 
+reads args
+writes args
+
 main(sys) {
   args = sys.args
   if args.length < 2 {

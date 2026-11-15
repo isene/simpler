@@ -11,6 +11,8 @@
 //     cp sumcol.smplr input.smplr && ./simpler > t.c && cc t.c -o sumcol
 //     sumcol data.csv 1
 
+reads args
+
 main(sys) {
   args = sys.args
   if args.length < 2 {

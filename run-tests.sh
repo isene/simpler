@@ -465,7 +465,9 @@ if cc -o "$TMP/sci" "$TMP/sci.c" 2>/dev/null && [ "$("$TMP/sci")" = "$(printf '1
 
 # sys.files.append: write truncates, append adds to the end. A program that
 # writes once then appends twice should leave all three lines in the file.
-printf '%s' 'main(sys) {
+printf '%s' 'reads "af.txt"
+writes "af.txt"
+main(sys) {
   sys.files.write("af.txt", "first\n")
   sys.files.append("af.txt", "second\n")
   sys.files.append("af.txt", "third\n")
@@ -747,7 +749,9 @@ main(sys) {
 }' \
     "input.smplr:11: no variable named n"
 # `simpler what` lists everything a program can touch
-printf '%s' 'save(files : Files, name : Str, text : Str) : Int !IO {
+printf '%s' 'reads "notes.txt"
+writes "copy.txt"
+save(files : Files, name : Str, text : Str) : Int !IO {
   files.write(name.concat(".txt"), text)
   0
 }
@@ -766,6 +770,8 @@ files   reads "notes.txt"  (in main)
 mail    not used
 stdin   not used
 args    not used
+may read   "notes.txt"
+may write  "copy.txt"
 nothing else: the language has no network and cannot start other programs'
 if [ "$( cd "$TMP" && ./seedc what 2>&1 )" = "$want" ]; then ok; else nope "simpler what: $( cd "$TMP" && ./seedc what 2>&1 )"; fi
 # a second name for main's world still compiles, and what still sees its uses
@@ -779,6 +785,35 @@ if cc -o "$TMP/world" "$TMP/world.c" 2>/dev/null && [ "$("$TMP/world")" = "hi" ]
 printf '%s' 'sneak(n : Int) : Int { sys.files.write("x", "y") }
 main(sys) { sneak(1) }' > "$TMP/input.smplr"
 if ( cd "$TMP" && ./seedc what >/dev/null 2>&1 ); then nope "simpler what on a refused program"; else ok; fi
+# a program says at the top which files it may touch; anything else is refused or stopped
+check_err "a file read with no reads line" \
+    'main(sys) {
+  sys.screen.print(sys.files.read("a.txt")?)
+}' 'input.smplr:2: this program may not read a file; say which at the top, as in: reads "notes.txt"'
+check_err "a file read that the reads line does not name" \
+    'reads "a.txt"
+main(sys) {
+  sys.screen.print(sys.files.read("s.txt")?)
+}' 'input.smplr:3: this program may not read "s.txt"; add it to the reads line at the top'
+check_err "a write with only a reads line" \
+    'reads "a.txt"
+main(sys) {
+  sys.files.write("a.txt", "x")
+}' 'this program may not write a file; say which at the top, as in: writes "notes.txt"'
+check_err "a reads line with a missing name" \
+    'reads "a.txt",
+main(sys) { 0 }' "expected a file name in quotes, or the word args"
+printf '%s' 'reads args, "data/"
+writes "out/"
+main(sys) {
+  t = sys.files.read(sys.args.at(0))?
+  sys.files.write("out/".concat(sys.args.at(1)), t)
+  sys.screen.print(sys.files.read("data/".concat(sys.args.at(2)))?)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > may.c 2>/dev/null && cc -o may may.c 2>/dev/null && mkdir -p out data && echo hello > in.txt && echo secret > secret.txt && echo d > data/d.txt )
+if [ "$( cd "$TMP" && ./may in.txt copy.txt d.txt 2>&1 )" = "d" ] && [ "$(cat "$TMP/out/copy.txt")" = "hello" ]; then ok; else nope "files the lines allow"; fi
+if [ "$( cd "$TMP" && ./may in.txt ../leak.txt d.txt 2>&1 )" = 'input.smplr:5: this program may not write "out/../leak.txt"' ] && [ ! -e "$TMP/leak.txt" ]; then ok; else nope "a write that climbs out of its folder"; fi
+if [ "$( cd "$TMP" && ./may in.txt copy.txt ../secret.txt 2>&1 )" = 'input.smplr:6: this program may not read "data/../secret.txt"' ]; then ok; else nope "a read that climbs out of its folder"; fi
 # a running program stops with its line, never goes on with a wrong value
 stops() { # description  source  input  expected message
     printf '%s' "$2" > "$TMP/input.smplr"

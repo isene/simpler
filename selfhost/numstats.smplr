@@ -9,6 +9,8 @@
 // that the spec is a sufficient corpus to write Simpler.
 //
 
+reads args
+
 main(sys) {
   args = sys.args
   text = ""

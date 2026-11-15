@@ -11,6 +11,8 @@
 //     cp average.smplr input.smplr && ./simpler > t.c && cc t.c -o average
 //     average data.txt
 
+reads args
+
 main(sys) {
   args = sys.args
   text = ""

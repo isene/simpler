@@ -1,4 +1,6 @@
 // M3c: value-returning functions, and `?` across a function boundary.
+reads "examples/report.txt"
+
 main(sys) {
   text = load(sys.files, "examples/report.txt")?
   sys.screen.print(text)

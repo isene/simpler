@@ -63,7 +63,8 @@ of the same name, so `point.x` reads the field, not a call.)
 ## 2. Program structure
 
 A program is one `.smplr` file: zero or more type definitions and functions,
-including exactly one `main`.
+including exactly one `main`. A program that touches files says which at the
+top (section 9).
 
 ```
 // a line comment runs to end of line
@@ -339,6 +340,22 @@ nothing at runtime.
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |
 
+**A program says which files it may touch.** A `reads` line and a `writes`
+line at the top of the file name them; `.write` and `.append` both count as
+writing. A name is one file, a name ending in `/` is everything under that
+folder, and the word `args` is any file named on the command line.
+
+```
+reads "config.txt", "data/", args
+writes "out/"
+```
+
+A file call with no such line is refused. So is a path written out in the
+program that the line does not name. A path made while running is checked as
+it is used, and the program stops if the line does not allow it (a path with
+`..` in it never counts as under a folder). A program with no `reads` and no
+`writes` line cannot touch any file.
+
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
 function that was handed only a `Screen` cannot read files. The compiler
 enforces it: `.print` compiles only on a `Screen`, `.read` / `.write` /
@@ -354,6 +371,8 @@ way a Unix tool reports an error. `fail` may be called anywhere, not only as a
 guard at the top:
 
 ```
+reads args
+
 main(sys) {
   args = sys.args
   if args.length < 1 {
@@ -384,6 +403,8 @@ test_twice() {
 A read-transform-write filter (numbers a file's lines, file or stdin):
 
 ```
+reads args
+
 main(sys) {
   args = sys.args
   text = ""
@@ -459,8 +480,8 @@ cc out.c -o wordfreq
 `./simpler what` writes no C. It lists everything the program can touch: what
 it prints, each file it reads or writes (by name when the name is written out
 in the program), mail, standard input and the command line, each with the
-functions that do it, and the functions that change a list or map they were
-handed. The list is complete, since a program reaches the world
+functions that do it, the functions that change a list or map they were
+handed, and the files its `reads` and `writes` lines allow. The list is complete, since a program reaches the world
 only through `sys` and the compiler refuses any other way. A program can still
 run for ever or use up memory.
 
@@ -488,6 +509,7 @@ compiler crashing, or writing C that does not build, is a bug in the compiler.
 - Variants need exhaustive `match`; records construct positionally.
 - Effects (`!IO`, `!Fail`, `!Mut`) and failability (`?`) live in the type, not the syntax.
 - Capabilities replace imports; `main` holds the world, passes subsets down.
+- A program names the files it may read and write; any other file is refused.
 - No GC, no borrow checker. Compile by transpiling to C.
 
 ---

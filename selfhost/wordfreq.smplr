@@ -12,6 +12,8 @@
 //     cp wordfreq.smplr input.smplr && ./simpler > t.c && cc t.c -o wordfreq
 //     wordfreq prose.txt
 
+reads args
+
 main(sys) {
   args = sys.args
   text = ""

@@ -62,7 +62,7 @@ measure:
 | Goal | Measure | November 2026 |
 |------|---------|---------------|
 | Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; five fault types stop |
-| Nothing is touched unseen | one command lists every file, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked |
+| Nothing is touched unseen | one command lists every file, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, and any other file is refused |
 | As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, and 16 of 100 to 250 lines | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust |
 | No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, all of it the model thinking |
 | The whole language fits in a prompt | size of `SPEC.md` | about 4,000 tokens |
@@ -122,6 +122,9 @@ command line, numbers its lines, and writes the result, the read-transform-write
 shape most tools have:
 
 ```
+reads args
+writes args
+
 main(sys) {
   args = sys.args
   if args.length < 2 {
@@ -265,6 +268,7 @@ first lexer to a compiler that compiles itself:
   - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
   - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the statement (the lexer tracks a line per token, and each statement carries its line). The parser refuses what it does not expect and says what it found; 6,000 slightly broken programs gave no crash and no C that fails to build
   - [x] **effects** `!IO`/`!Fail` coverage: a function must declare every effect it uses, directly through a capability call (`.print`/`.read`/`.send`) or transitively by calling an effectful function; `main` is exempt. Capabilities are typed (`sys.screen` is a `Screen`, erased to `0` at runtime) so they pass to capability parameters. The one piece left to the C compiler: using a capability that was never handed in is caught as an undefined name, not yet as a Simpler-level error.
+  - [x] **`reads` and `writes`**: a program names at the top the files and folders it may touch. A file call outside them is refused by the compiler when the path is written out, and stops the program when the path is made while running. `./simpler what` prints the two lists.
   - [x] **`!Mut`**: a function that changes a list or map it was handed (directly, through another name for it, through a part of it, or by passing it to a `!Mut` function that changes it) must declare `!Mut`; `main` is exempt.
 - [x] **A language for real programs** past self-hosting, the pieces an everyday
   command-line tool needs, each grown with a working example and a regression
