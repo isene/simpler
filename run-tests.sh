@@ -808,6 +808,41 @@ main(sys) {
 ( cd "$TMP" && ./seedc > dot.c 2>/dev/null && cc -o dot dot.c 2>/dev/null && echo h > here.txt && mkdir -p sub && echo s > sub/s.txt )
 if [ "$( cd "$TMP" && ./dot sub/s.txt 2>&1 | tr -d '\n' )" = "hs" ]; then ok; else nope "a bare name under ./"; fi
 if ( cd "$TMP" && ./dot /etc/hostname 2>&1 | grep -q 'may not read "/etc/hostname"' ) && ( cd "$TMP" && ./dot sub/../../x 2>&1 | grep -q 'may not read' ); then ok; else nope "./ does not reach the root or climb out"; fi
+# folders: list, exists, rename and delete stay inside the reads and writes lines
+printf '%s' 'reads "box/"
+writes "box/"
+main(sys) {
+  sys.files.write("box/b.txt", "1")
+  sys.files.write("box/a.txt", "2")
+  sys.files.list("box").each { n in
+    sys.files.rename("box/".concat(n), "box/x-".concat(n))
+  }
+  sys.files.delete("box/x-a.txt")
+  sys.files.list("box/").each { n in sys.screen.print(n) }
+  sys.screen.print(sys.files.exists("box/x-a.txt"))
+  sys.screen.print(sys.files.list("box/none").length)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > box.c 2>/dev/null && cc -o boxp box.c 2>/dev/null && mkdir -p box )
+if [ "$( cd "$TMP" && ./boxp 2>&1 | tr '\n' ' ' )" = "x-b.txt false 0 " ]; then ok; else nope "list, rename, delete and exists in a folder (got: $( cd "$TMP" && ./boxp 2>&1 | tr '\n' ' ' ))"; fi
+printf '%s' 'reads "tree/"
+writes "tree/"
+main(sys) {
+  sys.files.list("tree").each { n in sys.screen.print(n) }
+  sys.files.delete("tree/".concat(sys.args.at(0)))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > tree.c 2>/dev/null && cc -o treep tree.c 2>/dev/null && mkdir -p tree/sub && echo f > tree/f.txt && echo keep > keep.txt )
+if [ "$( cd "$TMP" && ./treep ../keep.txt 2>&1 | tr '\n' ' ' )" = 'f.txt sub/ input.smplr:5: this program may not write "tree/../keep.txt" ' ] && [ -e "$TMP/keep.txt" ]; then ok; else nope "a folder ends in /, and a delete may not climb out"; fi
+if ( cd "$TMP" && ./treep none 2>&1 | grep -q 'input.smplr:5: could not delete "tree/none"' ); then ok; else nope "a delete that fails stops the program"; fi
+check_err "listing a folder the reads line does not name" \
+    'reads "box/"
+main(sys) {
+  sys.screen.print(sys.files.list("/etc").length)
+}' 'input.smplr:3: this program may not list "/etc"; add it to the reads line at the top'
+check_err "a delete needs !IO" \
+    'writes "box/"
+wipe(f : Files) : Int { f.delete("box/x")
+  0 }
+main(sys) { wipe(sys.files) }' "uses !IO but does not declare it"
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"

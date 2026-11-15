@@ -221,6 +221,9 @@ main(sys) {
   sys.screen.print("#include <stdint.h>")
   sys.screen.print("#include <math.h>")
   sys.screen.print("#include <string.h>")
+  sys.screen.print("#include <dirent.h>")
+  sys.screen.print("#include <sys/stat.h>")
+  sys.screen.print("#include <errno.h>")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
   sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
@@ -278,6 +281,11 @@ main(sys) {
   sys.screen.print("long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
   sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) return path; if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) return path; } fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\"\\n\", line, verb, p); exit(1); return 0; }")
+  sys.screen.print("long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)malloc(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)malloc(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)malloc(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }")
+  sys.screen.print("long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0; }")
+  sys.screen.print("long simpler_rename(long a, long b, long line) { if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"input.smplr:%ld: could not rename \\\"%s\\\": %s\\n\", line, (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
+  sys.screen.print("long simpler_delete(long a, long line) { if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"input.smplr:%ld: could not delete \\\"%s\\\": %s\\n\", line, (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
   sys.screen.print(mayTable("simpler_rd", prog.reads))
   sys.screen.print(mayTable("simpler_wr", prog.writes))
   sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }")
@@ -423,7 +431,17 @@ mayCheck(arg : Expr, names : List[Str], verb : Str, word : Str, ctx : Ctx) : Int
   }
   p = whatPath(arg)
   if p.at(0) == "\"" {
-    if mayName(p.slice(1, p.length - 1), names).not {
+    lit = p.slice(1, p.length - 1)
+    if verb == "list" {
+      if lit.length == 0 {
+        lit = "/"
+      } else {
+        if (lit.at(lit.length - 1) == "/").not {
+          lit = lit.concat("/")
+        }
+      }
+    }
+    if mayName(lit, names).not {
       failAt("this program may not ".concat(verb).concat(" ").concat(p).concat("; add it to the ").concat(word).concat(" line at the top"), ctx)
     }
   }
@@ -599,6 +617,18 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     }
     if name == "append" {
       whatAdd(w, "files", "adds to ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "list" {
+      whatAdd(w, "files", "lists the folder ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "exists" {
+      whatAdd(w, "files", "looks for ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "rename" {
+      whatAdd(w, "files", "renames ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "delete" {
+      whatAdd(w, "files", "deletes ".concat(whatPath(args.at(0))), fn)
     }
     if name == "send" {
       whatAdd(w, "mail", "sends", fn)
@@ -2615,7 +2645,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if name == "write" {
     used.push("IO")
   }
-  if name == "append" {
+  if (name == "append") || (name == "list") || (name == "exists") || (name == "rename") || (name == "delete") {
     used.push("IO")
   }
   if (name == "push") || (name == "set") {
@@ -3353,7 +3383,7 @@ capNeed(name : Str) : Str {
   if name == "print" {
     r = "Screen"
   }
-  if (name == "read").or(name == "write").or(name == "append") {
+  if (name == "read").or(name == "write").or(name == "append").or(name == "list").or(name == "exists").or(name == "rename").or(name == "delete") {
     r = "Files"
   }
   if name == "send" {
@@ -3454,10 +3484,10 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "set") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") {
     r = 2
   }
   r
@@ -3507,6 +3537,23 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "append" {
     mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
     r = "simpler_append(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(emitExpr(args.at(1), ctx)).concat(")")
+  }
+  if name == "list" {
+    mayCheck(args.at(0), ctx.sigs.reads, "list", "reads", ctx)
+    r = "simpler_list(simpler_may(simpler_dir(".concat(emitExpr(args.at(0), ctx)).concat("), simpler_rd, ").concat(ln).concat(", \"list\"))")
+  }
+  if name == "exists" {
+    mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
+    r = "simpler_exists(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_rd, ").concat(ln).concat(", \"read\"))")
+  }
+  if name == "rename" {
+    mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
+    mayCheck(args.at(1), ctx.sigs.writes, "write", "writes", ctx)
+    r = "simpler_rename(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), simpler_may(").concat(emitExpr(args.at(1), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(ln).concat(")")
+  }
+  if name == "delete" {
+    mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
+    r = "simpler_delete(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(ln).concat(")")
   }
   if name == "split" {
     r = "s_split(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -3785,7 +3832,10 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "read" {
     r = "Str"
   }
-  if name == "split" {
+  if name == "exists" {
+    r = "Bool"
+  }
+  if (name == "split") || (name == "list") {
     r = "List[Str]"
   }
   if name == "contains" {
@@ -4065,7 +4115,7 @@ cTaken() : List[Str] {
   ["auto", "break", "case", "char", "const", "continue", "default", "do", "double", "enum", "extern", "float", "for",
    "goto", "inline", "int", "long", "register", "restrict", "short", "signed", "sizeof", "static", "struct", "switch",
    "typedef", "union", "unsigned", "void", "volatile", "Obj", "SList", "SMap", "FILE", "NULL", "EOF", "NAN", "INFINITY",
-   "BUFSIZ", "RAND_MAX", "EXIT_SUCCESS", "EXIT_FAILURE", "SEEK_SET", "SEEK_CUR", "SEEK_END", "HUGE_VAL", "mk", "l2d",
+   "BUFSIZ", "DIR", "errno", "RAND_MAX", "EXIT_SUCCESS", "EXIT_FAILURE", "SEEK_SET", "SEEK_CUR", "SEEK_END", "HUGE_VAL", "mk", "l2d",
    "d2l", "argc", "argv", "printf", "fprintf", "sprintf", "snprintf", "malloc", "realloc",
    "free", "exit", "strlen", "strcmp", "strcpy", "strcat", "strstr", "memcpy", "atol", "atof", "qsort", "getchar",
    "fopen", "fclose", "fputs", "fread", "fseek", "ftell", "pow", "fmod", "ceil", "fabs", "round"]

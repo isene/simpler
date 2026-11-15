@@ -337,12 +337,16 @@ nothing at runtime.
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
 | `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` (truncates) |
 | `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
+| `sys.files.list(dir)` | `List[Str]` | `!IO` | the names in a folder, sorted; a folder's name ends in `/`; empty if it cannot be listed |
+| `sys.files.exists(path)` | `Bool` | `!IO` | is there a file or folder at `path` |
+| `sys.files.rename(from, to)` | — | `!IO` | rename or move; the program stops if it cannot |
+| `sys.files.delete(path)` | — | `!IO` | delete a file or an empty folder; the program stops if it cannot |
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |
 
 **A program says which files it may touch.** A `reads` line and a `writes`
-line at the top of the file name them; `.write` and `.append` both count as
-writing. A name is one file, a name ending in `/` is everything under that
+line at the top of the file name them. `.read`, `.list` and `.exists` count as
+reading; `.write`, `.append`, `.rename` (both names) and `.delete` as writing. A name is one file, a name ending in `/` is everything under that
 folder, and the word `args` is any file named on the command line. `"./"` is the
 folder the program runs in, so it covers `"a.txt"` as well as `"./a.txt"`.
 
@@ -359,8 +363,8 @@ it is used, and the program stops if the line does not allow it (a path with
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
 function that was handed only a `Screen` cannot read files. The compiler
-enforces it: `.print` compiles only on a `Screen`, `.read` / `.write` /
-`.append` only on a `Files`, and `sys` exists only in `main`. A parameter that
+enforces it: `.print` compiles only on a `Screen`, the file calls only on a
+`Files`, and `sys` exists only in `main`. A parameter that
 carries a capability must name its type (`out : Screen`).
 
 ## 10. Failure
