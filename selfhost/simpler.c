@@ -4910,7 +4910,7 @@ long u_emitVar(long s, long ctx) {
 
   if ((ar > 0L)) {
 
-  u_failAt(s_concat(({ long _t27 = s_concat(s_concat((long)(intptr_t)"case ", s), (long)(intptr_t)" takes "); long _t28 = i_tostr(ar); s_concat(_t27, _t28); }), (long)(intptr_t)" values, got 0"), ctx);
+  u_failAt(s_concat(({ long _t30 = s_concat(s_concat((long)(intptr_t)"case ", s), (long)(intptr_t)" takes "); long _t31 = i_tostr(ar); s_concat(_t30, _t31); }), (long)(intptr_t)" values, got 0"), ctx);
   }
   }
 
@@ -4919,6 +4919,11 @@ long u_emitVar(long s, long ctx) {
   if (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->boxedNullary, s)) {
 
   r = s_concat(s, (long)(intptr_t)"()");
+  }
+
+  if ((s_eq(vt, (long)(intptr_t)"") && s_eq(u_envGet(((CtxT*)(intptr_t)ctx)->env, s), (long)(intptr_t)"Sys"))) {
+
+  r = (long)(intptr_t)"0";
   }
 
   return r;
@@ -4942,7 +4947,7 @@ long u_emitArgs(long args, long ctx) {
   out = s_concat(out, (long)(intptr_t)", ");
   }
 
-  out = s_concat(out, u_emitExpr(l_atc(args, k, 2987), ctx));
+  out = s_concat(out, u_emitExpr(l_atc(args, k, 2991), ctx));
 
   k = (k + 1L);
   }
@@ -5005,7 +5010,7 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   if ((l_len(arms) > 0L)) {
 
-  a = l_atc(arms, 0L, 3032);
+  a = l_atc(arms, 0L, 3036);
 
   styp = u_exprType(scrut, ctx);
 
@@ -5015,7 +5020,7 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   while ((bi < l_len(((ArmT*)(intptr_t)a)->binds))) {
 
-  ({ long _t35 = ((CtxT*)(intptr_t)ctx)->env; long _t36 = l_atc(((ArmT*)(intptr_t)a)->binds, bi, 3037); long _t37 = u_payloadType(styp, ((ArmT*)(intptr_t)a)->tag, bi, ctx); u_envPut(_t35, _t36, _t37); });
+  ({ long _t35 = ((CtxT*)(intptr_t)ctx)->env; long _t36 = l_atc(((ArmT*)(intptr_t)a)->binds, bi, 3041); long _t37 = u_payloadType(styp, ((ArmT*)(intptr_t)a)->tag, bi, ctx); u_envPut(_t35, _t36, _t37); });
 
   bi = (bi + 1L);
   }
@@ -5136,7 +5141,7 @@ long u_recFieldType(long tyName, long fld, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 3108);
+  rec = l_atc(recs, k, 3112);
 
   if (s_eq(((RecDefT*)(intptr_t)rec)->name, tyName)) {
 
@@ -5162,9 +5167,9 @@ long u_fieldTypeIn(long rec, long fld) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(((RecDefT*)(intptr_t)rec)->fields, k, 3122), fld)) {
+  if (s_eq(l_atc(((RecDefT*)(intptr_t)rec)->fields, k, 3126), fld)) {
 
-  r = l_atc(((RecDefT*)(intptr_t)rec)->ftypes, k, 3123);
+  r = l_atc(((RecDefT*)(intptr_t)rec)->ftypes, k, 3127);
   }
 
   k = (k + 1L);
@@ -5387,7 +5392,7 @@ long u_lex(long src) {
 
   while ((i < n)) {
 
-  c = s_code(s_atc(src, i, 3280));
+  c = s_code(s_atc(src, i, 3284));
 
   if (u_isSpace(c)) {
 
@@ -5401,7 +5406,7 @@ long u_lex(long src) {
 
   if (u_isComment(src, i, n)) {
 
-  while (((i < n) && (!(s_code(s_atc(src, i, 3288)) == 10L)))) {
+  while (((i < n) && (!(s_code(s_atc(src, i, 3292)) == 10L)))) {
 
   i = (i + 1L);
   }
@@ -5413,14 +5418,14 @@ long u_lex(long src) {
 
   s = (long)(intptr_t)"";
 
-  while (((j < n) && (!(s_code(s_atc(src, j, 3295)) == 34L)))) {
+  while (((j < n) && (!(s_code(s_atc(src, j, 3299)) == 34L)))) {
 
-  if ((s_code(s_atc(src, j, 3296)) == 10L)) {
+  if ((s_code(s_atc(src, j, 3300)) == 10L)) {
 
   fail(s_concat(s_concat((long)(intptr_t)"input.smplr:", i_tostr(line)), (long)(intptr_t)": a text is missing its closing quote"));
   }
 
-  if ((s_code(s_atc(src, j, 3299)) == 92L)) {
+  if ((s_code(s_atc(src, j, 3303)) == 92L)) {
 
   j = (j + 1L);
 
@@ -5432,7 +5437,7 @@ long u_lex(long src) {
   s = s_concat(s, u_esc(src, j));
   } else {
 
-  s = s_concat(s, s_atc(src, j, 3306));
+  s = s_concat(s, s_atc(src, j, 3310));
   }
 
   j = (j + 1L);
@@ -5456,43 +5461,43 @@ long u_lex(long src) {
 
   num = 0L;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3320))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3324))))) {
 
-  num = ((num * 10L) + (s_code(s_atc(src, i, 3321)) - 48L));
-
-  i = (i + 1L);
-  }
-
-  if (((((i + 1L) < n) && (s_code(s_atc(src, i, 3326)) == 46L)) && u_isDigit(s_code(s_atc(src, (i + 1L), 3326))))) {
-
-  i = (i + 1L);
-
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3328))))) {
+  num = ((num * 10L) + (s_code(s_atc(src, i, 3325)) - 48L));
 
   i = (i + 1L);
   }
 
-  if (((i < n) && ((s_code(s_atc(src, i, 3332)) == 101L) || (s_code(s_atc(src, i, 3332)) == 69L)))) {
+  if (((((i + 1L) < n) && (s_code(s_atc(src, i, 3330)) == 46L)) && u_isDigit(s_code(s_atc(src, (i + 1L), 3330))))) {
+
+  i = (i + 1L);
+
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3332))))) {
+
+  i = (i + 1L);
+  }
+
+  if (((i < n) && ((s_code(s_atc(src, i, 3336)) == 101L) || (s_code(s_atc(src, i, 3336)) == 69L)))) {
 
   j = (i + 1L);
 
-  if (((j < n) && ((s_code(s_atc(src, j, 3334)) == 43L) || (s_code(s_atc(src, j, 3334)) == 45L)))) {
+  if (((j < n) && ((s_code(s_atc(src, j, 3338)) == 43L) || (s_code(s_atc(src, j, 3338)) == 45L)))) {
 
   j = (j + 1L);
   }
 
-  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 3337))))) {
+  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 3341))))) {
 
   i = j;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3339))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 3343))))) {
 
   i = (i + 1L);
   }
   }
   }
 
-  l_push(toks, Float(s_slicec(src, start, i, 3344)));
+  l_push(toks, Float(s_slicec(src, start, i, 3348)));
 
   l_push(lines, line);
   } else {
@@ -5507,12 +5512,12 @@ long u_lex(long src) {
 
   j = i;
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 3353))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 3357))))) {
 
   j = (j + 1L);
   }
 
-  l_push(toks, Ident(s_slicec(src, i, j, 3356)));
+  l_push(toks, Ident(s_slicec(src, i, j, 3360)));
 
   l_push(lines, line);
 
@@ -5521,21 +5526,21 @@ long u_lex(long src) {
 
   if (u_isTwoCharOp(src, i, n)) {
 
-  l_push(toks, Punct(s_slicec(src, i, (i + 2L), 3361)));
+  l_push(toks, Punct(s_slicec(src, i, (i + 2L), 3365)));
 
   l_push(lines, line);
 
   i = (i + 2L);
   } else {
 
-  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, (l_len(lines) - 1L), 3369) == line)));
+  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, (l_len(lines) - 1L), 3373) == line)));
 
-  if (((s_code(s_atc(src, i, 3370)) == 40L) && fol)) {
+  if (((s_code(s_atc(src, i, 3374)) == 40L) && fol)) {
 
   l_push(toks, Punct((long)(intptr_t)"s("));
   } else {
 
-  l_push(toks, Punct(s_atc(src, i, 3373)));
+  l_push(toks, Punct(s_atc(src, i, 3377)));
   }
 
   l_push(lines, line);
@@ -5560,9 +5565,9 @@ long u_esc(long src, long j) {
   long c = 0;
   long r = 0;
 
-  c = s_code(s_atc(src, j, 3390));
+  c = s_code(s_atc(src, j, 3394));
 
-  r = s_atc(src, j, 3391);
+  r = s_atc(src, j, 3395);
 
   if ((c == 110L)) {
 
@@ -5584,7 +5589,7 @@ long u_esc(long src, long j) {
 }
 long u_isComment(long src, long i, long n) {
 
-  return ((((i + 1L) < n) && (s_code(s_atc(src, i, 3399)) == 47L)) && (s_code(s_atc(src, (i + 1L), 3399)) == 47L));
+  return ((((i + 1L) < n) && (s_code(s_atc(src, i, 3403)) == 47L)) && (s_code(s_atc(src, (i + 1L), 3403)) == 47L));
   return 0;
 }
 long u_isTwoCharOp(long src, long i, long n) {
@@ -5594,7 +5599,7 @@ long u_isTwoCharOp(long src, long i, long n) {
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
 
-  return ((((i + 1L) < n) && (s_code(s_atc(src, i, 3407)) == a)) && (s_code(s_atc(src, (i + 1L), 3407)) == b));
+  return ((((i + 1L) < n) && (s_code(s_atc(src, i, 3411)) == a)) && (s_code(s_atc(src, (i + 1L), 3411)) == b));
   return 0;
 }
 long u_isDigit(long c) {

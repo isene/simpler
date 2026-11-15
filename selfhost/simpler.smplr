@@ -2973,6 +2973,10 @@ emitVar(s : Str, ctx : Ctx) : Str {
   if hasName(ctx.sigs.boxedNullary, s) {
     r = s.concat("()")
   }
+  // main's world value has no form in C; a second name for it is just 0
+  if vt == "" && envGet(ctx.env, s) == "Sys" {
+    r = "0"
+  }
   r
 }
 

@@ -768,6 +768,13 @@ stdin   not used
 args    not used
 nothing else: the language has no network and cannot start other programs'
 if [ "$( cd "$TMP" && ./seedc what 2>&1 )" = "$want" ]; then ok; else nope "simpler what: $( cd "$TMP" && ./seedc what 2>&1 )"; fi
+# a second name for main's world still compiles, and what still sees its uses
+printf '%s' 'main(sys) {
+  world = sys
+  world.screen.print("hi")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > world.c 2>/dev/null )
+if cc -o "$TMP/world" "$TMP/world.c" 2>/dev/null && [ "$("$TMP/world")" = "hi" ] && ( cd "$TMP" && ./seedc what | grep -q "screen  prints" ); then ok; else nope "a second name for sys"; fi
 # it lists nothing for a program the compiler refuses
 printf '%s' 'sneak(n : Int) : Int { sys.files.write("x", "y") }
 main(sys) { sneak(1) }' > "$TMP/input.smplr"
