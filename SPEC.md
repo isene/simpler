@@ -395,7 +395,8 @@ function may not be named `run`, `feed`, `status`, `fetch`, `reach`, `post`, `da
 A file call with no such line is refused. So is a path written out in the
 program that the line does not name. A path made while running is checked as
 it is used, and the program stops if the line does not allow it (a path with
-`..` in it never counts as under a folder). A program with no `reads` and no
+`..` in it never counts as under a folder). A link inside an allowed folder that leads out of it is not followed:
+the program stops with `a link leads out of "data/"`. A file named one by one at the top is opened as it is. A program with no `reads` and no
 `writes` line cannot touch any file.
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A

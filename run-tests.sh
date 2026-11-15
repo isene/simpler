@@ -813,6 +813,23 @@ main(sys) {
 ( cd "$TMP" && ./seedc > dot.c 2>/dev/null && cc -o dot dot.c 2>/dev/null && echo h > here.txt && mkdir -p sub && echo s > sub/s.txt )
 if [ "$( cd "$TMP" && ./dot sub/s.txt 2>&1 | tr -d '\n' )" = "hs" ]; then ok; else nope "a bare name under ./"; fi
 if ( cd "$TMP" && ./dot /etc/hostname 2>&1 | grep -q 'may not read "/etc/hostname"' ) && ( cd "$TMP" && ./dot sub/../../x 2>&1 | grep -q 'may not read' ); then ok; else nope "./ does not reach the root or climb out"; fi
+mkdir -p "$TMP/lk/data" "$TMP/lk/out" "$TMP/lk/far"
+echo top > "$TMP/lk/far/s.txt"; echo fine > "$TMP/lk/data/ok.txt"
+ln -s ../far/s.txt "$TMP/lk/data/leak.txt"; ln -s ../far "$TMP/lk/data/dir"; ln -s ../far/new.txt "$TMP/lk/out/dangling"; ln -s ok.txt "$TMP/lk/data/inner.txt"
+printf '%s' 'reads "data/"
+writes "out/"
+main(sys) {
+  sys.screen.print(sys.files.read("data/inner.txt")?.trim)
+  w = sys.args.at(0)
+  if w == "a" { sys.screen.print(sys.files.read("data/leak.txt")?) }
+  if w == "b" { sys.screen.print(sys.files.read("data/dir/s.txt")?) }
+  if w == "c" { sys.files.write("out/dangling", "x") }
+  if w == "d" { sys.files.write("out/new.txt", "x") }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > lk.c 2>/dev/null && cc -w -o lk/p lk.c 2>/dev/null )
+lkout="$( cd "$TMP/lk" && for a in a b c d; do ./p $a 2>&1; done | tr '\n' '|' )"
+lkwant='input.smplr:6: this program may not read "data/leak.txt": a link leads out of "data/"|fine|input.smplr:7: this program may not read "data/dir/s.txt": a link leads out of "data/"|fine|input.smplr:8: this program may not write "out/dangling": a link leads out of "out/"|fine|fine|'
+if [ "$lkout" = "$lkwant" ] && [ ! -e "$TMP/lk/far/new.txt" ] && [ -e "$TMP/lk/out/new.txt" ]; then ok; else nope "a link out of an allowed folder is not followed (got: $lkout)"; fi
 # folders: list, exists, rename and delete stay inside the reads and writes lines
 printf '%s' 'reads "box/"
 writes "box/"
