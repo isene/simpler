@@ -822,7 +822,7 @@ stops "toInt of a text that is no number" \
   sys.screen.print(n)
 }' "12x" 'input.smplr:2: "12x" is not a whole number; test with .isInt first'
 # the values of a call run left to right, whatever the C compiler would pick
-printf '%s' 'note(log : List[Str], s : Str) : Int {
+printf '%s' 'note(log : List[Str], s : Str) : Int !Mut {
   log.push(s)
   log.length
 }
@@ -958,6 +958,162 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else
 # selfhost/simpler.c is the self-hosted compiler transpiled to C, committed so the
 # language builds with no Rust at all. Compile it with cc, point it at its own
 # source, and it must regenerate simpler.c byte-for-byte. This both proves the
+# a function may not change a list or map it was handed, unless it says !Mut
+check_err "!Mut: a push on a handed list" \
+    'add(xs : List[Int]) {
+  xs.push(1)
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a set on a handed map" \
+    'note(m : Map[Str, Int]) {
+  m.set("a", 1)
+}
+main(sys) { note(Map()) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push through a second name" \
+    'add(xs : List[Int]) : Int {
+  ys = xs
+  ys.push(1)
+  ys.length
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push on an item of a handed list" \
+    'add(rows : List[List[Int]]) {
+  rows.each { r in
+    r.push(1)
+  }
+}
+main(sys) { add([[1]]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push on a field of a handed record" \
+    'Box = type {
+  items : List[Int]
+  n : Int
+}
+add(b : Box) {
+  b.items.push(1)
+}
+main(sys) { add(Box(items = [1], n = 0)) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push on what a function gave back unchanged" \
+    'same(xs : List[Int]) : List[Int] {
+  xs
+}
+add(xs : List[Int]) {
+  ys = same(xs)
+  ys.push(1)
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: passing a handed list to a !Mut function" \
+    'put(xs : List[Int], n : Int) !Mut {
+  xs.push(n)
+}
+add(xs : List[Int]) {
+  put(xs, 1)
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push on a list taken out by match" \
+    'T = type {
+  Full(List[Int])
+  Empty
+}
+add(t : T) : Int {
+  t.match {
+    Full(xs) -> xs.push(1)
+    Empty -> 0
+  }
+}
+main(sys) { add(Full([1])) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: a push on a handed list kept in a local list" \
+    'add(xs : List[Int]) : Int {
+  keep : List[List[Int]] = []
+  keep.push(xs)
+  keep.at(0).push(1)
+  0
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "!Mut: x.f on a handed list when f is !Mut" \
+    'grow(xs : List[Int]) !Mut {
+  xs.push(1)
+}
+add(xs : List[Int]) {
+  xs.grow
+}
+main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+check_err "x.f counts as a call to f for effects" \
+    'shout(s : Screen) !IO {
+  s.print("x")
+}
+f(s : Screen) {
+  s.shout
+}
+main(sys) { f(sys.screen) }' "uses !IO but does not declare it"
+check_err "an effect that does not exist" \
+    'add(xs : List[Int]) !Mutt {
+  xs.push(1)
+}
+main(sys) { add([1]) }' "no effect named Mutt"
+accepts() { # description  source
+    printf '%s' "$2" > "$TMP/input.smplr"
+    local err
+    if err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; then ok; else nope "$1 (got: $err)"; fi
+}
+accepts "a new list built from a handed one needs no !Mut" \
+    'P = type {
+  val : Int
+  next : Int
+}
+one(xs : List[Int], i : Int) : P {
+  P(val = xs.at(i) * 2, next = i + 1)
+}
+twice(xs : List[Int]) : List[Int] {
+  out : List[Int] = []
+  i = 0
+  while i < xs.length {
+    p = one(xs, i)
+    out.push(p.val)
+    i = p.next
+  }
+  out
+}
+main(sys) { sys.screen.print(twice([1, 2]).length) }'
+accepts "a !Mut call that changes only a local, and fresh lists from sort, byValue and split" \
+    'count(words : List[Str], m : Map) !Mut {
+  words.each { w in
+    m.set(w, m.get(w) + 1)
+  }
+}
+top(words : List[Str]) : Str {
+  m = Map()
+  count(words, m)
+  ks = m.byValue
+  ks.push("end")
+  s = words.sort
+  s.push("z")
+  parts = words.at(0).split(",")
+  parts.push("q")
+  ks.at(0)
+}
+main(sys) {
+  ws = ["a", "b", "a"]
+  ws.push("c")
+  sys.screen.print(top(ws))
+}'
+accepts "main may change what it likes" \
+    'put(xs : List[Int], n : Int) !Mut {
+  xs.push(n)
+}
+main(sys) {
+  xs : List[Int] = []
+  put(xs, 1)
+  sys.screen.print(xs.length)
+}'
+printf '%s' 'put(xs : List[Int], n : Int) !Mut {
+  xs.push(n)
+}
+main(sys) {
+  xs : List[Int] = []
+  put(xs, 1)
+}' > "$TMP/input.smplr"
+if ( cd "$TMP" && ./seedc what 2>&1 ) | grep -qF 'lists   changes a list or map it was handed  (in put)'; then ok; else nope "simpler what names the !Mut functions"; fi
+
 # Rust dependency is gone and keeps the committed C in sync with the source.
 if cc -O2 selfhost/simpler.c -o "$TMP/seedc" 2>/dev/null; then
     cp selfhost/simpler.smplr "$TMP/input.smplr"

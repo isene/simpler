@@ -291,13 +291,34 @@ them must link it: `cc out.c -o out -lm`.
 ## 9. Effects and capabilities
 
 **Pure by default.** Anything that touches the world is marked in the
-signature: `!IO` (input/output), `!Fail` (can fail). A function must declare
-every effect it uses, whether directly or by calling an effectful function;
-`main` is exempt. This keeps cost visible at every call site.
+signature: `!IO` (input/output), `!Fail` (can fail), `!Mut` (changes a list or
+map it was handed). A function must declare every effect it uses, whether
+directly or by calling an effectful function; `main` is exempt. This keeps
+cost visible at every call site.
 
 ```
 shout(screen : Screen, who : Str) !IO {
   screen.print("hi, ".concat(who))   // print is !IO, so the signature says so
+}
+```
+
+**`!Mut`.** A list, map or record handed to a function is the caller's own,
+not a copy. A function that changes one (`.push` or `.set` on it, on a part of
+it, or by passing it to a `!Mut` function that changes it) must say `!Mut`.
+Building and returning a new list needs no mark, and neither does changing a
+list the function made itself.
+
+```
+add(xs : List[Int], n : Int) !Mut {
+  xs.push(n)                         // the caller's list grows
+}
+
+doubled(xs : List[Int]) : List[Int] {
+  out : List[Int] = []
+  xs.each { x in
+    out.push(x * 2)                  // out is new here: no !Mut
+  }
+  out
 }
 ```
 
@@ -413,7 +434,8 @@ these; they do not exist:
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).
 - No exceptions (failure is `!Fail` and `?`; `fail` aborts).
-- No mutation across functions: values are passed by value.
+- A list, map or record is handed over as itself, not as a copy; only a
+  `!Mut` function may change one it was handed.
 - No tuples, no null. A `Map` returns a typed default (`0` or `""`) for a
   missing key.
 
@@ -437,7 +459,8 @@ cc out.c -o wordfreq
 `./simpler what` writes no C. It lists everything the program can touch: what
 it prints, each file it reads or writes (by name when the name is written out
 in the program), mail, standard input and the command line, each with the
-functions that do it. The list is complete, since a program reaches the world
+functions that do it, and the functions that change a list or map they were
+handed. The list is complete, since a program reaches the world
 only through `sys` and the compiler refuses any other way. A program can still
 run for ever or use up memory.
 
@@ -462,9 +485,9 @@ compiler crashing, or writing C that does not build, is a bug in the compiler.
 - Operator sugar is exactly `+ - * / == < >`; a leading `-` negates.
 - `Int` and `Float` never mix without an explicit conversion.
 - Variants need exhaustive `match`; records construct positionally.
-- Effects (`!IO`, `!Fail`) and failability (`?`) live in the type, not the syntax.
+- Effects (`!IO`, `!Fail`, `!Mut`) and failability (`?`) live in the type, not the syntax.
 - Capabilities replace imports; `main` holds the world, passes subsets down.
-- Value semantics; no GC, no borrow checker. Compile by transpiling to C.
+- No GC, no borrow checker. Compile by transpiling to C.
 
 ---
 

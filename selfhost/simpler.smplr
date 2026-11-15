@@ -107,6 +107,8 @@ Sigs = type {
   fnNames : List[Str]
   fnRets : List[Str]
   boxedNullary : List[Str]
+  retP : List[Str]
+  mutP : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -199,6 +201,7 @@ main(sys) {
       fail("input.smplr:1: no main function found")
     }
     // every check runs first, so the list is given only for a program that compiles
+    retPass(prog, sigs)
     prog.fns.each { f in
       emitFn(f, sigs)
     }
@@ -286,6 +289,7 @@ main(sys) {
   if testing.not && hasName(sigs.fnNames, "main").not {
     fail("input.smplr:1: no main function found")
   }
+  retPass(prog, sigs)
   prog.fns.each { f in
     if (testing && isMain(f.name)).not {
       sys.screen.print(emitFn(f, sigs))
@@ -317,6 +321,18 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   out = ""
   ["screen", "files", "mail", "stdin", "args"].each { kind in
     out = out.concat(whatKind(w, kind))
+  }
+  muts = ""
+  prog.fns.each { f in
+    if hasName(f.effs, "Mut") {
+      if (muts == "").not {
+        muts = muts.concat(", ")
+      }
+      muts = muts.concat(f.name)
+    }
+  }
+  if (muts == "").not {
+    out = out.concat("lists   changes a list or map it was handed  (in ").concat(muts).concat(")\n")
   }
   out.concat("nothing else: the language has no network and cannot start other programs")
 }
@@ -351,7 +367,7 @@ whatKind(w : What, kind : Str) : Str {
   out
 }
 
-whatAdd(w : What, kind : Str, act : Str, fn : Str) : Int {
+whatAdd(w : What, kind : Str, act : Str, fn : Str) : Int !Mut {
   k = 0
   while k < w.acts.length {
     if w.kinds.at(k) == kind && w.acts.at(k) == act && w.fns.at(k) == fn {
@@ -365,14 +381,14 @@ whatAdd(w : What, kind : Str, act : Str, fn : Str) : Int {
   0
 }
 
-whatBody(body : List[Stmt], fn : Str, w : What, sigs : Sigs) : Int {
+whatBody(body : List[Stmt], fn : Str, w : What, sigs : Sigs) : Int !Mut {
   body.each { s in
     whatStmt(s, fn, w, sigs)
   }
   0
 }
 
-whatStmt(s : Stmt, fn : Str, w : What, sigs : Sigs) : Int {
+whatStmt(s : Stmt, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   s.match {
     Let(name, ty, e) -> whatExpr(e, fn, w, sigs)
     Bare(e) -> whatExpr(e, fn, w, sigs)
@@ -383,7 +399,7 @@ whatStmt(s : Stmt, fn : Str, w : What, sigs : Sigs) : Int {
   }
 }
 
-whatExpr(e : Expr, fn : Str, w : What, sigs : Sigs) : Int {
+whatExpr(e : Expr, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   e.match {
     Num(v) -> 0
     FloatLit(s) -> 0
@@ -399,21 +415,21 @@ whatExpr(e : Expr, fn : Str, w : What, sigs : Sigs) : Int {
   }
 }
 
-whatAll(es : List[Expr], fn : Str, w : What, sigs : Sigs) : Int {
+whatAll(es : List[Expr], fn : Str, w : What, sigs : Sigs) : Int !Mut {
   es.each { x in
     whatExpr(x, fn, w, sigs)
   }
   0
 }
 
-whatArms(arms : List[Arm], fn : Str, w : What, sigs : Sigs) : Int {
+whatArms(arms : List[Arm], fn : Str, w : What, sigs : Sigs) : Int !Mut {
   arms.each { a in
     whatExpr(a.body, fn, w, sigs)
   }
   0
 }
 
-whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int {
+whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if fld == "stdin" {
     whatAdd(w, "stdin", "reads all of standard input", fn)
   }
@@ -423,7 +439,7 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int {
   whatExpr(recv, fn, w, sigs)
 }
 
-whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs : Sigs) : Int {
+whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if hasName(sigs.fnNames, name).not && args.length > 0 {
     if name == "print" {
       whatAdd(w, "screen", "prints", fn)
@@ -490,6 +506,8 @@ buildSigs(prog : Prog) : Sigs {
     fnRets.push(f.ret)
   }
   boxedNullary : List[Str] = []
+  retP : List[Str] = []
+  mutP : List[Str] = []
   prog.types.each { t in
     if hasPayload(t) {
       t.cases.each { c in
@@ -499,7 +517,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -586,7 +604,7 @@ failTok(toks : Lexed, i : Int, msg : Str) : Int {
 }
 
 // A name may be given once: adds it to the list, or stops if it is there.
-once(seen : List[Str], name : Str, toks : Lexed, i : Int) : Str {
+once(seen : List[Str], name : Str, toks : Lexed, i : Int) : Str !Mut {
   if hasName(seen, name) {
     failLine(toks, i, "the name ".concat(name).concat(" is used twice"))
   }
@@ -673,7 +691,7 @@ parseRecord(toks : Lexed, i : Int) : PRec {
   PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes), next = expect(toks, j, "}"))
 }
 
-parseTypeDef(toks : Lexed, i : Int, seen : List[Str]) : PTy {
+parseTypeDef(toks : Lexed, i : Int, seen : List[Str]) : PTy !Mut {
   name = identAt(toks, i)
   cases : List[Case] = []
   j = i + 4
@@ -735,7 +753,11 @@ parseRet(toks : Lexed, j : Int) : PRet {
     k = pt.next
   }
   while isPunct(toks, k, "!") {
-    effs.push(expectIdent(toks, k + 1, "an effect name"))
+    eff = expectIdent(toks, k + 1, "an effect name")
+    if ((eff == "IO") || (eff == "Fail") || (eff == "Mut")).not {
+      failLine(toks, k + 1, "no effect named ".concat(eff).concat("; the effects are !IO, !Fail and !Mut"))
+    }
+    effs.push(eff)
     k = k + 2
   }
   PRet(ret = ret, effs = effs, next = k)
@@ -1213,7 +1235,7 @@ emitProto(f : Fn) : Str {
   "long ".concat(mangle(f.name)).concat("(").concat(paramDecls(f)).concat(");")
 }
 
-emitFn(f : Fn, sigs : Sigs) : Str {
+emitFn(f : Fn, sigs : Sigs) : Str !Mut {
   rt = "long"
   sig = paramDecls(f)
   if isMain(f.name) {
@@ -1225,6 +1247,30 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     nm = mangle(f.name)
   }
   out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
+  ctx = fnCtx(f, sigs)
+  checkReturn(f, ctx)
+  checkEffects(f, ctx)
+  decls = collectLets(f.body)
+  d = 0
+  dn = decls.length
+  while d < dn {
+    if hasName(f.params, decls.at(d)).not {
+      out = out.concat("\n  long ").concat(decls.at(d)).concat(" = 0;")
+    }
+    d = d + 1
+  }
+  k = 0
+  m = f.body.length
+  while k < m {
+    last = (k + 1 == m).and(isMain(f.name).not)
+    out = out.concat("\n").concat(emitStmt(f.body.at(k), last, ctx))
+    k = k + 1
+  }
+  out.concat("\n  return 0;\n}")
+}
+
+// A function's names and their types, before any of it is emitted.
+fnCtx(f : Fn, sigs : Sigs) : Ctx !Mut {
   env = newEnv()
   pk = 0
   pn = f.params.length
@@ -1247,25 +1293,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   }
   seedEnv(f.body, ctx)
   setLine(f.line, ctx)
-  checkReturn(f, ctx)
-  checkEffects(f, ctx)
-  decls = collectLets(f.body)
-  d = 0
-  dn = decls.length
-  while d < dn {
-    if hasName(f.params, decls.at(d)).not {
-      out = out.concat("\n  long ").concat(decls.at(d)).concat(" = 0;")
-    }
-    d = d + 1
-  }
-  k = 0
-  m = f.body.length
-  while k < m {
-    last = (k + 1 == m).and(isMain(f.name).not)
-    out = out.concat("\n").concat(emitStmt(f.body.at(k), last, ctx))
-    k = k + 1
-  }
-  out.concat("\n  return 0;\n}")
+  ctx
 }
 
 paramDecls(f : Fn) : Str {
@@ -1290,7 +1318,7 @@ newEnv() : TyEnv {
   TyEnv(names = ns, tys = ts)
 }
 
-envPut(env : TyEnv, name : Str, ty : Str) : Int {
+envPut(env : TyEnv, name : Str, ty : Str) : Int !Mut {
   env.names.push(name)
   env.tys.push(ty)
   0
@@ -1314,7 +1342,7 @@ envOlds(env : TyEnv, names : List[Str]) : List[Str] {
   olds
 }
 
-envRestore(env : TyEnv, names : List[Str], olds : List[Str]) : Int {
+envRestore(env : TyEnv, names : List[Str], olds : List[Str]) : Int !Mut {
   k = 0
   while k < names.length {
     envPut(env, names.at(k), olds.at(k))
@@ -1339,7 +1367,7 @@ envGet(env : TyEnv, name : Str) : Str {
 // Before emitting a function, record the type of every binding it makes,
 // including those nested in if/while bodies and the parameter of an each
 // loop, so field access and method dispatch resolve everywhere.
-seedEnv(body : List[Stmt], ctx : Ctx) : Int {
+seedEnv(body : List[Stmt], ctx : Ctx) : Int !Mut {
   k = 0
   m = body.length
   while k < m {
@@ -1349,7 +1377,7 @@ seedEnv(body : List[Stmt], ctx : Ctx) : Int {
   0
 }
 
-seedStmt(s : Stmt, ctx : Ctx) : Int {
+seedStmt(s : Stmt, ctx : Ctx) : Int !Mut {
   s.match {
     Let(name, ty, e) -> seedLet(name, letType(ty, e, ctx), ctx)
     Bare(e) -> seedExpr(e, ctx)
@@ -1362,7 +1390,7 @@ seedStmt(s : Stmt, ctx : Ctx) : Int {
 
 // A name keeps one type through a function. Binding it again with another
 // type is refused here, since every later use would be read with the wrong one.
-seedLet(name : Str, ty : Str, ctx : Ctx) : Int {
+seedLet(name : Str, ty : Str, ctx : Ctx) : Int !Mut {
   if ty == "List" {
     failAt("an empty [] needs a type, as in ".concat(name).concat(" : List[Int] = []"), ctx)
   }
@@ -1375,13 +1403,13 @@ seedLet(name : Str, ty : Str, ctx : Ctx) : Int {
   envPut(ctx.env, name, ty)
 }
 
-seedIf(t : List[Stmt], el : List[Stmt], ctx : Ctx) : Int {
+seedIf(t : List[Stmt], el : List[Stmt], ctx : Ctx) : Int !Mut {
   seedEnv(t, ctx)
   seedEnv(el, ctx)
   0
 }
 
-seedExpr(e : Expr, ctx : Ctx) : Int {
+seedExpr(e : Expr, ctx : Ctx) : Int !Mut {
   e.match {
     Each(recv, param, body) -> seedEach(recv, param, body, ctx)
     Num(v) -> 0
@@ -1397,7 +1425,7 @@ seedExpr(e : Expr, ctx : Ctx) : Int {
   }
 }
 
-seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int {
+seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
   old = envOld(ctx.env, param)
   envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
   seedEnv(body, ctx)
@@ -1405,14 +1433,14 @@ seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int {
   0
 }
 
-inferType(e : Expr, ctx : Ctx) : Str {
+inferType(e : Expr, ctx : Ctx) : Str !Mut {
   exprType(e, ctx)
 }
 
 // A binding's type: its declared annotation when it has one, otherwise
 // inferred from the value. The annotation wins because an empty collection
 // has no element type to infer from its value.
-letType(ty : Str, e : Expr, ctx : Ctx) : Str {
+letType(ty : Str, e : Expr, ctx : Ctx) : Str !Mut {
   r = inferType(e, ctx)
   if (ty == "").not {
     r = ty
@@ -1486,7 +1514,7 @@ collectLets(body : List[Stmt]) : List[Str] {
   names
 }
 
-collectBody(body : List[Stmt], names : List[Str]) : Int {
+collectBody(body : List[Stmt], names : List[Str]) : Int !Mut {
   k = 0
   m = body.length
   while k < m {
@@ -1496,7 +1524,7 @@ collectBody(body : List[Stmt], names : List[Str]) : Int {
   0
 }
 
-collectStmt(s : Stmt, names : List[Str]) : Int {
+collectStmt(s : Stmt, names : List[Str]) : Int !Mut {
   s.match {
     Let(name, ty, e) -> pushUnique(names, name)
     Bare(e) -> collectExpr(e, names)
@@ -1509,7 +1537,7 @@ collectStmt(s : Stmt, names : List[Str]) : Int {
 
 // A bare `.each { x in ... }` carries its own block; its bindings are real
 // locals and must be hoisted too. Other expressions hold no statements.
-collectExpr(e : Expr, names : List[Str]) : Int {
+collectExpr(e : Expr, names : List[Str]) : Int !Mut {
   e.match {
     Each(recv, param, body) -> collectBody(body, names)
     Num(v) -> 0
@@ -1525,13 +1553,13 @@ collectExpr(e : Expr, names : List[Str]) : Int {
   }
 }
 
-collectIf(t : List[Stmt], el : List[Stmt], names : List[Str]) : Int {
+collectIf(t : List[Stmt], el : List[Stmt], names : List[Str]) : Int !Mut {
   collectBody(t, names)
   collectBody(el, names)
   0
 }
 
-pushUnique(names : List[Str], name : Str) : Int {
+pushUnique(names : List[Str], name : Str) : Int !Mut {
   if hasName(names, name).not {
     names.push(name)
   }
@@ -1553,7 +1581,7 @@ hasName(names : List[Str], name : Str) : Bool {
 
 // --- emit: statements ---------------------------------------------------
 
-emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str {
+emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str !Mut {
   s.match {
     Let(name, ty, e) -> "  ".concat(name).concat(" = ").concat(emitExpr(e, ctx)).concat(";")
     Bare(e) -> emitBare(e, asReturn, ctx)
@@ -1566,7 +1594,7 @@ emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str {
 
 // `return e` leaves the function at once. Its type is checked against the
 // declared return type, which emitFn keeps in the env as `__ret__`.
-emitRet(e : Expr, ctx : Ctx) : Str {
+emitRet(e : Expr, ctx : Ctx) : Str !Mut {
   ret = envGet(ctx.env, "__ret__")
   if (ret == "__main__").not {
     checkRetExpr(e, ret, ctx)
@@ -1574,7 +1602,7 @@ emitRet(e : Expr, ctx : Ctx) : Str {
   emitReturn(e, ctx)
 }
 
-emitIf(c : Expr, t : List[Stmt], el : List[Stmt], asReturn : Bool, ctx : Ctx) : Str {
+emitIf(c : Expr, t : List[Stmt], el : List[Stmt], asReturn : Bool, ctx : Ctx) : Str !Mut {
   // the condition is written first, in a statement of its own, so that an
   // error in it names its own line and not a line of the block
   cc = emitExpr(c, ctx)
@@ -1585,13 +1613,13 @@ emitIf(c : Expr, t : List[Stmt], el : List[Stmt], asReturn : Bool, ctx : Ctx) : 
   out
 }
 
-emitWhile(c : Expr, b : List[Stmt], ctx : Ctx) : Str {
+emitWhile(c : Expr, b : List[Stmt], ctx : Ctx) : Str !Mut {
   cc = emitExpr(c, ctx)
   "  while (".concat(cc).concat(") {").concat(emitBlock(b, false, ctx)).concat("\n  }")
 }
 
 // With asReturn the block's last statement gives the function's value.
-emitBlock(body : List[Stmt], asReturn : Bool, ctx : Ctx) : Str {
+emitBlock(body : List[Stmt], asReturn : Bool, ctx : Ctx) : Str !Mut {
   out = ""
   k = 0
   m = body.length
@@ -1602,7 +1630,7 @@ emitBlock(body : List[Stmt], asReturn : Bool, ctx : Ctx) : Str {
   out
 }
 
-emitBare(e : Expr, asReturn : Bool, ctx : Ctx) : Str {
+emitBare(e : Expr, asReturn : Bool, ctx : Ctx) : Str !Mut {
   r = stmtExpr(e, ctx)
   if asReturn && stmtOnly(e).not {
     r = emitReturn(e, ctx)
@@ -1629,7 +1657,7 @@ stmtOnly(e : Expr) : Bool {
 }
 
 // A bare statement: an `each` loop, a `print`, or a plain expression.
-stmtExpr(e : Expr, ctx : Ctx) : Str {
+stmtExpr(e : Expr, ctx : Ctx) : Str !Mut {
   e.match {
     Each(recv, param, body) -> emitEach(recv, param, body, ctx)
     Call(name, args) -> emitCallStmt(name, args, e, ctx)
@@ -1645,13 +1673,13 @@ stmtExpr(e : Expr, ctx : Ctx) : Str {
   }
 }
 
-exprStmt(e : Expr, ctx : Ctx) : Str {
+exprStmt(e : Expr, ctx : Ctx) : Str !Mut {
   "  ".concat(emitExpr(e, ctx)).concat(";")
 }
 
 // `print(x)` chooses its format from the argument type; any other call is
 // just a C statement.
-emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
+emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str !Mut {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
   if name == "print" && args.length == 1 {
     r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
@@ -1661,7 +1689,7 @@ emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
 
 // `sys.screen.print(x)` is a capability call: the receiver path is erased,
 // only the print at the end matters.
-emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
+emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str !Mut {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
   if name == "print" && args.length == 1 && calm(args.at(0)) {
     r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
@@ -1669,7 +1697,7 @@ emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r
 }
 
-emitPrint(arg : Expr, ctx : Ctx) : Str {
+emitPrint(arg : Expr, ctx : Ctx) : Str !Mut {
   fmt = "%ld"
   cast = ""
   val = emitExpr(arg, ctx)
@@ -1695,7 +1723,7 @@ emitPrint(arg : Expr, ctx : Ctx) : Str {
 // an effectful one like sys.stdin, and re-running it per iteration would be
 // wrong (stdin consumed once) as well as wasteful. The block scopes the temps
 // so nested .each loops shadow cleanly.
-emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str {
+emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str !Mut {
   recvC = emitExpr(recv, ctx)
   old = envOld(ctx.env, param)
   envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
@@ -1749,7 +1777,7 @@ mapValueOf(t : Str) : Str {
   r
 }
 
-emitReturn(e : Expr, ctx : Ctx) : Str {
+emitReturn(e : Expr, ctx : Ctx) : Str !Mut {
   e.match {
     Match(scrut, arms) -> emitSwitch(scrut, arms, ctx)
     Num(v) -> retVal(e, ctx)
@@ -1765,11 +1793,11 @@ emitReturn(e : Expr, ctx : Ctx) : Str {
   }
 }
 
-retVal(e : Expr, ctx : Ctx) : Str {
+retVal(e : Expr, ctx : Ctx) : Str !Mut {
   "  return ".concat(emitExpr(e, ctx)).concat(";")
 }
 
-emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
+emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str !Mut {
   boxed = armHasBind(arms)
   scrutC = emitExpr(scrut, ctx)
   styp = exprType(scrut, ctx)
@@ -1793,7 +1821,7 @@ emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
 // dispatch inside the arm body resolve correctly.
 // A match used as a value, in the middle of a function: the chosen arm's
 // value lands in _m (a GNU C statement expression).
-emitMatchExpr(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
+emitMatchExpr(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str !Mut {
   boxed = armHasBind(arms)
   scrutC = emitExpr(scrut, ctx)
   styp = exprType(scrut, ctx)
@@ -1812,7 +1840,7 @@ emitMatchExpr(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
   out.concat(" } _m; })")
 }
 
-emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, pre : Str, post : Str, ctx : Ctx) : Str {
+emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, pre : Str, post : Str, ctx : Ctx) : Str !Mut {
   r = ""
   olds = envOlds(ctx.env, a.binds)
   if boxed {
@@ -1907,11 +1935,11 @@ checkArities(t : TyDef, arms : List[Arm], ctx : Ctx) : Int {
 }
 
 // Each statement sets the line that an error in it will name.
-setLine(n : Int, ctx : Ctx) : Int {
+setLine(n : Int, ctx : Ctx) : Int !Mut {
   envPut(ctx.env, "__line__", n.toStr)
 }
 
-emitLine(n : Int, ctx : Ctx) : Str {
+emitLine(n : Int, ctx : Ctx) : Str !Mut {
   setLine(n, ctx)
   ""
 }
@@ -1926,8 +1954,345 @@ failAt(msg : Str, ctx : Ctx) : Int {
 // also come transitively from calling a function that declares them. main is
 // exempt: it implicitly holds all effects.
 
-checkEffects(f : Fn, ctx : Ctx) : Int {
+// A function may not change a list or map it was handed unless it declares
+// !Mut. "Handed" means the parameters and every local that may point into
+// one: a copy of the name, an item taken out, a loop or match name, a local
+// list that had a handed value put in. The env keeps them as __h__<name>.
+// Text and numbers cannot be changed, so they are never handed.
+
+plainType(t : Str) : Bool {
+  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Sys")
+}
+
+isHanded(s : Str, ctx : Ctx) : Bool {
+  hasName(ctx.env.names, "__h__".concat(s))
+}
+
+setHanded(s : Str, ctx : Ctx) : Int !Mut {
+  if isHanded(s, ctx).not {
+    envPut(ctx.env, "__h__".concat(s), "1")
+  }
+  0
+}
+
+handed(e : Expr, ctx : Ctx) : Bool !Mut {
+  if plainType(exprType(e, ctx)) {
+    return false
+  }
+  e.match {
+    Var(s) -> isHanded(s, ctx)
+    Field(recv, fld) -> handedField(recv, fld, ctx)
+    Method(recv, name, args) -> ((name == "at").or(name == "get")).and(handed(recv, ctx))
+    ListLit(es) -> anyHanded(es, ctx)
+    Call(name, args) -> callHanded(name, args, ctx)
+    Match(scrut, arms) -> armsHanded(scrut, arms, ctx)
+    Bin(op, a, b) -> false
+    Each(recv, param, body) -> false
+    Num(v) -> false
+    FloatLit(s) -> false
+    StrLit(s) -> false
+  }
+}
+
+// keys and byValue are new lists of text; sort is a new list of the same items.
+handedField(recv : Expr, fld : Str, ctx : Ctx) : Bool !Mut {
+  if (fld == "keys") || (fld == "byValue") {
+    return false
+  }
+  if fld == "sort" {
+    if plainType(elemOf(exprType(recv, ctx))) {
+      return false
+    }
+  }
+  if useUFCS(exprType(recv, ctx), fld, ctx) {
+    return callHanded(fld, [recv], ctx)
+  }
+  handed(recv, ctx)
+}
+
+// A call gives back something handed only when it passes a handed value in
+// a position the function can return (found by retPass). A record or variant made here keeps it.
+callHanded(name : Str, args : List[Expr], ctx : Ctx) : Bool !Mut {
+  if hasName(ctx.sigs.fnNames, name).not {
+    return anyHanded(args, ctx)
+  }
+  r = false
+  j = 0
+  while j < args.length {
+    if hasName(ctx.sigs.retP, name.concat(":").concat(j.toStr)) && handed(args.at(j), ctx) {
+      r = true
+    }
+    j = j + 1
+  }
+  r
+}
+
+markFn(f : Fn, ctx : Ctx) : Int !Mut {
+  k = 0
+  while k < f.params.length {
+    if plainType(f.ptypes.at(k)).not {
+      setHanded(f.params.at(k), ctx)
+    }
+    k = k + 1
+  }
+  markAgain(f, ctx)
+}
+
+// Three rounds, so a name handed on late in the body is known early in it.
+markAgain(f : Fn, ctx : Ctx) : Int !Mut {
+  markBody(f.body, ctx)
+  markBody(f.body, ctx)
+  markBody(f.body, ctx)
+}
+
+// What a function does with each value it is given: can it return it (or a
+// part of it), and, when it declares !Mut, does it change it? The function
+// is read with that one value alone handed. Kept as "name:position". A
+// function that calls another is read again until nothing new is found.
+paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
+  found = false
+  k = 0
+  while k < f.params.length {
+    key = f.name.concat(":").concat(k.toStr)
+    needR = plainType(f.ret).not && hasName(sigs.retP, key).not
+    needM = hasName(f.effs, "Mut") && hasName(sigs.mutP, key).not
+    if plainType(f.ptypes.at(k)).not && (needR || needM) {
+      ctx = fnCtx(f, sigs)
+      setHanded(f.params.at(k), ctx)
+      markAgain(f, ctx)
+      if needR && lastHanded(f.body, ctx).or(anyRets(f.body, ctx)) {
+        sigs.retP.push(key)
+        found = true
+      }
+      used : List[Str] = []
+      effBody(f.body, used, ctx)
+      if needM && hasName(used, "Mut") {
+        sigs.mutP.push(key)
+        found = true
+      }
+    }
+    k = k + 1
+  }
+  found
+}
+
+retPass(prog : Prog, sigs : Sigs) : Int !Mut {
+  changed = true
+  while changed {
+    changed = false
+    prog.fns.each { f in
+      if isMain(f.name).not {
+        if paramFacts(f, sigs) {
+          changed = true
+        }
+      }
+    }
+  }
+  0
+}
+
+// The value of a block is its last statement.
+lastHanded(body : List[Stmt], ctx : Ctx) : Bool !Mut {
+  r = false
+  body.each { s in
+    r = lastStmt(s, r, ctx)
+  }
+  r
+}
+
+lastStmt(s : Stmt, prev : Bool, ctx : Ctx) : Bool !Mut {
+  s.match {
+    Line(n) -> prev
+    Bare(e) -> handed(e, ctx)
+    Ret(e) -> handed(e, ctx)
+    If(c, t, el) -> lastHanded(t, ctx).or(lastHanded(el, ctx))
+    Let(name, ty, e) -> false
+    While(c, b) -> false
+  }
+}
+
+anyRets(body : List[Stmt], ctx : Ctx) : Bool !Mut {
+  r = false
+  body.each { s in
+    if stmtRets(s, ctx) {
+      r = true
+    }
+  }
+  r
+}
+
+stmtRets(s : Stmt, ctx : Ctx) : Bool !Mut {
+  s.match {
+    Ret(e) -> handed(e, ctx)
+    If(c, t, el) -> anyRets(t, ctx).or(anyRets(el, ctx))
+    While(c, b) -> anyRets(b, ctx)
+    Bare(e) -> eachRets(e, ctx)
+    Let(name, ty, e) -> false
+    Line(n) -> false
+  }
+}
+
+eachRets(e : Expr, ctx : Ctx) : Bool !Mut {
+  e.match {
+    Each(recv, param, body) -> anyRets(body, ctx)
+    Var(s) -> false
+    Field(recv, fld) -> false
+    Method(recv, name, args) -> false
+    ListLit(es) -> false
+    Call(name, args) -> false
+    Match(scrut, arms) -> false
+    Bin(op, a, b) -> false
+    Num(v) -> false
+    FloatLit(s) -> false
+    StrLit(s) -> false
+  }
+}
+
+anyHanded(es : List[Expr], ctx : Ctx) : Bool !Mut {
+  r = false
+  es.each { x in
+    if handed(x, ctx) {
+      r = true
+    }
+  }
+  r
+}
+
+armsHanded(scrut : Expr, arms : List[Arm], ctx : Ctx) : Bool !Mut {
+  r = false
+  styp = exprType(scrut, ctx)
+  arms.each { a in
+    olds = bindArm(styp, a, ctx)
+    if handed(a.body, ctx) {
+      r = true
+    }
+    envRestore(ctx.env, a.binds, olds)
+  }
+  r
+}
+
+// Give an arm's names their types for as long as the arm is read.
+bindArm(styp : Str, a : Arm, ctx : Ctx) : List[Str] !Mut {
+  olds = envOlds(ctx.env, a.binds)
+  bi = 0
+  while bi < a.binds.length {
+    envPut(ctx.env, a.binds.at(bi), payloadType(styp, a.tag, bi, ctx))
+    bi = bi + 1
+  }
+  olds
+}
+
+// The variable an expression reaches into: box in box.items.at(0).
+rootVar(e : Expr) : Str {
+  e.match {
+    Var(s) -> s
+    Field(recv, fld) -> rootVar(recv)
+    Method(recv, name, args) -> rootVar(recv)
+    ListLit(es) -> ""
+    Call(name, args) -> ""
+    Match(scrut, arms) -> ""
+    Bin(op, a, b) -> ""
+    Each(recv, param, body) -> ""
+    Num(v) -> ""
+    FloatLit(s) -> ""
+    StrLit(s) -> ""
+  }
+}
+
+markBody(body : List[Stmt], ctx : Ctx) : Int !Mut {
+  body.each { s in
+    markStmt(s, ctx)
+  }
+  0
+}
+
+markStmt(s : Stmt, ctx : Ctx) : Int !Mut {
+  s.match {
+    Let(name, ty, e) -> markLet(name, e, ctx)
+    Bare(e) -> markExpr(e, ctx)
+    If(c, t, el) -> markExpr(c, ctx) + markBody(t, ctx) + markBody(el, ctx)
+    While(c, b) -> markExpr(c, ctx) + markBody(b, ctx)
+    Ret(e) -> markExpr(e, ctx)
+    Line(n) -> 0
+  }
+}
+
+markLet(name : Str, e : Expr, ctx : Ctx) : Int !Mut {
+  if handed(e, ctx) {
+    setHanded(name, ctx)
+  }
+  markExpr(e, ctx)
+}
+
+markExpr(e : Expr, ctx : Ctx) : Int !Mut {
+  e.match {
+    Each(recv, param, body) -> markEach(recv, param, body, ctx)
+    Match(scrut, arms) -> markMatch(scrut, arms, ctx)
+    Method(recv, name, args) -> markMethod(recv, name, args, ctx)
+    Field(recv, fld) -> markExpr(recv, ctx)
+    ListLit(es) -> markAll(es, ctx)
+    Call(name, args) -> markAll(args, ctx)
+    Bin(op, a, b) -> markExpr(a, ctx) + markExpr(b, ctx)
+    Var(s) -> 0
+    Num(v) -> 0
+    FloatLit(s) -> 0
+    StrLit(s) -> 0
+  }
+}
+
+markAll(es : List[Expr], ctx : Ctx) : Int !Mut {
+  es.each { x in
+    markExpr(x, ctx)
+  }
+  0
+}
+
+markEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
+  et = elemOf(exprType(recv, ctx))
+  if handed(recv, ctx) && plainType(et).not {
+    setHanded(param, ctx)
+  }
+  markExpr(recv, ctx)
+  old = envOld(ctx.env, param)
+  envPut(ctx.env, param, et)
+  markBody(body, ctx)
+  envPut(ctx.env, param, old)
+}
+
+markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
+  h = handed(scrut, ctx)
+  markExpr(scrut, ctx)
+  styp = exprType(scrut, ctx)
+  arms.each { a in
+    olds = bindArm(styp, a, ctx)
+    if h {
+      a.binds.each { b in
+        if plainType(envGet(ctx.env, b)).not {
+          setHanded(b, ctx)
+        }
+      }
+    }
+    markExpr(a.body, ctx)
+    envRestore(ctx.env, a.binds, olds)
+  }
+  0
+}
+
+// A handed value put into a local list or map makes that local handed too.
+markMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
+  if (name == "push") || (name == "set") {
+    root = rootVar(recv)
+    if anyHanded(args, ctx) && (root == "").not {
+      setHanded(root, ctx)
+    }
+  }
+  markExpr(recv, ctx)
+  markAll(args, ctx)
+}
+
+checkEffects(f : Fn, ctx : Ctx) : Int !Mut {
   if isMain(f.name).not {
+    markFn(f, ctx)
     used : List[Str] = []
     effBody(f.body, used, ctx)
     k = 0
@@ -1935,6 +2300,9 @@ checkEffects(f : Fn, ctx : Ctx) : Int {
     while k < m {
       e = used.at(k)
       if hasName(f.effs, e).not {
+        if e == "Mut" {
+          failAt(f.name.concat(" changes a list or map it was handed; add !Mut after its return type"), ctx)
+        }
         failAt("uses !".concat(e).concat(" but does not declare it"), ctx)
       }
       k = k + 1
@@ -1943,7 +2311,7 @@ checkEffects(f : Fn, ctx : Ctx) : Int {
   0
 }
 
-effBody(body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+effBody(body : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
   k = 0
   m = body.length
   while k < m {
@@ -1953,7 +2321,7 @@ effBody(body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
   0
 }
 
-effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
+effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int !Mut {
   s.match {
     Let(name, ty, e) -> effExpr(e, used, ctx)
     Bare(e) -> effExpr(e, used, ctx)
@@ -1964,27 +2332,27 @@ effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
   }
 }
 
-effIf(c : Expr, t : List[Stmt], el : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+effIf(c : Expr, t : List[Stmt], el : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(c, used, ctx)
   effBody(t, used, ctx)
   effBody(el, used, ctx)
   0
 }
 
-effWhile(c : Expr, b : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+effWhile(c : Expr, b : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(c, used, ctx)
   effBody(b, used, ctx)
   0
 }
 
-effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int {
+effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int !Mut {
   e.match {
     Method(recv, name, args) -> effMethodE(recv, name, args, used, ctx)
     Call(name, args) -> effCallE(name, args, used, ctx)
     Bin(op, a, b) -> effBin(a, b, used, ctx)
     Match(scrut, arms) -> effMatchE(scrut, arms, used, ctx)
-    Field(recv, fld) -> effExpr(recv, used, ctx)
-    Each(recv, param, body) -> effEachE(recv, body, used, ctx)
+    Field(recv, fld) -> effFieldE(recv, fld, used, ctx)
+    Each(recv, param, body) -> effEachE(recv, param, body, used, ctx)
     ListLit(es) -> effArgs(es, used, ctx)
     Num(v) -> 0
     FloatLit(s) -> 0
@@ -1993,7 +2361,7 @@ effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int {
   }
 }
 
-effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut {
   if name == "print" {
     used.push("IO")
   }
@@ -2010,19 +2378,45 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if name == "append" {
     used.push("IO")
   }
+  if (name == "push") || (name == "set") {
+    if handed(recv, ctx) {
+      used.push("Mut")
+    }
+  }
   effExpr(recv, used, ctx)
   effArgs(args, used, ctx)
   0
 }
 
-effCallE(name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+// x.f with no values is the call f(x) when f is a function.
+effFieldE(recv : Expr, fld : Str, used : List[Str], ctx : Ctx) : Int !Mut {
+  if useUFCS(exprType(recv, ctx), fld, ctx) {
+    return effCallE(fld, [recv], used, ctx)
+  }
+  effExpr(recv, used, ctx)
+}
+
+effCallE(name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut {
   fns = ctx.sigs.fns
   k = 0
   m = fns.length
   while k < m {
     g = fns.at(k)
     if g.name == name {
-      addAll(g.effs, used)
+      g.effs.each { x in
+        if (x == "Mut").not {
+          used.push(x)
+        }
+      }
+      if hasName(g.effs, "Mut") {
+        j = 0
+        while j < args.length {
+          if hasName(ctx.sigs.mutP, name.concat(":").concat(j.toStr)) && handed(args.at(j), ctx) {
+            used.push("Mut")
+          }
+          j = j + 1
+        }
+      }
     }
     k = k + 1
   }
@@ -2030,30 +2424,33 @@ effCallE(name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int {
   0
 }
 
-effBin(a : Expr, b : Expr, used : List[Str], ctx : Ctx) : Int {
+effBin(a : Expr, b : Expr, used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(a, used, ctx)
   effExpr(b, used, ctx)
   0
 }
 
-effMatchE(scrut : Expr, arms : List[Arm], used : List[Str], ctx : Ctx) : Int {
+effMatchE(scrut : Expr, arms : List[Arm], used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(scrut, used, ctx)
-  k = 0
-  m = arms.length
-  while k < m {
-    effExpr(arms.at(k).body, used, ctx)
-    k = k + 1
+  styp = exprType(scrut, ctx)
+  arms.each { a in
+    olds = bindArm(styp, a, ctx)
+    effExpr(a.body, used, ctx)
+    envRestore(ctx.env, a.binds, olds)
   }
   0
 }
 
-effEachE(recv : Expr, body : List[Stmt], used : List[Str], ctx : Ctx) : Int {
+effEachE(recv : Expr, param : Str, body : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(recv, used, ctx)
+  old = envOld(ctx.env, param)
+  envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
   effBody(body, used, ctx)
+  envPut(ctx.env, param, old)
   0
 }
 
-effArgs(args : List[Expr], used : List[Str], ctx : Ctx) : Int {
+effArgs(args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut {
   k = 0
   m = args.length
   while k < m {
@@ -2063,7 +2460,7 @@ effArgs(args : List[Expr], used : List[Str], ctx : Ctx) : Int {
   0
 }
 
-addAll(src : List[Str], dst : List[Str]) : Int {
+addAll(src : List[Str], dst : List[Str]) : Int !Mut {
   k = 0
   m = src.length
   while k < m {
@@ -2128,7 +2525,7 @@ armHasBind(arms : List[Arm]) : Bool {
 
 // --- emit: expressions --------------------------------------------------
 
-emitExpr(e : Expr, ctx : Ctx) : Str {
+emitExpr(e : Expr, ctx : Ctx) : Str !Mut {
   e.match {
     Num(v) -> v.toStr.concat("L")
     FloatLit(s) -> "d2l(".concat(s).concat(")")
@@ -2167,7 +2564,7 @@ calm(e : Expr) : Bool {
   }
 }
 
-hoist(ops : List[Expr], ctx : Ctx) : Hoist {
+hoist(ops : List[Expr], ctx : Ctx) : Hoist !Mut {
   busy = 0
   ops.each { o in
     if calm(o).not {
@@ -2200,7 +2597,7 @@ inOrder(pre : Str, c : Str) : Str {
   r
 }
 
-emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   // && and || stop at the first value that settles them, so they keep their form
   if (op == "&&") || (op == "||") || (op == "u-") {
     return emitBin0(op, a, b, ctx)
@@ -2209,12 +2606,12 @@ emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
   inOrder(h.pre, emitBin0(op, h.ops.at(0), h.ops.at(1), ctx))
 }
 
-emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   h = hoist(args, ctx)
   inOrder(h.pre, emitCall0(name, h.ops, ctx))
 }
 
-emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if (name == "and") || (name == "or") {
     return emitMethod0(recv, name, args, ctx)
   }
@@ -2232,13 +2629,13 @@ emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   inOrder(h.pre, emitMethod0(h.ops.at(0), name, rest, ctx))
 }
 
-emitList(es : List[Expr], ctx : Ctx) : Str {
+emitList(es : List[Expr], ctx : Ctx) : Str !Mut {
   h = hoist(es, ctx)
   inOrder(h.pre, emitList0(h.ops, ctx))
 }
 
 // A list literal: start empty, then add each element in order.
-emitList0(es : List[Expr], ctx : Ctx) : Str {
+emitList0(es : List[Expr], ctx : Ctx) : Str !Mut {
   r = "l_new()"
   k = 0
   m = es.length
@@ -2249,7 +2646,7 @@ emitList0(es : List[Expr], ctx : Ctx) : Str {
   r
 }
 
-listType(es : List[Expr], ctx : Ctx) : Str {
+listType(es : List[Expr], ctx : Ctx) : Str !Mut {
   r = "List"
   if es.length > 0 {
     r = "List[".concat(exprType(es.at(0), ctx)).concat("]")
@@ -2260,7 +2657,7 @@ listType(es : List[Expr], ctx : Ctx) : Str {
 // `==` on strings is a library call. Float values are stored as the bits of
 // a double, so float math reinterprets through l2d/d2l; integer math is the
 // plain C operator.
-emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   checkBinOp(op, a, b, ctx)
   ca = emitExpr(a, ctx)
   cb = emitExpr(b, ctx)
@@ -2303,7 +2700,7 @@ isFloatArith(op : Str) : Bool {
 // must not be mixed (convert with .toFloat / .toInt). `==` is left alone: it
 // is overloaded over Int and Str. Operands of a clearly non-numeric type are
 // rejected; unknowns stay permissive.
-checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int {
+checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int !Mut {
   if isArithOp(op) {
     ta = exprType(a, ctx)
     tb = exprType(b, ctx)
@@ -2352,7 +2749,7 @@ knownCall(name : Str, ctx : Ctx) : Bool {
   r
 }
 
-emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if knownCall(name, ctx).not {
     failAt("no function named ".concat(name), ctx)
   }
@@ -2376,7 +2773,7 @@ emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str {
 // A function's value (its last bare expression) must match its declared return
 // type. `match` bodies are skipped: their type is not inferred. main has no
 // return type.
-checkReturn(f : Fn, ctx : Ctx) : Int {
+checkReturn(f : Fn, ctx : Ctx) : Int !Mut {
   if isMain(f.name).not {
     n = f.body.length
     if n > 0 {
@@ -2386,7 +2783,7 @@ checkReturn(f : Fn, ctx : Ctx) : Int {
   0
 }
 
-checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
+checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int !Mut {
   s.match {
     Bare(e) -> checkRetExpr(e, ret, ctx)
     Let(name, ty, v) -> 0
@@ -2397,7 +2794,7 @@ checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
   }
 }
 
-checkRetExpr(e : Expr, ret : Str, ctx : Ctx) : Int {
+checkRetExpr(e : Expr, ret : Str, ctx : Ctx) : Int !Mut {
   if isMatchExpr(e).not {
     at = exprType(e, ctx)
     if compatible(ret, at, ctx).not {
@@ -2427,7 +2824,7 @@ isMatchExpr(e : Expr) : Bool {
 // types; a record constructor checks them against the field types (positional,
 // in declaration order, which the emitter requires). Variant constructors and
 // builtins are in neither table and are skipped.
-checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
+checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
   fns = ctx.sigs.fns
   k = 0
   m = fns.length
@@ -2467,7 +2864,7 @@ checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
   0
 }
 
-checkArgTypes(name : Str, ptypes : List[Str], args : List[Expr], ctx : Ctx) : Int {
+checkArgTypes(name : Str, ptypes : List[Str], args : List[Expr], ctx : Ctx) : Int !Mut {
   n = args.length
   if n == ptypes.length {
     k = 0
@@ -2558,7 +2955,7 @@ isVariant(t : Str, ctx : Ctx) : Bool {
 }
 
 // A `.field` is a record field read, or a no-argument method on a builtin.
-emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
+emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
   checkSysField(t, fld, ctx)
   checkField(t, fld, ctx)
@@ -2722,7 +3119,7 @@ capNeed(name : Str) : Str {
   r
 }
 
-checkCap(recv : Expr, name : Str, ctx : Ctx) : Int {
+checkCap(recv : Expr, name : Str, ctx : Ctx) : Int !Mut {
   need = capNeed(name)
   if (need == "").not {
     if hasName(ctx.sigs.fnNames, name).not {
@@ -2775,7 +3172,7 @@ isTextMethod(name : Str) : Bool {
 }
 
 // A method must exist on its receiver, and `at` / `push` take the right type.
-checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int {
+checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
   if hasName(ctx.sigs.fnNames, name).not {
     if isNumType(t) && isTextMethod(name) {
       failAt(t.concat(" has no method ").concat(name), ctx)
@@ -2823,7 +3220,7 @@ methodArgs(name : Str) : Int {
   r
 }
 
-emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
   checkCap(recv, name, ctx)
   want = methodArgs(name)
@@ -2980,7 +3377,7 @@ emitVar(s : Str, ctx : Ctx) : Str {
   r
 }
 
-emitArgs(args : List[Expr], ctx : Ctx) : Str {
+emitArgs(args : List[Expr], ctx : Ctx) : Str !Mut {
   out = ""
   k = 0
   m = args.length
@@ -2996,7 +3393,7 @@ emitArgs(args : List[Expr], ctx : Ctx) : Str {
 
 // `a + b` on Floats is a Float; on Ints, an Int. Ordering and equality are
 // always a Bool (Int), whatever the operands.
-binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   r = "Int"
   if (op == "==") || (op == "<") || (op == ">") || (op == "<=") || (op == ">=") || (op == "&&") || (op == "||") {
     r = "Bool"
@@ -3013,7 +3410,7 @@ binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
 }
 
 // The static type of an expression, enough to dispatch methods and print.
-exprType(e : Expr, ctx : Ctx) : Str {
+exprType(e : Expr, ctx : Ctx) : Str !Mut {
   e.match {
     Num(v) -> "Int"
     FloatLit(s) -> "Float"
@@ -3030,7 +3427,7 @@ exprType(e : Expr, ctx : Ctx) : Str {
 }
 
 // A match has the type of its first arm, read with that arm's names typed.
-matchType(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
+matchType(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str !Mut {
   r = "Int"
   if arms.length > 0 {
     a = arms.at(0)
@@ -3049,7 +3446,7 @@ matchType(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
 
 // A `.field`: the declared type of a record field, or the result type of a
 // no-arg method (`.toStr` yields a Str, the rest are Int-ish).
-fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
+fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
   r = "Int"
   if fld == "toStr" {
@@ -3131,7 +3528,7 @@ fieldTypeIn(rec : RecDef, fld : Str) : Str {
   r
 }
 
-methodRet(recv : Expr, name : Str, ctx : Ctx) : Str {
+methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   r = "Int"
   if name == "concat" {
     r = "Str"
