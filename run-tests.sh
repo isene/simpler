@@ -1044,6 +1044,28 @@ check_err "mail with no mails line" \
 check_err "mail to an address the line does not name" \
     'mails "x@b.c"
 main(sys) { sys.mail.send("a@b.c", "s", "b") }' 'this program may not mail "a@b.c"; add it to the mails line at the top'
+mkdir -p "$TMP/gl/logs/sub"; echo A > "$TMP/gl/logs/a.log"; echo B > "$TMP/gl/logs/b.txt"; echo C > "$TMP/gl/logs/sub/c.log"
+printf '%s' 'reads "logs/*.log"
+mails "*@example.com"
+main(sys) {
+  w = sys.args.at(0)
+  if w.contains("@") {
+    sys.mail.send(w, "s", "b")
+    sys.screen.print("mailed")
+  } else {
+    sys.screen.print(sys.files.read(w)?.trim)
+  }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > gl.c 2>/dev/null && cc -w -o gl/p gl.c 2>/dev/null )
+glout="$( cd "$TMP/gl" && for a in logs/a.log logs/b.txt logs/sub/c.log me@example.com me@example.com.evil.test; do SIMPLER_SENDMAIL=../fakemail ./p "$a" 2>&1; done | tr '\n' '|' )"
+glwant='A|input.smplr:9: this program may not read "logs/b.txt"|input.smplr:9: this program may not read "logs/sub/c.log"|mailed|input.smplr:6: this program may not mail "me@example.com.evil.test"|'
+if [ "$glout" = "$glwant" ]; then ok; else nope "a * in a top line (got: $glout)"; fi
+check_err "a written-out name that a * line does not cover" \
+    'reads "logs/*.log"
+main(sys) { sys.screen.print(sys.files.read("logs/x.txt")?) }' 'this program may not read "logs/x.txt"; add it to the reads line at the top'
+check_err "a host that a * line does not cover" \
+    'fetches "*.example.com"
+main(sys) { sys.net.fetch("https://example.org/") }' 'this program may not fetch from "example.org"'
 check_err "join on a list of numbers" \
     'main(sys) { sys.screen.print([1, 2].join(",")) }' 'join puts a list of texts together; List[Int] has no method join'
 check_err "running a program with no runs line" \

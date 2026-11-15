@@ -303,8 +303,9 @@ main(sys) {
   sys.screen.print("long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
+  sys.screen.print("static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }")
   sys.screen.print("static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", line, verb, p, dir); exit(1); }")
-  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\"\\n\", line, verb, p); exit(1); return 0; }")
+  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\"\\n\", line, verb, p); exit(1); return 0; }")
   sys.screen.print("long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)malloc(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)malloc(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)malloc(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }")
   sys.screen.print("long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0; }")
@@ -318,10 +319,10 @@ main(sys) {
   sys.screen.print("long simpler_exec(char** av, int capture, int* code, long input) { int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = tmpfile(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
   sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"input.smplr:%ld: this program may not run \\\"%s\\\"\\n\", line, p); exit(1); return 0; }")
-  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0)) ok = 1; } if (!ok) { fprintf(stderr, \"input.smplr:%ld: this program may not mail \\\"%s\\\"\\n\", line, t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"input.smplr:%ld: the subject of a mail is one line\\n\", line); exit(1); } const char* prog = getenv(\"SIMPLER_SENDMAIL\"); if (!prog || !*prog) prog = \"sendmail\"; char* msg = (char*)malloc(tn + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); char* av[] = {(char*)prog, (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", line, t, prog, code); exit(1); } return 0; }")
+  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } if (!ok) { fprintf(stderr, \"input.smplr:%ld: this program may not mail \\\"%s\\\"\\n\", line, t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"input.smplr:%ld: the subject of a mail is one line\\n\", line); exit(1); } const char* prog = getenv(\"SIMPLER_SENDMAIL\"); if (!prog || !*prog) prog = \"sendmail\"; char* msg = (char*)malloc(tn + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); char* av[] = {(char*)prog, (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", line, t, prog, code); exit(1); } return 0; }")
   sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
-  sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); for (int k = 0; simpler_ft[k]; k++) if (strlen(simpler_ft[k]) == hn && strncmp(simpler_ft[k], h, hn) == 0) return url; } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
+  sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
   sys.screen.print("long simpler_curl(long url, long body, long post, long* st) { char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
   sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } return out; }")
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
@@ -458,10 +459,52 @@ mayTable(cname : Str, names : List[Str]) : Str {
 }
 
 // Is the path s one the line allows: the same name, or under a folder it names?
+// A * in a name at the top stands for any run of characters, but never for a /.
+globOk(pat : Str, s : Str) : Bool {
+  p = 0
+  i = 0
+  star = 0 - 1
+  mark = 0
+  while i < s.length {
+    if p < pat.length && pat.at(p) == "*" {
+      star = p
+      mark = i
+      p = p + 1
+    } else if p < pat.length && pat.at(p) == s.at(i) {
+      p = p + 1
+      i = i + 1
+    } else if star >= 0 && s.at(mark) != "/" {
+      p = star + 1
+      mark = mark + 1
+      i = mark
+    } else {
+      return false
+    }
+  }
+  while p < pat.length && pat.at(p) == "*" {
+    p = p + 1
+  }
+  p == pat.length
+}
+
+// Is the name in the list, as it stands or through an entry with a * in it?
+globName(names : List[Str], s : Str) : Bool {
+  r = hasName(names, s)
+  names.each { e in
+    if e.contains("*") && globOk(e, s) {
+      r = true
+    }
+  }
+  r
+}
+
 mayName(s : Str, names : List[Str]) : Bool {
   r = false
   names.each { e in
     if e == s {
+      r = true
+    }
+    if e.contains("*") && globOk(e, s) && s.contains("..").not {
       r = true
     }
     // "./" is the folder the program runs in: any path that does not start at the root
@@ -556,7 +599,7 @@ mailCheck(arg : Expr, ctx : Ctx) : Int {
     a = p.slice(1, p.length - 1)
     ok = false
     for m in ctx.sigs.mails {
-      if (m == a) || (m.startsWith("@") && a.endsWith(m)) {
+      if (m == a) || (m.startsWith("@") && a.endsWith(m)) || (m.contains("*") && globOk(m, a)) {
         ok = true
       }
     }
@@ -574,7 +617,7 @@ fetchCheck(arg : Expr, ctx : Ctx) : Int {
   p = whatPath(arg)
   if p.at(0) == "\"" {
     h = hostOf(p.slice(1, p.length - 1))
-    if hasName(ctx.sigs.fetches, h).not {
+    if globName(ctx.sigs.fetches, h).not {
       failAt("this program may not fetch from \"".concat(h).concat("\"; add it to the fetches line at the top"), ctx)
     }
   }

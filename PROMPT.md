@@ -147,7 +147,8 @@ main(sys) {
 - Files: `sys.files.read(path)?` (the `?` is required; "" if it cannot be read), `.write(path, text)`,
   `.append(path, text)`, `.list(dir)` (names, a folder's ends in `/`), `.exists(path)`, `.rename(from, to)`,
   `.delete(path)`. Arguments are `sys.args` (a `List[Str]`).
-- A program that touches files says which, at the top: `reads "a.txt", "data/", args` and `writes "out/"`.
+- A program that touches files says which, at the top: `reads "a.txt", "data/", "logs/*.log", args` and
+  `writes "out/"` (a `*` is any run of characters without a `/`).
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line. Any other file is refused.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
@@ -166,7 +167,7 @@ main(sys) {
   "resize" (the window changed size) or "eof". `t.rows`, `t.cols`, `t.clear`. `t.stop` gives the
   terminal back; do it before `sys.screen.print`. The loop is: draw, `k = t.key`, act on `k`.
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
-  (`"@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
+  (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
 - No function of yours may be named `run`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
