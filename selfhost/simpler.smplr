@@ -1169,8 +1169,8 @@ seedLet(name : Str, ty : Str, ctx : Ctx) : Int {
   if ty == "List" {
     failAt("an empty [] needs a type, as in ".concat(name).concat(" : List[Int] = []"), ctx)
   }
-  if hasName(ctx.env.names, name) {
-    old = envGet(ctx.env, name)
+  old = envOld(ctx.env, name)
+  if (old == "__gone__").not {
     if compatible(old, ty, ctx).not {
       failAt(name.concat(" is ").concat(old).concat(" and cannot become ").concat(ty).concat("; use a new name"), ctx)
     }

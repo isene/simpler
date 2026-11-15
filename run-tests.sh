@@ -746,6 +746,16 @@ main(sys) {
   sys.screen.print(n)
 }' \
     "input.smplr:11: no variable named n"
+# a loop's name is free again after the loop
+printf '%s' 'main(sys) {
+  ["a", "b"].each { row in
+    sys.screen.print(row)
+  }
+  row = 5
+  sys.screen.print(row + 1)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > reuse.c 2>/dev/null )
+if cc -o "$TMP/reuse" "$TMP/reuse.c" 2>/dev/null && [ "$("$TMP/reuse" | tr '\n' ' ')" = "a b 6 " ]; then ok; else nope "a loop name used again after the loop"; fi
 # a match in the middle of a function, an if on the last line and else-if all give values
 printf '%s' 'Shape = type {
   Dot

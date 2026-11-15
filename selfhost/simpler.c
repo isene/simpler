@@ -2074,9 +2074,9 @@ long u_seedLet(long name, long ty, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"an empty [] needs a type, as in ", name), (long)(intptr_t)" : List[Int] = []"), ctx);
   }
 
-  if (u_hasName(((TyEnvT*)(intptr_t)((CtxT*)(intptr_t)ctx)->env)->names, name)) {
+  old = u_envOld(((CtxT*)(intptr_t)ctx)->env, name);
 
-  old = u_envGet(((CtxT*)(intptr_t)ctx)->env, name);
+  if ((!s_eq(old, (long)(intptr_t)"__gone__"))) {
 
   if ((!u_compatible(old, ty, ctx))) {
 
