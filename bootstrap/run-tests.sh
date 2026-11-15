@@ -215,6 +215,60 @@ else
     nope "list literal compiles"
 fi
 
+# The operators % <= >= && ||, an early `return`, a parameter that is assigned
+# to, and a function that returns List[Str] (its element type was once lost).
+printf '%s' 'first(xs : List[Int], want : Int) : Int {
+  i = 0
+  while i < xs.length {
+    if xs.at(i) == want {
+      return i
+    }
+    i = i + 1
+  }
+  0 - 1
+}
+skip(s : Str, p : Int) : Int {
+  while p < s.length && s.at(p) == " " {
+    p = p + 1
+  }
+  p
+}
+loud(g : List[Str]) : List[Str] {
+  out : List[Str] = []
+  g.each { r in out.push(r.concat("!")) }
+  out
+}
+main(sys) {
+  xs = [4, 8, 15]
+  sys.screen.print(first(xs, 15).toStr)
+  sys.screen.print(first(xs, 7).toStr)
+  sys.screen.print(skip("   x", 0).toStr)
+  sys.screen.print((17 % 5).toStr)
+  if 3 <= 3 && 4 >= 5 || 1 < 2 { sys.screen.print("yes") }
+  if 2 + 3 * 2 % 4 == 4 { sys.screen.print("rank") }
+  g = loud(["a"])
+  g = loud(g)
+  g.each { row in sys.screen.print(row) }
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > ops.c 2>/dev/null )
+if cc -o "$TMP/ops" "$TMP/ops.c" 2>/dev/null; then
+    if [ "$("$TMP/ops")" = "$(printf '2\n-1\n3\n2\nyes\nrank\na!!')" ]; then ok; else nope "operators and return (got: $("$TMP/ops"))"; fi
+else
+    nope "operators and return compile"
+fi
+# an early return of the wrong type is refused
+printf '%s' 'f(x : Int) : Str {
+  if x > 1 {
+    return 5
+  }
+  "a"
+}
+main(sys) {
+  sys.screen.print(f(2))
+}' > "$TMP/input.smplr"
+if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "return type mismatch" ); then ok; else nope "early return type is checked"; fi
+rm -f "$TMP/input.smplr"
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

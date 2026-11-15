@@ -61,11 +61,12 @@ long Match(long v0, long v1) { return mk(T_Match, v0, v1, 0); }
 long Field(long v0, long v1) { return mk(T_Field, v0, v1, 0); }
 long Method(long v0, long v1, long v2) { return mk(T_Method, v0, v1, v2); }
 long Each(long v0, long v1, long v2) { return mk(T_Each, v0, v1, v2); }
-enum { T_Let, T_Bare, T_If, T_While };
+enum { T_Let, T_Bare, T_If, T_While, T_Ret };
 long Let(long v0, long v1, long v2) { return mk(T_Let, v0, v1, v2); }
 long Bare(long v0) { return mk(T_Bare, v0, 0, 0); }
 long If(long v0, long v1, long v2) { return mk(T_If, v0, v1, v2); }
 long While(long v0, long v1) { return mk(T_While, v0, v1, 0); }
+long Ret(long v0) { return mk(T_Ret, v0, 0, 0); }
 enum { T_Ident, T_Str, T_Int, T_Float, T_Punct, T_Eof };
 long Ident(long v0) { return mk(T_Ident, v0, 0, 0); }
 long Str(long v0) { return mk(T_Str, v0, 0, 0); }
@@ -129,6 +130,8 @@ long u_parseTypedLet(long toks, long i);
 long u_parseIf(long toks, long i);
 long u_parseWhile(long toks, long i);
 long u_parseExpr(long toks, long pos);
+long u_parseAnd(long toks, long pos);
+long u_parseCmp(long toks, long pos);
 long u_parseAdd(long toks, long pos);
 long u_parseTerm(long toks, long pos);
 long u_parsePostfix(long toks, long pos);
@@ -176,6 +179,7 @@ long u_collectIf(long t, long el, long names);
 long u_pushUnique(long names, long name);
 long u_hasName(long names, long name);
 long u_emitStmt(long s, long asReturn, long ctx);
+long u_emitRet(long e, long ctx);
 long u_emitIf(long c, long t, long el, long ctx);
 long u_emitWhile(long c, long b, long ctx);
 long u_emitBlock(long body, long ctx);
@@ -580,6 +584,10 @@ long u_parseRet(long toks, long j) {
   if (u_isPunct(toks, k, (long)(intptr_t)":")) {
   ret = u_identAt(toks, (k + 1L));
   k = (k + 2L);
+  if (u_isPunct(toks, k, (long)(intptr_t)"[")) {
+  ret = s_concat(s_concat(s_concat(ret, (long)(intptr_t)"["), u_identAt(toks, (k + 1L))), (long)(intptr_t)"]");
+  k = (k + 3L);
+  }
   }
   while (((!u_isPunct(toks, k, (long)(intptr_t)"{")) && u_notEof(toks, k))) {
   if (u_isPunct(toks, k, (long)(intptr_t)"!")) {
@@ -607,6 +615,7 @@ long u_parseStmt(long toks, long i) {
   long r = 0;
   long name = 0;
   long ae = 0;
+  long re = 0;
   e = u_parseExpr(toks, i);
   r = PStmt(Bare(((ParsedT*)(intptr_t)e)->node), ((ParsedT*)(intptr_t)e)->next);
   if (u_isAssign(toks, i)) {
@@ -622,6 +631,10 @@ long u_parseStmt(long toks, long i) {
   }
   if (u_isWord(toks, i, (long)(intptr_t)"while")) {
   r = u_parseWhile(toks, i);
+  }
+  if (u_isWord(toks, i, (long)(intptr_t)"return")) {
+  re = u_parseExpr(toks, (i + 1L));
+  r = PStmt(Ret(((ParsedT*)(intptr_t)re)->node), ((ParsedT*)(intptr_t)re)->next);
   }
   return r;
 }
@@ -670,6 +683,36 @@ long u_parseWhile(long toks, long i) {
   return PStmt(While(((ParsedT*)(intptr_t)c)->node, ((PBodyT*)(intptr_t)b)->body), ((PBodyT*)(intptr_t)b)->next);
 }
 long u_parseExpr(long toks, long pos) {
+  long p = 0;
+  long node = 0;
+  long i = 0;
+  long r = 0;
+  p = u_parseAnd(toks, pos);
+  node = ((ParsedT*)(intptr_t)p)->node;
+  i = ((ParsedT*)(intptr_t)p)->next;
+  while (u_isPunct(toks, i, (long)(intptr_t)"||")) {
+  r = u_parseAnd(toks, (i + 1L));
+  node = Bin((long)(intptr_t)"||", node, ((ParsedT*)(intptr_t)r)->node);
+  i = ((ParsedT*)(intptr_t)r)->next;
+  }
+  return Parsed(node, i);
+}
+long u_parseAnd(long toks, long pos) {
+  long p = 0;
+  long node = 0;
+  long i = 0;
+  long r = 0;
+  p = u_parseCmp(toks, pos);
+  node = ((ParsedT*)(intptr_t)p)->node;
+  i = ((ParsedT*)(intptr_t)p)->next;
+  while (u_isPunct(toks, i, (long)(intptr_t)"&&")) {
+  r = u_parseCmp(toks, (i + 1L));
+  node = Bin((long)(intptr_t)"&&", node, ((ParsedT*)(intptr_t)r)->node);
+  i = ((ParsedT*)(intptr_t)r)->next;
+  }
+  return Parsed(node, i);
+}
+long u_parseCmp(long toks, long pos) {
   long p = 0;
   long node = 0;
   long i = 0;
@@ -1065,6 +1108,11 @@ long u_emitFn(long f, long sigs) {
   }
   ctx = Ctx(env, sigs);
   u_envPut(env, (long)(intptr_t)"__line__", i_tostr(((FnT*)(intptr_t)f)->line));
+  if (u_isMain(((FnT*)(intptr_t)f)->name)) {
+  u_envPut(env, (long)(intptr_t)"__ret__", (long)(intptr_t)"__main__");
+  } else {
+  u_envPut(env, (long)(intptr_t)"__ret__", ((FnT*)(intptr_t)f)->ret);
+  }
   u_seedEnv(((FnT*)(intptr_t)f)->body, ctx);
   u_checkReturn(f, ctx);
   u_checkEffects(f, ctx);
@@ -1072,7 +1120,9 @@ long u_emitFn(long f, long sigs) {
   d = 0L;
   dn = l_len(decls);
   while ((d < dn)) {
+  if ((!u_hasName(((FnT*)(intptr_t)f)->params, l_at(decls, d)))) {
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), l_at(decls, d)), (long)(intptr_t)" = 0;");
+  }
   d = (d + 1L);
   }
   k = 0L;
@@ -1147,6 +1197,7 @@ long u_seedStmt(long s, long ctx) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_seedIf(t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_seedEnv(b, ctx); }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
   }
   return 0;
 }
@@ -1273,6 +1324,7 @@ long u_collectStmt(long s, long names) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_collectExpr(e, names); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_collectIf(t, el, names); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_collectBody(b, names); }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_collectExpr(e, names); }
   }
   return 0;
 }
@@ -1324,8 +1376,17 @@ long u_emitStmt(long s, long asReturn, long ctx) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_emitBare(e, asReturn, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_emitIf(c, t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_emitWhile(c, b, ctx); }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_emitRet(e, ctx); }
   }
   return 0;
+}
+long u_emitRet(long e, long ctx) {
+  long ret = 0;
+  ret = u_envGet(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__ret__");
+  if ((!s_eq(ret, (long)(intptr_t)"__main__"))) {
+  u_checkRetExpr(e, ret, ctx);
+  }
+  return u_emitReturn(e, ctx);
 }
 long u_emitIf(long c, long t, long el, long ctx) {
   long out = 0;
@@ -1647,6 +1708,7 @@ long u_effStmt(long s, long used, long ctx) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_effExpr(e, used, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_effIf(c, t, el, used, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_effWhile(c, b, used, ctx); }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_effExpr(e, used, ctx); }
   }
   return 0;
 }
@@ -1903,6 +1965,9 @@ long u_checkBinOp(long op, long a, long b, long ctx) {
   if (u_notInt(tb, ctx)) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"), ctx);
   }
+  if ((s_eq(op, (long)(intptr_t)"%") && s_eq(ta, (long)(intptr_t)"Float"))) {
+  u_failAt((long)(intptr_t)"operator % needs Int operands", ctx);
+  }
   if (u_mixedFloat(ta, tb)) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" mixes Int and Float; convert with .toFloat or .toInt"), ctx);
   }
@@ -1921,7 +1986,7 @@ long u_mixedFloat(long a, long b) {
   return r;
 }
 long u_isArithOp(long op) {
-  return (((((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/")) || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">"));
+  return ((((((((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/")) || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">")) || s_eq(op, (long)(intptr_t)"<=")) || s_eq(op, (long)(intptr_t)">=")) || s_eq(op, (long)(intptr_t)"%"));
 }
 long u_emitCall(long name, long args, long ctx) {
   long cn = 0;
@@ -1948,6 +2013,7 @@ long u_checkReturnStmt(long s, long ret, long ctx) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long v = ((Obj*)(intptr_t)s)->v2; return 0L; }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return 0L; }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return 0L; }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_checkRetExpr(e, ret, ctx); }
   }
   return 0;
 }
@@ -2599,13 +2665,13 @@ long u_isPunct(long toks, long i, long op) {
   return 0;
 }
 long u_isCmpOp(long toks, long i) {
-  return ((u_isPunct(toks, i, (long)(intptr_t)"==") || u_isPunct(toks, i, (long)(intptr_t)"<")) || u_isPunct(toks, i, (long)(intptr_t)">"));
+  return ((((u_isPunct(toks, i, (long)(intptr_t)"==") || u_isPunct(toks, i, (long)(intptr_t)"<")) || u_isPunct(toks, i, (long)(intptr_t)">")) || u_isPunct(toks, i, (long)(intptr_t)"<=")) || u_isPunct(toks, i, (long)(intptr_t)">="));
 }
 long u_isAddOp(long toks, long i) {
   return (u_isPunct(toks, i, (long)(intptr_t)"+") || u_isPunct(toks, i, (long)(intptr_t)"-"));
 }
 long u_isMulOp(long toks, long i) {
-  return (u_isPunct(toks, i, (long)(intptr_t)"*") || u_isPunct(toks, i, (long)(intptr_t)"/"));
+  return ((u_isPunct(toks, i, (long)(intptr_t)"*") || u_isPunct(toks, i, (long)(intptr_t)"/")) || u_isPunct(toks, i, (long)(intptr_t)"%"));
 }
 long u_lex(long src) {
   long toks = 0;
@@ -2737,7 +2803,7 @@ long u_isComment(long src, long i, long n) {
   return ((((i + 1L) < n) && (s_code(s_at(src, i)) == 47L)) && (s_code(s_at(src, (i + 1L))) == 47L));
 }
 long u_isTwoCharOp(long src, long i, long n) {
-  return (u_twoIs(src, i, n, 45L, 62L) || u_twoIs(src, i, n, 61L, 61L));
+  return (((((u_twoIs(src, i, n, 45L, 62L) || u_twoIs(src, i, n, 61L, 61L)) || u_twoIs(src, i, n, 60L, 61L)) || u_twoIs(src, i, n, 62L, 61L)) || u_twoIs(src, i, n, 38L, 38L)) || u_twoIs(src, i, n, 124L, 124L));
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
   return ((((i + 1L) < n) && (s_code(s_at(src, i)) == a)) && (s_code(s_at(src, (i + 1L))) == b));

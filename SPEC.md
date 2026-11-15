@@ -77,8 +77,9 @@ main(sys) {
   capability** (section 9). Only `main` holds it.
 - A **function** is `name(params) : RetType !Effects { body }`. The return type
   and effects are optional; the return type defaults to `Int`.
-- The **value of a function is its last bare expression** (no `return`
-  keyword). `main` returns nothing.
+- The **value of a function is its last bare expression**. `return expr`
+  leaves the function early with that value, from inside an `if` or a loop.
+  `main` returns nothing.
 
 ```
 double(n : Int) : Int {
@@ -186,11 +187,12 @@ true      false         // Bool
 
 ## 6. Operators
 
-Seven operators, each sugar for a message: `+ - * / == < >`. Arithmetic and
+Twelve operators: `+ - * / %`, `== < > <= >=`, `&& ||`. Arithmetic and
 ordering take **`Int` or `Float`**, and the two may **not be mixed** (convert
-with `.toFloat` / `.toInt`); `==` works on `Int`, `Float`, and `Str`. A leading
-`-` negates. There are no `<=`, `>=`, `%`, `&&`, `||` operators; use the methods
-below.
+with `.toFloat` / `.toInt`); `%` (remainder) takes `Int` only; `==` works on
+`Int`, `Float`, and `Str`. A leading `-` negates. `&&` and `||` join two `Bool`s.
+From tightest to loosest: `* / %`, then `+ -`, then the comparisons, then `&&`,
+then `||`. There is no `!=` and no `!`: write `(a == b).not`.
 
 ```
 a + b    a - b    a * b    a / b
@@ -217,7 +219,7 @@ e.match { Case -> ... }            // branch on a variant (section 4)
 ```
 
 `if`/`while` conditions are `Bool` (a comparison, `true`/`false`, or a `Bool`
-method). Combine conditions with the `Bool` methods `.and` / `.or` / `.not`.
+method). Combine conditions with `&&` and `||`; negate with `.not`.
 
 The block of an `.each` shares the enclosing function's scope: it reads and
 **reassigns** the locals around it. ("No closures" in section 12 means a block
@@ -258,9 +260,9 @@ arguments. Dispatch is by the receiver's static type.
 | `s.toFloat` | `Float` | parse (0 if not a number) |
 | `s == t` | `Bool` | equality |
 
-**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), `n.mod(m)` (`Int`,
-remainder), `n.ge(m)` / `n.le(m)` (`Bool`, for `>=` / `<=`), arithmetic and
-ordering.
+**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), arithmetic and ordering.
+(The older method forms `n.mod(m)`, `n.ge(m)`, `n.le(m)`, `b.and(c)` and
+`b.or(c)` still compile; write the operators.)
 
 **`Float`**: `x.toStr` (`Str`, up to 15 significant figures with trailing zeros
 trimmed, so `5.0` is `5` and a Julian date prints in full), `x.toInt` (`Int`,
@@ -378,10 +380,9 @@ Knowing what is *not* here is as useful as knowing what is. Do not reach for
 these; they do not exist:
 
 - No `import` / modules / globals (capabilities replace them).
-- No `return`, `break`, or `continue` (a function's value is its last
-  expression; loops are `while` and `.each`).
-- No `<=`, `>=`, `%`, `&&`, `||` operators (use `.le`, `.ge`, `.mod`, `.and`,
-  `.or`).
+- No `break` or `continue` (loops are `while` and `.each`; leave a function
+  early with `return`).
+- No `!=` or `!` (use `.not`).
 - No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).

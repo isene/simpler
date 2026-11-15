@@ -17,7 +17,7 @@ problems solved, or it does not go in.
 **Built to be written by an AI.** A model writes good code in a mature language
 by recalling millions of examples; it has seen none of this one. So the whole
 language is small enough to hold in the prompt at once: one grammar production,
-four pieces of punctuation, seven operators, one page of built-in methods.
+four pieces of punctuation, twelve operators, one page of built-in methods.
 [**SPEC.md**](SPEC.md) is the entire language, and it is the corpus, read it
 once and you can write Simpler.
 

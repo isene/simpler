@@ -49,6 +49,7 @@ Stmt = type {
   Bare(Expr)
   If(Expr, List[Stmt], List[Stmt])
   While(Expr, List[Stmt])
+  Ret(Expr)
 }
 
 Fn = type {
@@ -413,6 +414,11 @@ parseRet(toks : List[Tok], j : Int) : PRet {
   if isPunct(toks, k, ":") {
     ret = identAt(toks, k + 1)
     k = k + 2
+    // keep the element type: `List[Str]`, not just `List`
+    if isPunct(toks, k, "[") {
+      ret = ret.concat("[").concat(identAt(toks, k + 1)).concat("]")
+      k = k + 3
+    }
   }
   while isPunct(toks, k, "{").not.and(notEof(toks, k)) {
     if isPunct(toks, k, "!") {
@@ -450,6 +456,10 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
   }
   if isWord(toks, i, "while") {
     r = parseWhile(toks, i)
+  }
+  if isWord(toks, i, "return") {
+    re = parseExpr(toks, i + 1)
+    r = PStmt(node = Ret(re.node), next = re.next)
   }
   r
 }
@@ -495,6 +505,30 @@ parseWhile(toks : List[Tok], i : Int) : PStmt {
 }
 
 parseExpr(toks : List[Tok], pos : Int) : Parsed {
+  p = parseAnd(toks, pos)
+  node = p.node
+  i = p.next
+  while isPunct(toks, i, "||") {
+    r = parseAnd(toks, i + 1)
+    node = Bin("||", node, r.node)
+    i = r.next
+  }
+  Parsed(node = node, next = i)
+}
+
+parseAnd(toks : List[Tok], pos : Int) : Parsed {
+  p = parseCmp(toks, pos)
+  node = p.node
+  i = p.next
+  while isPunct(toks, i, "&&") {
+    r = parseCmp(toks, i + 1)
+    node = Bin("&&", node, r.node)
+    i = r.next
+  }
+  Parsed(node = node, next = i)
+}
+
+parseCmp(toks : List[Tok], pos : Int) : Parsed {
   p = parseAdd(toks, pos)
   node = p.node
   i = p.next
@@ -842,6 +876,11 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   }
   ctx = Ctx(env = env, sigs = sigs)
   envPut(env, "__line__", f.line.toStr)
+  if isMain(f.name) {
+    envPut(env, "__ret__", "__main__")
+  } else {
+    envPut(env, "__ret__", f.ret)
+  }
   seedEnv(f.body, ctx)
   checkReturn(f, ctx)
   checkEffects(f, ctx)
@@ -849,7 +888,9 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   d = 0
   dn = decls.length
   while d < dn {
-    out = out.concat("\n  long ").concat(decls.at(d)).concat(" = 0;")
+    if hasName(f.params, decls.at(d)).not {
+      out = out.concat("\n  long ").concat(decls.at(d)).concat(" = 0;")
+    }
     d = d + 1
   }
   k = 0
@@ -925,6 +966,7 @@ seedStmt(s : Stmt, ctx : Ctx) : Int {
     Bare(e) -> seedExpr(e, ctx)
     If(c, t, el) -> seedIf(t, el, ctx)
     While(c, b) -> seedEnv(b, ctx)
+    Ret(e) -> seedExpr(e, ctx)
   }
 }
 
@@ -1053,6 +1095,7 @@ collectStmt(s : Stmt, names : List[Str]) : Int {
     Bare(e) -> collectExpr(e, names)
     If(c, t, el) -> collectIf(t, el, names)
     While(c, b) -> collectBody(b, names)
+    Ret(e) -> collectExpr(e, names)
   }
 }
 
@@ -1108,7 +1151,18 @@ emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str {
     Bare(e) -> emitBare(e, asReturn, ctx)
     If(c, t, el) -> emitIf(c, t, el, ctx)
     While(c, b) -> emitWhile(c, b, ctx)
+    Ret(e) -> emitRet(e, ctx)
   }
+}
+
+// `return e` leaves the function at once. Its type is checked against the
+// declared return type, which emitFn keeps in the env as `__ret__`.
+emitRet(e : Expr, ctx : Ctx) : Str {
+  ret = envGet(ctx.env, "__ret__")
+  if (ret == "__main__").not {
+    checkRetExpr(e, ret, ctx)
+  }
+  emitReturn(e, ctx)
 }
 
 emitIf(c : Expr, t : List[Stmt], el : List[Stmt], ctx : Ctx) : Str {
@@ -1431,6 +1485,7 @@ effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
     Bare(e) -> effExpr(e, used, ctx)
     If(c, t, el) -> effIf(c, t, el, used, ctx)
     While(c, b) -> effWhile(c, b, used, ctx)
+    Ret(e) -> effExpr(e, used, ctx)
   }
 }
 
@@ -1683,6 +1738,9 @@ checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int {
     if notInt(tb, ctx) {
       failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
     }
+    if (op == "%").and(ta == "Float") {
+      failAt("operator % needs Int operands", ctx)
+    }
     if mixedFloat(ta, tb) {
       failAt("operator ".concat(op).concat(" mixes Int and Float; convert with .toFloat or .toInt"), ctx)
     }
@@ -1703,7 +1761,7 @@ mixedFloat(a : Str, b : Str) : Bool {
 }
 
 isArithOp(op : Str) : Bool {
-  (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "<").or(op == ">")
+  (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "<").or(op == ">").or(op == "<=").or(op == ">=").or(op == "%")
 }
 
 emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
@@ -1734,6 +1792,7 @@ checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
     Let(name, ty, v) -> 0
     If(c, t, el) -> 0
     While(c, b) -> 0
+    Ret(e) -> checkRetExpr(e, ret, ctx)
   }
 }
 
@@ -2392,7 +2451,7 @@ isPunct(toks : List[Tok], i : Int, op : Str) : Bool {
 }
 
 isCmpOp(toks : List[Tok], i : Int) : Bool {
-  isPunct(toks, i, "==").or(isPunct(toks, i, "<")).or(isPunct(toks, i, ">"))
+  isPunct(toks, i, "==").or(isPunct(toks, i, "<")).or(isPunct(toks, i, ">")).or(isPunct(toks, i, "<=")).or(isPunct(toks, i, ">="))
 }
 
 isAddOp(toks : List[Tok], i : Int) : Bool {
@@ -2400,7 +2459,7 @@ isAddOp(toks : List[Tok], i : Int) : Bool {
 }
 
 isMulOp(toks : List[Tok], i : Int) : Bool {
-  isPunct(toks, i, "*").or(isPunct(toks, i, "/"))
+  isPunct(toks, i, "*").or(isPunct(toks, i, "/")).or(isPunct(toks, i, "%"))
 }
 
 // --- lex: the full Simpler token set ------------------------------------
@@ -2526,7 +2585,7 @@ isComment(src : Str, i : Int, n : Int) : Bool {
 }
 
 isTwoCharOp(src : Str, i : Int, n : Int) : Bool {
-  twoIs(src, i, n, 45, 62).or(twoIs(src, i, n, 61, 61))
+  twoIs(src, i, n, 45, 62).or(twoIs(src, i, n, 61, 61)).or(twoIs(src, i, n, 60, 61)).or(twoIs(src, i, n, 62, 61)).or(twoIs(src, i, n, 38, 38)).or(twoIs(src, i, n, 124, 124))
 }
 
 twoIs(src : Str, i : Int, n : Int, a : Int, b : Int) : Bool {
