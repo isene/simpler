@@ -162,9 +162,9 @@ main(sys) {
   with headers, `sys.net.post(url, body)` sends; all stop the
   program on failure, so ask first with `sys.net.reach(url)` (the status, 0 if nothing answers) when a
   miss is expected. The top names each
-  host: `fetches "api.github.com"`. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text),
+  host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
-  (seconds from a date text, 0 if it is none).
+  (seconds from a date text, also `2026-01-31T12:00:00.123+01:00` or `2026-01-31 12:00`; 0 if it is none).
   Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
 - A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
   (both from 0; the style is "" or words such as "bold red" or "reverse"; a number 0 to 255 is a colour

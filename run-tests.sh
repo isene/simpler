@@ -1606,6 +1606,11 @@ printf 'main(sys) {\n  sys.screen.print(5.json("a"))\n}\n' > "$TMP/mod/json2.smp
 jsonout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run json2.smplr 2>&1 )"
 if [ "$jsonout" = 'json2.smplr:2: Int has no method json' ]; then ok; else nope "json on a number (got: $jsonout)"; fi
 
+# split takes a divider of many characters.
+printf 'main(sys) {\n  sys.screen.print("a--b-c--".split("--").join("|"))\n  sys.screen.print("a,b".split(",").length + "abc".split("").length + "".split(",").length)\n}\n' > "$TMP/mod/split.smplr"
+splitout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run split.smplr 2>&1 | tr '\n' '~' )"
+if [ "$splitout" = 'a|b-c|~4~' ]; then ok; else nope "split on a long divider (got: $splitout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

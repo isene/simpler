@@ -266,7 +266,7 @@ arguments. Dispatch is by the receiver's static type.
 | `s.trim` | `Str` | strip leading/trailing whitespace (space, tab, CR, LF) |
 | `s.concat(t)` | `Str` | `s` followed by `t` (also `s + t`) |
 | `s.startsWith(t)`, `s.endsWith(t)` | `Bool` | does `s` begin or end with `t` |
-| `s.split(d)` | `List[Str]` | split on the first character of `d` |
+| `s.split(d)` | `List[Str]` | the parts of `s` between each `d`; `d` may be many characters |
 | `s.contains(t)` | `Bool` | is `t` a substring |
 | `s.find(t)` | `Int` | the place where `t` first starts, or -1 |
 | `s.json(k)` | `Str` | `s` read as JSON: the value under key `k` of an object, or at place `k` (`"0"`, `"1"`) of an array; a text comes back without quotes and escapes, a number, `true`, `false` or `null` as written, an object or array as its JSON; `""` when missing |

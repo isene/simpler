@@ -316,7 +316,7 @@ main(sys) {
   sys.screen.print("long i_tof(long n) { return d2l((double)n); }")
   sys.screen.print("long f_toi(long x) { return (long)l2d(x); }")
   sys.screen.print("long s_toint(long s) { return atol((const char*)(intptr_t)s); }")
-  sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }")
+  sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)malloc(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }")
   sys.screen.print("long l_range(long a, long b) { long l = l_new(); for (long k = a; k < b; k++) l_push(l, k); return l; }")
   sys.screen.print("long s_starts(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; return strncmp(p, q, strlen(q)) == 0; }")
   sys.screen.print("long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }")
