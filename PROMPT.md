@@ -152,6 +152,10 @@ main(sys) {
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line, `"~/"` the home folder. Any other file is refused.
 - `sys.screen.part(text)` prints with no line end.
+- A file that is no text: `b = sys.files.readBytes(path)` is a `List[Int]`, one number 0 to 255 per byte;
+  `b.intAt(i, n)` is the whole number in the `n` bytes (1 to 8) from place `i`, lowest byte first;
+  `b.floatAt(i)` the Float in 8 bytes; `b.textAt(i, n)` those `n` bytes as text. `s.bytes` is a text as
+  bytes, and `sys.files.writeBytes(path, b)` writes them.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
@@ -177,7 +181,7 @@ main(sys) {
   module only when you were given its page.
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
   (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
-- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `date`, `dateAs`, `secsOf` or `var`.
+- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
 - Decimal numbers are `Float`: `3.0`. `Int` and `Float` never mix: use `.toFloat` and `.toInt`.

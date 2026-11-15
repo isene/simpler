@@ -272,6 +272,10 @@ arguments. Dispatch is by the receiver's static type.
 | `s.json(k)` | `Str` | `s` read as JSON: the value under key `k` of an object, or at place `k` (`"0"`, `"1"`) of an array; a text comes back without quotes and escapes, a number, `true`, `false` or `null` as written, an object or array as its JSON; `""` when missing |
 | `s.jsonItems` | `List[Str]` | the items of a JSON array, or the values of a JSON object |
 | `s.jsonKeys` | `List[Str]` | the keys of a JSON object |
+| `s.bytes` | `List[Int]` | the bytes of `s`, each 0 to 255 |
+| `b.intAt(i, n)` | `Int` | on a `List[Int]` of bytes: the whole number in the `n` bytes (1 to 8) from place `i`, lowest byte first; 8 bytes give a number with a sign |
+| `b.floatAt(i)` | `Float` | the Float in the 8 bytes from place `i` |
+| `b.textAt(i, n)` | `Str` | the `n` bytes from place `i` as a text, up to a 0 byte |
 | `s.upper`, `s.lower` | `Str` | the letters a to z in capitals or in small letters |
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
 | `s.padLeft(n)` | `Str` | pad with spaces to width `n` (right-align) |
@@ -350,6 +354,8 @@ nothing at runtime.
 | `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool` (as `true` / `false`), with a newline |
 | `sys.screen.part(text)` | — | `!IO` | print a text with no line end |
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
+| `sys.files.readBytes(path)` | `List[Int]` | `!IO` | whole file as bytes, each 0 to 255 (empty if it cannot be read); needs a `reads` line |
+| `sys.files.writeBytes(path, bytes)` | — | `!IO` | writes the bytes; stops the program, with nothing written, if a number is outside 0 to 255; needs a `writes` line |
 | `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` (truncates) |
 | `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
 | `sys.files.list(dir)` | `List[Str]` | `!IO` | the names in a folder, sorted; a folder's name ends in `/`; empty if it cannot be listed |

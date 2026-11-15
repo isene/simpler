@@ -331,6 +331,13 @@ main(sys) {
   sys.screen.print("static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }")
   sys.screen.print("long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }")
   sys.screen.print("long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }")
+  sys.screen.print("long simpler_readbytes(const char* path) { long l = l_new(); FILE* f = fopen(path, \"rb\"); if (!f) return l; int c; while ((c = fgetc(f)) != EOF) l_push(l, c); fclose(f); return l; }")
+  sys.screen.print("long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, \"%s: a byte is a number from 0 to 255, but place %ld has %ld\\n\", simpler_at(line), k, l->data[k]); exit(1); } FILE* f = fopen((const char*)(intptr_t)path, \"wb\"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }")
+  sys.screen.print("static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but the list has %ld\\n\", simpler_at(line), what, n, i, l->len); exit(1); } return l; }")
+  sys.screen.print("long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)malloc(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
+  sys.screen.print("long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
+  sys.screen.print("long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { l_push(l, *p); p++; } return l; }")
   sys.screen.print("long s_case(long s, long up) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); char* r = (char*)malloc(n + 1); for (long i = 0; i <= n; i++) { char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; r[i] = c; } return (long)(intptr_t)r; }")
   sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)malloc(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
   sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); long pad = n - len; for (long i = 0; i < pad; i++) r[i] = 32; for (long i = 0; i < len; i++) r[pad + i] = p[i]; r[n] = 0; return (long)(intptr_t)r; }")
@@ -863,6 +870,12 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     }
     if name == "write" {
       whatAdd(w, "files", "writes ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "readBytes" {
+      whatAdd(w, "files", "reads the bytes of ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "writeBytes" {
+      whatAdd(w, "files", "writes bytes to ".concat(whatPath(args.at(0))), fn)
     }
     if name == "append" {
       whatAdd(w, "files", "adds to ".concat(whatPath(args.at(0))), fn)
@@ -2713,7 +2726,7 @@ handed(e : Expr, ctx : Ctx) : Bool !Mut {
 
 // keys and byValue are new lists of text; sort is a new list of the same items.
 handedField(recv : Expr, fld : Str, ctx : Ctx) : Bool !Mut {
-  if (fld == "keys") || (fld == "byValue") || (fld == "jsonItems") || (fld == "jsonKeys") {
+  if (fld == "keys") || (fld == "byValue") || (fld == "jsonItems") || (fld == "jsonKeys") || (fld == "bytes") {
     return false
   }
   if fld == "sort" {
@@ -3206,7 +3219,7 @@ effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int !Mut {
 }
 
 effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut {
-  if (name == "print") || (name == "part") || (name == "fetchWith") {
+  if (name == "print") || (name == "part") || (name == "fetchWith") || (name == "readBytes") || (name == "writeBytes") {
     used.push("IO")
   }
   if (name == "send") || (name == "run") || (name == "status") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "reach") {
@@ -3900,6 +3913,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "upper" {
       r = "s_case(".concat(recvC).concat(", 1)")
     }
+    if fld == "bytes" {
+      r = "s_bytes(".concat(recvC).concat(")")
+    }
     if fld == "jsonItems" {
       r = "s_jsonlist(".concat(recvC).concat(", 0)")
     }
@@ -3978,7 +3994,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "bytes").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -4030,7 +4046,7 @@ capNeed(name : Str) : Str {
   if (name == "print") || (name == "part") {
     r = "Screen"
   }
-  if (name == "read").or(name == "write").or(name == "append").or(name == "list").or(name == "exists").or(name == "rename").or(name == "delete") {
+  if (name == "read").or(name == "write").or(name == "readBytes").or(name == "writeBytes").or(name == "append").or(name == "list").or(name == "exists").or(name == "rename").or(name == "delete") {
     r = "Files"
   }
   if name == "send" {
@@ -4104,7 +4120,7 @@ isNumType(t : Str) : Bool {
 }
 
 isTextField(fld : Str) : Bool {
-  (fld == "length") || (fld == "trim") || (fld == "upper") || (fld == "lower") || (fld == "jsonItems") || (fld == "jsonKeys") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
+  (fld == "length") || (fld == "trim") || (fld == "upper") || (fld == "lower") || (fld == "jsonItems") || (fld == "jsonKeys") || (fld == "bytes") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
 }
 
 isTextMethod(name : Str) : Bool {
@@ -4144,6 +4160,21 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
       }
       if exprType(args.at(0), ctx) != "Str" {
         failAt("join expects the text to put between, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
+    if (name == "textAt") || (name == "intAt") || (name == "floatAt") {
+      if t != "List[Int]" {
+        failAt(name.concat(" reads from a list of bytes, a List[Int]; got ").concat(t), ctx)
+      }
+      for a in args {
+        if exprType(a, ctx) != "Int" {
+          failAt(name.concat(" expects Int, got ").concat(exprType(a, ctx)), ctx)
+        }
+      }
+    }
+    if (name == "writeBytes") && (args.length == 2) {
+      if exprType(args.at(1), ctx) != "List[Int]" {
+        failAt("writeBytes takes a path and a List[Int] of bytes, got ".concat(exprType(args.at(1), ctx)), ctx)
       }
     }
     if (name == "json") && (args.length == 1) {
@@ -4186,10 +4217,10 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") {
     r = 2
   }
   if (name == "feed") || (name == "send") {
@@ -4311,6 +4342,23 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "read" {
     mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
     r = "(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_rd, ").concat(ln).concat(", \"read\"))")
+  }
+  if name == "readBytes" {
+    mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
+    r = "simpler_readbytes((const char*)(intptr_t)simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_rd, ").concat(ln).concat(", \"read\"))")
+  }
+  if name == "writeBytes" {
+    mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
+    r = "simpler_writebytes(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "textAt" {
+    r = "b_text(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "intAt" {
+    r = "b_int(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "floatAt" {
+    r = "b_float(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "write" {
     mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
@@ -4607,6 +4655,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if (fld == "keys") || (fld == "jsonItems") || (fld == "jsonKeys") {
     r = "List[Str]"
   }
+  if fld == "bytes" {
+    r = "List[Int]"
+  }
   if fld == "byValue" {
     r = "List[Str]"
   }
@@ -4658,8 +4709,17 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "slice" {
     r = "Str"
   }
-  if name == "read" {
+  if (name == "read") || (name == "textAt") {
     r = "Str"
+  }
+  if name == "readBytes" {
+    r = "List[Int]"
+  }
+  if name == "intAt" {
+    r = "Int"
+  }
+  if name == "floatAt" {
+    r = "Float"
   }
   if name == "exists" {
     r = "Bool"

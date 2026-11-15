@@ -1611,6 +1611,38 @@ printf 'main(sys) {\n  sys.screen.print("a--b-c--".split("--").join("|"))\n  sys
 splitout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run split.smplr 2>&1 | tr '\n' '~' )"
 if [ "$splitout" = 'a|b-c|~4~' ]; then ok; else nope "split on a long divider (got: $splitout)"; fi
 
+# Bytes: a file as a list of numbers, numbers and texts picked out of it, and written back.
+printf '\002\007\000\000\000\373\377\377\377\377\377\377\377\023\000\000\000\000\000\000\000\000\000\004\100h\303\245i\000z' > "$TMP/mod/in.bin"
+cat > "$TMP/mod/bytes.smplr" <<'BYTES'
+reads "./"
+writes "./"
+main(sys) {
+  b = sys.files.readBytes("in.bin")
+  sys.screen.print(b.length)
+  sys.screen.print(b.at(0))
+  sys.screen.print(b.intAt(1, 4))
+  sys.screen.print(b.intAt(5, 8))
+  sys.screen.print(b.intAt(13, 4))
+  sys.screen.print(b.floatAt(17))
+  sys.screen.print(b.textAt(25, 4) + "|" + b.textAt(25, 6))
+  sys.screen.print(sys.files.readBytes("nofile").length)
+  out = "på".bytes
+  out.push(0)
+  out.push(255)
+  sys.files.writeBytes("out.bin", out)
+  sys.screen.print(sys.files.readBytes("out.bin").length)
+  sys.screen.print(b.intAt(27, 4))
+}
+BYTES
+bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes.smplr 2>&1 | tr '\n' '~'; od -An -tu1 out.bin | tr -s ' ' )"
+if [ "$bytesout" = '31~2~7~-5~19~2.5~håi|håi~0~5~2046847397~ 112 195 165 0 255' ]; then ok; else nope "reading and writing bytes (got: $bytesout)"; fi
+printf 'writes "./"\nmain(sys) {\n  sys.files.writeBytes("o2.bin", [1, 300])\n}\n' > "$TMP/mod/bytes2.smplr"
+bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes2.smplr 2>&1; ls o2.bin 2>/dev/null )"
+if [ "$bytesout" = 'bytes2.smplr:3: a byte is a number from 0 to 255, but place 1 has 300' ]; then ok; else nope "a byte out of range (got: $bytesout)"; fi
+printf 'reads "./"\nmain(sys) {\n  sys.screen.print(sys.files.readBytes("in.bin").intAt(30, 4))\n}\n' > "$TMP/mod/bytes3.smplr"
+bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes3.smplr 2>&1 )"
+if [ "$bytesout" = 'bytes3.smplr:3: intAt wants 4 bytes from place 30, but the list has 31' ]; then ok; else nope "bytes past the end (got: $bytesout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
