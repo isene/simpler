@@ -3125,7 +3125,8 @@ checkEffects(f : Fn, ctx : Ctx) : Int !Mut {
     m = used.length
     while k < m {
       e = used.at(k)
-      if hasName(f.effs, e).not {
+      // !Fail may be written, but nothing asks for it: the compiler knows it.
+      if hasName(f.effs, e).not && e != "Fail" {
         if e == "Mut" {
           failAt(f.name.concat(" changes a list or map it was handed; add !Mut after its return type"), ctx)
         }

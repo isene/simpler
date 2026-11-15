@@ -626,11 +626,9 @@ reject "transitive effect" \
 b(s : Screen) { a(s) }
 main(sys) { b(sys.screen) }' \
     "uses !IO but does not declare it"
-# a failable read needs !Fail, not just !IO
-reject "missing Fail" \
-    'rd(f : Files) : Str !IO { f.read("p")? }
-main(sys) { sys.screen.print(rd(sys.files)) }' \
-    "uses !Fail but does not declare it"
+# a read that can fail needs no !Fail mark: the compiler works that out
+printf 'reads "p"\nrd(f : Files) : Str !IO {\n  f.read("p")?\n}\nmain(sys) {\n  sys.screen.print(rd(sys.files))\n}\n' > "$TMP/nofail.smplr"
+if ( cd "$TMP" && cp nofail.smplr input.smplr && ./seedc 2>&1 >/dev/null | grep -q . ); then nope "a read without !Fail compiles"; else ok; fi
 # writing a file is an !IO effect that must be declared
 reject "write needs IO" \
     'save(f : Files) { f.write("p", "x") }

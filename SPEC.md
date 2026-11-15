@@ -302,9 +302,10 @@ the last one is `xs.remove(xs.length - 1)`),
 ## 9. Effects and capabilities
 
 **Pure by default.** Anything that touches the world is marked in the
-signature: `!IO` (input/output), `!Fail` (can fail), `!Mut` (changes a list or
-map it was handed). A function must declare every effect it uses, whether
-directly or by calling an effectful function; `main` is exempt. This keeps
+signature: `!IO` (input/output) and `!Mut` (changes a list or map it was handed). A
+function must declare each of the two it uses, whether directly or by calling
+a function that has it; `main` is exempt. `!Fail` (can fail) may be written,
+but the compiler works it out and never asks for it. This keeps
 cost visible at every call site.
 
 ```
