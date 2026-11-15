@@ -767,12 +767,16 @@ main(sys) {
 want='screen  prints  (in show)
 files   writes a path made while running  (in save)
 files   reads "notes.txt"  (in main)
+program not used
+net     not used
+clock   not used
+env     not used
 mail    not used
 stdin   not used
 args    not used
 may read   "notes.txt"
 may write  "copy.txt"
-nothing else: the language has no network and cannot start other programs'
+nothing else: a program reaches the world only through what is listed here'
 if [ "$( cd "$TMP" && ./seedc what 2>&1 )" = "$want" ]; then ok; else nope "simpler what: $( cd "$TMP" && ./seedc what 2>&1 )"; fi
 # a second name for main's world still compiles, and what still sees its uses
 printf '%s' 'main(sys) {
@@ -935,6 +939,52 @@ check_err "set on a list with the wrong type" \
   xs = [1]
   xs.set(0, "a")
 }' "input.smplr:3: set expects Int, got Str"
+cat > "$TMP/input.smplr" <<'SMPLR'
+runs "echo", "sh"
+stamp(c : Clock) : Str { c.date(0).slice(0, 2) }
+say(p : Programs, w : Str) : Str !IO { p.run("echo", [w, "b c"]).trim }
+main(sys) {
+  sys.screen.print(say(sys.programs, "a"))
+  sys.screen.print(sys.programs.status("sh", ["-c", "exit 3"]))
+  sys.screen.print(sys.clock.now > 1700000000)
+  sys.screen.print(stamp(sys.clock))
+  sys.screen.print(sys.env.var("NO_SUCH_VAR_X") == "")
+  sys.programs.run("e" + "nv", [])
+}
+SMPLR
+( cd "$TMP" && ./seedc > runs.c 2>/dev/null && cc -w -o runs runs.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./runs 2>/dev/null | tr '\n' ' ' )" = "a b c 3 true 19 true " ] && [ "$( cd "$TMP" && ./runs 2>&1 >/dev/null )" = 'input.smplr:10: this program may not run "env"' ]; then ok; else nope "running a program, the clock and a variable"; fi
+printf '%s' 'runs "sh"
+main(sys) { sys.programs.run("sh", ["-c", "exit 2"]) }' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > runs.c 2>/dev/null && cc -w -o runs runs.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./runs 2>&1 )" = 'input.smplr:2: "sh" ended with status 2' ]; then ok; else nope "a program that fails stops the run"; fi
+printf '%s' 'fetches "example.com"
+main(sys) {
+  u = "https://example.com" + "@evil.example/"
+  sys.net.fetch(u)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > runs.c 2>/dev/null && cc -w -o runs runs.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./runs 2>&1 )" = 'input.smplr:4: this program may not fetch "https://example.com@evil.example/"' ]; then ok; else nope "a host made while running is checked"; fi
+check_err "running a program with no runs line" \
+    'main(sys) { sys.programs.run("ls", []) }' 'say which at the top, as in: runs "git"'
+check_err "running a program the line does not name" \
+    'runs "git"
+main(sys) { sys.programs.run("ls", []) }' 'this program may not run "ls"; add it to the runs line at the top'
+check_err "fetching with no fetches line" \
+    'main(sys) { sys.net.fetch("https://example.com/") }' 'say which hosts at the top, as in: fetches "example.com"'
+check_err "fetching from a host the line does not name" \
+    'fetches "example.com"
+main(sys) { sys.net.post("https://example.com@evil.example/x", "a") }' 'this program may not fetch from "example.com@evil.example"'
+check_err "a function named like a built-in method" \
+    'run(n : Int) : Int { n }
+main(sys) { run(1) }' "input.smplr:1: run is the name of a built-in method"
+check_err ".run needs a Programs" \
+    'runs "ls"
+go(n : Int) : Str !IO { n.run("ls", []) }
+main(sys) { go(1) }' ".run needs a Programs handed down from main, got Int"
+check_err ".now needs a Clock" \
+    'main(sys) { x = 5
+ sys.screen.print(x.now) }' ".now needs a Clock handed down from main, got Int"
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"

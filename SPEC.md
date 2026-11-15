@@ -334,7 +334,7 @@ doubled(xs : List[Int]) : List[Int] {
 **Capabilities replace imports.** There are no globals and no `import`. `main`
 receives the world as `sys` and passes subsets down. A parameter list is a
 permission set: a function can touch only what it was handed. The capability
-types are `Screen`, `Files`, `Mail`; they are erased at compile time and cost
+types are `Screen`, `Files`, `Programs`, `Net`, `Clock`, `Env`, `Mail`; they are erased at compile time and cost
 nothing at runtime.
 
 `sys` provides:
@@ -349,6 +349,13 @@ nothing at runtime.
 | `sys.files.exists(path)` | `Bool` | `!IO` | is there a file or folder at `path` |
 | `sys.files.rename(from, to)` | — | `!IO` | rename or move; the program stops if it cannot |
 | `sys.files.delete(path)` | — | `!IO` | delete a file or an empty folder; the program stops if it cannot |
+| `sys.programs.run(name, args)` | `Str` | `!IO` | run another program with a `List[Str]` of arguments and give what it printed; the program stops if it fails |
+| `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
+| `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
+| `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
+| `sys.clock.now` | `Int` | — | seconds since 1970 |
+| `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
+| `sys.env.var(name)` | `Str` | — | an environment variable (`""` if not set) |
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |
 
@@ -362,6 +369,20 @@ folder the program runs in, so it covers `"a.txt"` as well as `"./a.txt"`.
 reads "config.txt", "data/", args
 writes "out/"
 ```
+
+**The same goes for programs and hosts.** A `runs` line names each program
+the code may start, and a `fetches` line each host it may reach:
+
+```
+runs "git", "ffmpeg"
+fetches "api.github.com"
+```
+
+A program is started with its arguments as a list, never through a shell, so
+no text can turn into a second command. A web address is fetched with `curl`,
+which must be installed; a redirect is not followed. A name or host written
+out in the code is checked by the compiler, any other as it is used. A
+function may not be named `run`, `status`, `fetch`, `post`, `date` or `var`.
 
 A file call with no such line is refused. So is a path written out in the
 program that the line does not name. A path made while running is checked as

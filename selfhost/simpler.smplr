@@ -95,6 +95,8 @@ Prog = type {
   fns : List[Fn]
   reads : List[Str]
   writes : List[Str]
+  runs : List[Str]
+  fetches : List[Str]
 }
 
 // Local type environment: parallel names and their types.
@@ -116,6 +118,8 @@ Sigs = type {
   mutP : List[Str]
   reads : List[Str]
   writes : List[Str]
+  runs : List[Str]
+  fetches : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -225,6 +229,9 @@ main(sys) {
   sys.screen.print("#include <dirent.h>")
   sys.screen.print("#include <sys/stat.h>")
   sys.screen.print("#include <errno.h>")
+  sys.screen.print("#include <unistd.h>")
+  sys.screen.print("#include <sys/wait.h>")
+  sys.screen.print("#include <time.h>")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
   sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
@@ -294,6 +301,18 @@ main(sys) {
   sys.screen.print("long simpler_delete(long a, long line) { if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"input.smplr:%ld: could not delete \\\"%s\\\": %s\\n\", line, (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
   sys.screen.print(mayTable("simpler_rd", prog.reads))
   sys.screen.print(mayTable("simpler_wr", prog.writes))
+  sys.screen.print(mayTable("simpler_rn", prog.runs))
+  sys.screen.print(mayTable("simpler_ft", prog.fetches))
+  sys.screen.print("long simpler_exec(char** av, int capture, int* code) { int fd[2] = {0, 0}; if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
+  sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
+  sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"input.smplr:%ld: this program may not run \\\"%s\\\"\\n\", line, p); exit(1); return 0; }")
+  sys.screen.print("long simpler_run(long name, long args, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
+  sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code); return code; }")
+  sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); for (int k = 0; simpler_ft[k]; k++) if (strlen(simpler_ft[k]) == hn && strncmp(simpler_ft[k], h, hn) == 0) return url; } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
+  sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code); char* nl = strrchr(out, 10); long st = nl ? atol(nl + 1) : 0; if (code != 0 || st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } *nl = 0; return (long)(intptr_t)out; }")
+  sys.screen.print("long simpler_now() { return (long)time(0); }")
+  sys.screen.print("long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)malloc(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }")
   sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
   sys.screen.print("long simpler_failed = 0;")
@@ -339,7 +358,7 @@ What = type {
 //   reads "notes.txt", "data/", args      writes "out/"
 // A name ending in / is a folder; args is any file named on the command line.
 isMayLine(toks : Lexed, i : Int) : Bool {
-  (isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))
+  ((isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))) || ((isWord(toks, i, "runs") || isWord(toks, i, "fetches")) && isStrTok(toks, i + 1))
 }
 
 isStrTok(toks : Lexed, i : Int) : Bool {
@@ -364,13 +383,18 @@ strAt(toks : Lexed, i : Int) : Str {
   }
 }
 
-parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str]) : Int !Mut {
+parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : List[Str], fetches : List[Str]) : Int !Mut {
   w = isWord(toks, i, "writes")
+  rn = isWord(toks, i, "runs")
+  ft = isWord(toks, i, "fetches")
   j = i + 1
   more = true
   while more {
     name = "<args>"
-    if isWord(toks, j, "args").not {
+    if isWord(toks, j, "args").not || rn || ft {
+      if isStrTok(toks, j).not && (rn || ft) {
+        failTok(toks, j, "expected a name in quotes")
+      }
       if isStrTok(toks, j).not {
         failTok(toks, j, "expected a file name in quotes, or the word args")
       }
@@ -378,6 +402,10 @@ parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str]) : Int !Mu
     }
     if w {
       writes.push(name)
+    } else if rn {
+      runs.push(name)
+    } else if ft {
+      fetches.push(name)
     } else {
       reads.push(name)
     }
@@ -454,6 +482,54 @@ mayCheck(arg : Expr, names : List[Str], verb : Str, word : Str, ctx : Ctx) : Int
   0
 }
 
+// The host of a web address: "https://a.b/c" gives "a.b"; "" when it is no web address.
+hostOf(url : Str) : Str {
+  rest = ""
+  if url.startsWith("https://") {
+    rest = url.slice(8, url.length)
+  }
+  if url.startsWith("http://") {
+    rest = url.slice(7, url.length)
+  }
+  k = 0
+  while k < rest.length {
+    c = rest.at(k)
+    if (c == "/") || (c == ":") || (c == "?") || (c == "#") {
+      return rest.slice(0, k)
+    }
+    k = k + 1
+  }
+  rest
+}
+
+// A program name or a web address written out in the program is checked here; any other while it runs.
+runCheck(arg : Expr, ctx : Ctx) : Int {
+  if ctx.sigs.runs.length == 0 {
+    failAt("this program may not run another program; say which at the top, as in: runs \"git\"", ctx)
+  }
+  p = whatPath(arg)
+  if p.at(0) == "\"" {
+    if hasName(ctx.sigs.runs, p.slice(1, p.length - 1)).not {
+      failAt("this program may not run ".concat(p).concat("; add it to the runs line at the top"), ctx)
+    }
+  }
+  0
+}
+
+fetchCheck(arg : Expr, ctx : Ctx) : Int {
+  if ctx.sigs.fetches.length == 0 {
+    failAt("this program may not fetch from the network; say which hosts at the top, as in: fetches \"example.com\"", ctx)
+  }
+  p = whatPath(arg)
+  if p.at(0) == "\"" {
+    h = hostOf(p.slice(1, p.length - 1))
+    if hasName(ctx.sigs.fetches, h).not {
+      failAt("this program may not fetch from \"".concat(h).concat("\"; add it to the fetches line at the top"), ctx)
+    }
+  }
+  0
+}
+
 // What a reads or writes line allows, in words.
 mayText(names : List[Str]) : Str {
   out = ""
@@ -484,7 +560,7 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
     whatBody(f.body, f.name, w, sigs)
   }
   out = ""
-  ["screen", "files", "mail", "stdin", "args"].each { kind in
+  ["screen", "files", "program", "net", "clock", "env", "mail", "stdin", "args"].each { kind in
     out = out.concat(whatKind(w, kind))
   }
   muts = ""
@@ -505,7 +581,13 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   if prog.writes.length > 0 {
     out = out.concat("may write  ").concat(mayText(prog.writes)).concat("\n")
   }
-  out.concat("nothing else: the language has no network and cannot start other programs")
+  if prog.runs.length > 0 {
+    out = out.concat("may run    ").concat(mayText(prog.runs)).concat("\n")
+  }
+  if prog.fetches.length > 0 {
+    out = out.concat("may fetch  ").concat(mayText(prog.fetches)).concat("\n")
+  }
+  out.concat("nothing else: a program reaches the world only through what is listed here")
 }
 
 // One line per thing done with `kind`, with the functions that do it.
@@ -608,6 +690,9 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if fld == "args" {
     whatAdd(w, "args", "reads the command line", fn)
   }
+  if fld == "now" {
+    whatAdd(w, "clock", "reads the time", fn)
+  }
   whatExpr(recv, fn, w, sigs)
 }
 
@@ -639,6 +724,18 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     }
     if name == "send" {
       whatAdd(w, "mail", "sends", fn)
+    }
+    if (name == "run") || (name == "status") {
+      whatAdd(w, "program", "runs ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "fetch" {
+      whatAdd(w, "net", "fetches ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "post" {
+      whatAdd(w, "net", "sends to ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "var" {
+      whatAdd(w, "env", "reads the variable ".concat(whatPath(args.at(0))), fn)
     }
   }
   whatExpr(recv, fn, w, sigs)
@@ -701,7 +798,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -714,9 +811,11 @@ parse(toks : Lexed) : Prog {
   i = 0
   reads : List[Str] = []
   writes : List[Str] = []
+  runs : List[Str] = []
+  fetches : List[Str] = []
   while notEof(toks, i) {
     if isMayLine(toks, i) {
-      i = parseMay(toks, i, reads, writes)
+      i = parseMay(toks, i, reads, writes, runs, fetches)
     } else {
       if isIdent(toks, i) {
         once(seen, identAt(toks, i), toks, i)
@@ -745,7 +844,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes)
+  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -2235,7 +2334,7 @@ failAt(msg : Str, ctx : Ctx) : Int {
 // Text and numbers cannot be changed, so they are never handed.
 
 plainType(t : Str) : Bool {
-  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Sys")
+  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Programs").or(t == "Net").or(t == "Clock").or(t == "Env").or(t == "Sys")
 }
 
 isHanded(s : Str, ctx : Ctx) : Bool {
@@ -2390,6 +2489,11 @@ noType(t : Str) : Str {
 }
 
 checkTypes(prog : Prog, sigs : Sigs) : Int {
+  prog.fns.each { f in
+    if (capNeed(f.name) == "Programs") || (capNeed(f.name) == "Net") || (capNeed(f.name) == "Clock") || (capNeed(f.name) == "Env") {
+      fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(f.name).concat(" is the name of a built-in method; give this function another name"))
+    }
+  }
   prog.records.each { r in
     r.ftypes.each { t in
       if typeKnown(t, sigs).not {
@@ -2760,7 +2864,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if name == "print" {
     used.push("IO")
   }
-  if name == "send" {
+  if (name == "send") || (name == "run") || (name == "status") || (name == "fetch") || (name == "post") {
     used.push("IO")
   }
   if name == "read" {
@@ -3457,6 +3561,12 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "stdin" {
       r = "simpler_stdin()"
     }
+    if fld == "now" {
+      if t != "Clock" {
+        failAt(".now needs a Clock handed down from main, got ".concat(capShow(t)), ctx)
+      }
+      r = "simpler_now()"
+    }
     if fld == "keys" {
       r = "m_keys(".concat(recvC).concat(")")
     }
@@ -3479,12 +3589,12 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
 
 // The capability accessors on `sys`: erased at runtime, so they emit as 0.
 isCapField(fld : Str) : Bool {
-  (fld == "screen").or(fld == "files").or(fld == "mail")
+  (fld == "screen").or(fld == "files").or(fld == "mail").or(fld == "programs").or(fld == "net").or(fld == "clock").or(fld == "env")
 }
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -3542,6 +3652,18 @@ capNeed(name : Str) : Str {
   if name == "send" {
     r = "Mail"
   }
+  if (name == "run") || (name == "status") {
+    r = "Programs"
+  }
+  if (name == "fetch") || (name == "post") {
+    r = "Net"
+  }
+  if name == "date" {
+    r = "Clock"
+  }
+  if name == "var" {
+    r = "Env"
+  }
   r
 }
 
@@ -3554,6 +3676,14 @@ checkCap(recv : Expr, name : Str, ctx : Ctx) : Int !Mut {
         failAt(".".concat(name).concat(" needs a ").concat(need).concat(" handed down from main, got ").concat(capShow(t)), ctx)
       }
     }
+  }
+  0
+}
+
+wantType(e : Expr, want : Str, name : Str, ctx : Ctx) : Int !Mut {
+  got = exprType(e, ctx)
+  if compatible(want, got, ctx).not {
+    failAt(name.concat(" expects ").concat(want).concat(", got ").concat(got), ctx)
   }
   0
 }
@@ -3654,10 +3784,10 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "post") {
     r = 2
   }
   r
@@ -3695,6 +3825,31 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "push" {
     r = "l_push(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if (name == "run") || (name == "status") {
+    runCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    wantType(args.at(1), "List[Str]", name, ctx)
+    r = "simpler_".concat(name).concat("(").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "fetch" {
+    fetchCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    r = "simpler_fetch(".concat(emitExpr(args.at(0), ctx)).concat(", 0, 0, ").concat(ln).concat(")")
+  }
+  if name == "post" {
+    fetchCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    wantType(args.at(1), "Str", name, ctx)
+    r = "simpler_fetch(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", 1, ").concat(ln).concat(")")
+  }
+  if name == "date" {
+    wantType(args.at(0), "Int", name, ctx)
+    r = "simpler_date(".concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "var" {
+    wantType(args.at(0), "Str", name, ctx)
+    r = "simpler_env(".concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "read" {
     mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
@@ -3956,6 +4111,18 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if fld == "mail" {
     r = "Mail"
   }
+  if fld == "programs" {
+    r = "Programs"
+  }
+  if fld == "net" {
+    r = "Net"
+  }
+  if fld == "clock" {
+    r = "Clock"
+  }
+  if fld == "env" {
+    r = "Env"
+  }
   if fld == "args" {
     r = "List[Str]"
   }
@@ -4021,6 +4188,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   }
   if name == "exists" {
     r = "Bool"
+  }
+  if (name == "run") || (name == "fetch") || (name == "post") || (name == "date") || (name == "var") {
+    r = "Str"
   }
   if (name == "split") || (name == "list") {
     r = "List[Str]"

@@ -149,6 +149,13 @@ main(sys) {
 - A program that touches files says which, at the top: `reads "a.txt", "data/", args` and `writes "out/"`.
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line. Any other file is refused.
+- Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
+  it fails); `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status. Arguments are a
+  `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
+- The web: `sys.net.fetch(url)` gives the body, `sys.net.post(url, body)` sends. The top names each
+  host: `fetches "api.github.com"`. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text).
+  Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
+- No function of yours may be named `run`, `status`, `fetch`, `post`, `date` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
 - Decimal numbers are `Float`: `3.0`. `Int` and `Float` never mix: use `.toFloat` and `.toInt`.
