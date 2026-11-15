@@ -271,6 +271,8 @@ first lexer to a compiler that compiles itself:
   - [x] **`reads` and `writes`**: a program names at the top the files and folders it may touch. A file call outside them is refused by the compiler when the path is written out, and stops the program when the path is made while running. `./simpler what` prints the two lists.
   - [x] **`runs` and `fetches`**: the same rule for other programs (`sys.programs.run`, started without a shell) and for web hosts (`sys.net.fetch`, `sys.net.post`). `sys.clock` and `sys.env` read the time and environment variables.
   - [x] **Full-screen terminal programs**: `sys.term` puts text at a place, waits for one key at a time and gives the terminal back when the program ends, also after an error. `simpler what` says when a program takes the terminal.
+  - [x] **`mails`**: a program names at the top whom it may send mail to (`mails "me@example.com"`, or `"@example.com"` for everyone there); any other address is refused, at compile time when written out and when the mail is sent otherwise.
+  - [x] **Links**: a link inside an allowed folder that leads out of it is not followed.
   - [x] **`break`, `continue`, `xs.set(i, x)`, `xs.remove(i)`** and the forms models write from habit (`!=`, `!x`, `+` on texts, `for x in xs`).
   - [x] **`!Mut`**: a function that changes a list or map it was handed (directly, through another name for it, through a part of it, or by passing it to a `!Mut` function that changes it) must declare `!Mut`; `main` is exempt.
 - [x] **A language for real programs** past self-hosting, the pieces an everyday

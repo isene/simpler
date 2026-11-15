@@ -1028,6 +1028,22 @@ if command -v script >/dev/null; then
 fi
 check_err "a Term has no other method" \
     'main(sys) { sys.term.print("x") }' 'a Term has key, rows, cols, clear, stop and put(row, col, text, style)'
+printf '%s' 'mails "alice@example.com", "@team.example"
+main(sys) {
+  sys.mail.send("alice@example.com", "Report", "All 3 jobs ran.")
+  sys.mail.send(sys.args.at(0), "Hi", "body")
+}' > "$TMP/input.smplr"
+printf '#!/bin/sh\necho "args: $*" >> sent.txt\ncat >> sent.txt\n' > "$TMP/fakemail"; chmod +x "$TMP/fakemail"
+( cd "$TMP" && ./seedc > ml.c 2>/dev/null && cc -w -o ml ml.c 2>/dev/null )
+mlout="$( cd "$TMP" && rm -f sent.txt; for a in bob@team.example eve@evil.example 'bob@team.example,eve@evil.example' 'eve@evil.example@team.example' '-oQ@team.example'; do SIMPLER_SENDMAIL=./fakemail ./ml "$a" 2>&1; done | tr '\n' '|'; grep -c '^args: -i -- bob@team.example$' sent.txt; grep -c evil sent.txt )"
+mlwant='input.smplr:4: this program may not mail "eve@evil.example"|input.smplr:4: this program may not mail "bob@team.example,eve@evil.example"|input.smplr:4: this program may not mail "eve@evil.example@team.example"|input.smplr:4: this program may not mail "-oQ@team.example"|1
+0'
+if [ "$mlout" = "$mlwant" ]; then ok; else nope "mail goes only to the addresses at the top (got: $mlout)"; fi
+check_err "mail with no mails line" \
+    'main(sys) { sys.mail.send("a@b.c", "s", "b") }' 'say to whom at the top, as in: mails "me@example.com"'
+check_err "mail to an address the line does not name" \
+    'mails "x@b.c"
+main(sys) { sys.mail.send("a@b.c", "s", "b") }' 'this program may not mail "a@b.c"; add it to the mails line at the top'
 check_err "join on a list of numbers" \
     'main(sys) { sys.screen.print([1, 2].join(",")) }' 'join puts a list of texts together; List[Int] has no method join'
 check_err "running a program with no runs line" \

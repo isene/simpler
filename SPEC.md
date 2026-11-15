@@ -357,6 +357,7 @@ nothing at runtime.
 | `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
 | `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
+| `sys.mail.send(to, subject, body)` | `Int` | `!IO` | send one mail through the machine's `sendmail` (or the program named in the variable `SIMPLER_SENDMAIL`); `to` is one address on the `mails` line, or under an `"@example.com"` entry on it; the program stops when the address is not allowed or the mail could not be handed over |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
 | `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
 | `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray; text past the right edge is cut, and control characters in it are shown as `?` |
@@ -378,12 +379,14 @@ reads "config.txt", "data/", args
 writes "out/"
 ```
 
-**The same goes for programs and hosts.** A `runs` line names each program
-the code may start, and a `fetches` line each host it may reach:
+**The same goes for programs, hosts and mail.** A `runs` line names each program
+the code may start, a `fetches` line each host it may reach, and a `mails` line
+each address it may send to (`"@example.com"` allows everyone there):
 
 ```
 runs "git", "ffmpeg"
 fetches "api.github.com"
+mails "me@example.com"
 ```
 
 A program is started with its arguments as a list, never through a shell, so

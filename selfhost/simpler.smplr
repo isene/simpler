@@ -97,6 +97,7 @@ Prog = type {
   writes : List[Str]
   runs : List[Str]
   fetches : List[Str]
+  mails : List[Str]
 }
 
 // Local type environment: parallel names and their types.
@@ -120,6 +121,7 @@ Sigs = type {
   writes : List[Str]
   runs : List[Str]
   fetches : List[Str]
+  mails : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -312,9 +314,11 @@ main(sys) {
   sys.screen.print(mayTable("simpler_wr", prog.writes))
   sys.screen.print(mayTable("simpler_rn", prog.runs))
   sys.screen.print(mayTable("simpler_ft", prog.fetches))
+  sys.screen.print(mayTable("simpler_ml", prog.mails))
   sys.screen.print("long simpler_exec(char** av, int capture, int* code, long input) { int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = tmpfile(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
   sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"input.smplr:%ld: this program may not run \\\"%s\\\"\\n\", line, p); exit(1); return 0; }")
+  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0)) ok = 1; } if (!ok) { fprintf(stderr, \"input.smplr:%ld: this program may not mail \\\"%s\\\"\\n\", line, t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"input.smplr:%ld: the subject of a mail is one line\\n\", line); exit(1); } const char* prog = getenv(\"SIMPLER_SENDMAIL\"); if (!prog || !*prog) prog = \"sendmail\"; char* msg = (char*)malloc(tn + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); char* av[] = {(char*)prog, (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", line, t, prog, code); exit(1); } return 0; }")
   sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
   sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); for (int k = 0; simpler_ft[k]; k++) if (strlen(simpler_ft[k]) == hn && strncmp(simpler_ft[k], h, hn) == 0) return url; } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
@@ -381,7 +385,7 @@ What = type {
 //   reads "notes.txt", "data/", args      writes "out/"
 // A name ending in / is a folder; args is any file named on the command line.
 isMayLine(toks : Lexed, i : Int) : Bool {
-  ((isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))) || ((isWord(toks, i, "runs") || isWord(toks, i, "fetches")) && isStrTok(toks, i + 1))
+  ((isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))) || ((isWord(toks, i, "runs") || isWord(toks, i, "fetches") || isWord(toks, i, "mails")) && isStrTok(toks, i + 1))
 }
 
 isStrTok(toks : Lexed, i : Int) : Bool {
@@ -406,9 +410,10 @@ strAt(toks : Lexed, i : Int) : Str {
   }
 }
 
-parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : List[Str], fetches : List[Str]) : Int !Mut {
+parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : List[Str], fetches : List[Str], mails : List[Str]) : Int !Mut {
   w = isWord(toks, i, "writes")
-  rn = isWord(toks, i, "runs")
+  ml = isWord(toks, i, "mails")
+  rn = isWord(toks, i, "runs") || ml
   ft = isWord(toks, i, "fetches")
   j = i + 1
   more = true
@@ -425,6 +430,8 @@ parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : Li
     }
     if w {
       writes.push(name)
+    } else if ml {
+      mails.push(name)
     } else if rn {
       runs.push(name)
     } else if ft {
@@ -539,6 +546,27 @@ runCheck(arg : Expr, ctx : Ctx) : Int {
   0
 }
 
+// A mails line names whole addresses, or "@example.com" for everyone there.
+mailCheck(arg : Expr, ctx : Ctx) : Int {
+  if ctx.sigs.mails.length == 0 {
+    failAt("this program may not send mail; say to whom at the top, as in: mails \"me@example.com\"", ctx)
+  }
+  p = whatPath(arg)
+  if p.at(0) == "\"" {
+    a = p.slice(1, p.length - 1)
+    ok = false
+    for m in ctx.sigs.mails {
+      if (m == a) || (m.startsWith("@") && a.endsWith(m)) {
+        ok = true
+      }
+    }
+    if !ok {
+      failAt("this program may not mail ".concat(p).concat("; add it to the mails line at the top"), ctx)
+    }
+  }
+  0
+}
+
 fetchCheck(arg : Expr, ctx : Ctx) : Int {
   if ctx.sigs.fetches.length == 0 {
     failAt("this program may not fetch from the network; say which hosts at the top, as in: fetches \"example.com\"", ctx)
@@ -609,6 +637,9 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   }
   if prog.fetches.length > 0 {
     out = out.concat("may fetch  ").concat(mayText(prog.fetches)).concat("\n")
+  }
+  if prog.mails.length > 0 {
+    out = out.concat("may mail   ").concat(mayText(prog.mails)).concat("\n")
   }
   out.concat("nothing else: a program reaches the world only through what is listed here")
 }
@@ -749,7 +780,7 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
       whatAdd(w, "files", "deletes ".concat(whatPath(args.at(0))), fn)
     }
     if name == "send" {
-      whatAdd(w, "mail", "sends", fn)
+      whatAdd(w, "mail", "sends to ".concat(whatPath(args.at(0)).replace("a path", "an address")), fn)
     }
     if (name == "run") || (name == "status") || (name == "feed") {
       whatAdd(w, "program", "runs ".concat(whatPath(args.at(0))), fn)
@@ -824,7 +855,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches, mails = prog.mails)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -839,9 +870,10 @@ parse(toks : Lexed) : Prog {
   writes : List[Str] = []
   runs : List[Str] = []
   fetches : List[Str] = []
+  mails : List[Str] = []
   while notEof(toks, i) {
     if isMayLine(toks, i) {
-      i = parseMay(toks, i, reads, writes, runs, fetches)
+      i = parseMay(toks, i, reads, writes, runs, fetches, mails)
     } else {
       if isIdent(toks, i) {
         once(seen, identAt(toks, i), toks, i)
@@ -870,7 +902,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches)
+  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -3865,7 +3897,7 @@ methodArgs(name : Str) : Int {
   if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "post") {
     r = 2
   }
-  if name == "feed" {
+  if (name == "feed") || (name == "send") {
     r = 3
   }
   r
@@ -3935,6 +3967,13 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     fetchCheck(args.at(0), ctx)
     wantType(args.at(0), "Str", name, ctx)
     r = "simpler_reach(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "send" && hasName(ctx.sigs.fnNames, name).not {
+    mailCheck(args.at(0), ctx)
+    wantType(args.at(0), "Str", name, ctx)
+    wantType(args.at(1), "Str", name, ctx)
+    wantType(args.at(2), "Str", name, ctx)
+    r = "simpler_send(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(emitExpr(args.at(2), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "fetch" {
     fetchCheck(args.at(0), ctx)
