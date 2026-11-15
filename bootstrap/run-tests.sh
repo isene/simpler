@@ -278,6 +278,39 @@ printf '%s' 'main(sys) {
 if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "v is Str and cannot become Int; use a new name" ); then ok; else nope "a name keeps one type"; fi
 rm -f "$TMP/input.smplr"
 
+# Capabilities: a function reaches the screen or a file only through a value
+# handed down from main. Each of these four ways around it is refused.
+refused() {  # name, expected message, program
+    printf '%s' "$3" > "$TMP/input.smplr"
+    if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "$2" ); then ok; else nope "capability: $1"; fi
+    rm -f "$TMP/input.smplr"
+}
+refused "print with nothing handed down" "print needs a Screen" 'say() : Int !IO {
+  screen.print("hi")
+  0
+}
+main(sys) {
+  say()
+}'
+refused "file read through a Screen" "read needs a Files" 'peek(scr : Screen) : Str !IO !Fail {
+  scr.read("s.txt")
+}
+main(sys) {
+  sys.screen.print(peek(sys.screen))
+}'
+refused "sys outside main" "exists only on main" 'peek() : Str !IO !Fail {
+  sys.files.read("s.txt")
+}
+main(sys) {
+  sys.screen.print(peek())
+}'
+refused "untyped parameter used as Files" "read needs a Files" 'peek(x) : Str !IO !Fail {
+  x.read("s.txt")
+}
+main(sys) {
+  sys.screen.print(peek(0))
+}'
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

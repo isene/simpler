@@ -248,6 +248,11 @@ long u_isBuiltinField(long fld);
 long u_isMathField(long fld);
 long u_recHasField(long t, long fld, long ctx);
 long u_useUFCS(long t, long fld, long ctx);
+long u_capNeed(long name);
+long u_checkCap(long recv, long name, long ctx);
+long u_capShow(long t);
+long u_isSysField(long fld);
+long u_checkSysField(long t, long fld, long ctx);
 long u_emitMethod(long recv, long name, long args, long ctx);
 long u_cEscape(long s);
 long u_emitVar(long s, long ctx);
@@ -1111,7 +1116,13 @@ long u_emitFn(long f, long sigs) {
   u_envPut(env, (long)(intptr_t)"__line__", i_tostr(((FnT*)(intptr_t)f)->line));
   if (u_isMain(((FnT*)(intptr_t)f)->name)) {
   u_envPut(env, (long)(intptr_t)"__ret__", (long)(intptr_t)"__main__");
+  if ((l_len(((FnT*)(intptr_t)f)->params) > 0L)) {
+  u_envPut(env, l_at(((FnT*)(intptr_t)f)->params, 0L), (long)(intptr_t)"Sys");
+  }
   } else {
+  if (u_hasName(((FnT*)(intptr_t)f)->ptypes, (long)(intptr_t)"Sys")) {
+  u_failAt((long)(intptr_t)"only main holds the world; hand down sys.screen or sys.files", ctx);
+  }
   u_envPut(env, (long)(intptr_t)"__ret__", ((FnT*)(intptr_t)f)->ret);
   }
   u_seedEnv(((FnT*)(intptr_t)f)->body, ctx);
@@ -2175,6 +2186,7 @@ long u_emitField(long recv, long fld, long ctx) {
   long r = 0;
   long flag = 0;
   t = u_exprType(recv, ctx);
+  u_checkSysField(t, fld, ctx);
   recvC = u_emitExpr(recv, ctx);
   r = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"((", t), (long)(intptr_t)"T*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld);
   if ((!u_isRec(t, ctx))) {
@@ -2305,11 +2317,61 @@ long u_useUFCS(long t, long fld, long ctx) {
   }
   return r;
 }
+long u_capNeed(long name) {
+  long r = 0;
+  r = (long)(intptr_t)"";
+  if (s_eq(name, (long)(intptr_t)"print")) {
+  r = (long)(intptr_t)"Screen";
+  }
+  if (((s_eq(name, (long)(intptr_t)"read") || s_eq(name, (long)(intptr_t)"write")) || s_eq(name, (long)(intptr_t)"append"))) {
+  r = (long)(intptr_t)"Files";
+  }
+  if (s_eq(name, (long)(intptr_t)"send")) {
+  r = (long)(intptr_t)"Mail";
+  }
+  return r;
+}
+long u_checkCap(long recv, long name, long ctx) {
+  long need = 0;
+  long t = 0;
+  need = u_capNeed(name);
+  if ((!s_eq(need, (long)(intptr_t)""))) {
+  if ((!u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name))) {
+  t = u_exprType(recv, ctx);
+  if ((!s_eq(t, need))) {
+  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)".", name), (long)(intptr_t)" needs a "), need), (long)(intptr_t)" handed down from main, got "), u_capShow(t)), ctx);
+  }
+  }
+  }
+  return 0L;
+}
+long u_capShow(long t) {
+  long r = 0;
+  r = t;
+  if (s_eq(t, (long)(intptr_t)"")) {
+  r = (long)(intptr_t)"a value with no type";
+  }
+  return r;
+}
+long u_isSysField(long fld) {
+  return ((u_isCapField(fld) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin"));
+}
+long u_checkSysField(long t, long fld, long ctx) {
+  if (u_isSysField(fld)) {
+  if ((!u_isRec(t, ctx))) {
+  if ((!s_eq(t, (long)(intptr_t)"Sys"))) {
+  u_failAt(s_concat(s_concat((long)(intptr_t)".", fld), (long)(intptr_t)" exists only on main's world value; pass it down as a parameter"), ctx);
+  }
+  }
+  }
+  return 0L;
+}
 long u_emitMethod(long recv, long name, long args, long ctx) {
   long t = 0;
   long recvC = 0;
   long r = 0;
   t = u_exprType(recv, ctx);
+  u_checkCap(recv, name, ctx);
   recvC = u_emitExpr(recv, ctx);
   r = (long)(intptr_t)"0";
   if (s_eq(name, (long)(intptr_t)"concat")) {

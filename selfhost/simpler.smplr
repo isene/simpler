@@ -878,7 +878,13 @@ emitFn(f : Fn, sigs : Sigs) : Str {
   envPut(env, "__line__", f.line.toStr)
   if isMain(f.name) {
     envPut(env, "__ret__", "__main__")
+    if f.params.length > 0 {
+      envPut(env, f.params.at(0), "Sys")
+    }
   } else {
+    if hasName(f.ptypes, "Sys") {
+      failAt("only main holds the world; hand down sys.screen or sys.files", ctx)
+    }
     envPut(env, "__ret__", f.ret)
   }
   seedEnv(f.body, ctx)
@@ -1952,6 +1958,7 @@ isVariant(t : Str, ctx : Ctx) : Bool {
 // A `.field` is a record field read, or a no-argument method on a builtin.
 emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
   t = exprType(recv, ctx)
+  checkSysField(t, fld, ctx)
   recvC = emitExpr(recv, ctx)
   r = "((".concat(t).concat("T*)(intptr_t)").concat(recvC).concat(")->").concat(fld)
   if isRec(t, ctx).not {
@@ -2092,8 +2099,62 @@ useUFCS(t : Str, fld : Str, ctx : Ctx) : Bool {
 }
 
 // A `.method(args)` on a builtin value.
+// --- capabilities: a function reaches the world only through a value it
+// was handed. `.print` needs a Screen, file calls a Files, `.send` a Mail, and
+// those come only from `sys`, which only main holds.
+capNeed(name : Str) : Str {
+  r = ""
+  if name == "print" {
+    r = "Screen"
+  }
+  if (name == "read").or(name == "write").or(name == "append") {
+    r = "Files"
+  }
+  if name == "send" {
+    r = "Mail"
+  }
+  r
+}
+
+checkCap(recv : Expr, name : Str, ctx : Ctx) : Int {
+  need = capNeed(name)
+  if (need == "").not {
+    if hasName(ctx.sigs.fnNames, name).not {
+      t = exprType(recv, ctx)
+      if (t == need).not {
+        failAt(".".concat(name).concat(" needs a ").concat(need).concat(" handed down from main, got ").concat(capShow(t)), ctx)
+      }
+    }
+  }
+  0
+}
+
+capShow(t : Str) : Str {
+  r = t
+  if t == "" {
+    r = "a value with no type"
+  }
+  r
+}
+
+isSysField(fld : Str) : Bool {
+  isCapField(fld).or(fld == "args").or(fld == "stdin")
+}
+
+checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
+  if isSysField(fld) {
+    if isRec(t, ctx).not {
+      if (t == "Sys").not {
+        failAt(".".concat(fld).concat(" exists only on main's world value; pass it down as a parameter"), ctx)
+      }
+    }
+  }
+  0
+}
+
 emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   t = exprType(recv, ctx)
+  checkCap(recv, name, ctx)
   recvC = emitExpr(recv, ctx)
   r = "0"
   if name == "concat" {

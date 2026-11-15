@@ -311,8 +311,10 @@ nothing at runtime.
 | `sys.stdin` | `Str` | — | all of standard input |
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
-function that was handed only a `Screen` cannot read files: the name is not in
-scope.
+function that was handed only a `Screen` cannot read files. The compiler
+enforces it: `.print` compiles only on a `Screen`, `.read` / `.write` /
+`.append` only on a `Files`, and `sys` exists only in `main`. A parameter that
+carries a capability must name its type (`out : Screen`).
 
 ## 10. Failure
 
