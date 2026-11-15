@@ -274,6 +274,7 @@ arguments. Dispatch is by the receiver's static type.
 | `s.jsonKeys` | `List[Str]` | the keys of a JSON object |
 | `s.bytes` | `List[Int]` | the bytes of `s`, each 0 to 255 |
 | `b.intAt(i, n)` | `Int` | on `Bytes` or a `List[Int]` of bytes: the whole number in the `n` bytes (1 to 8) from place `i`, lowest byte first; 8 bytes give a number with a sign |
+| `b.findByte(n, from)` | `Int` | on `Bytes`: the place of the next byte `n` at or after `from`, or -1 |
 | `b.floatAt(i)` | `Float` | the Float in the 8 bytes from place `i` |
 | `b.textAt(i, n)` | `Str` | the `n` bytes from place `i` as a text, up to a 0 byte |
 | `s.upper`, `s.lower` | `Str` | the letters a to z in capitals or in small letters |

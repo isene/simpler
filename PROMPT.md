@@ -154,7 +154,8 @@ main(sys) {
 - `sys.screen.part(text)` prints with no line end.
 - A file that is no text: `b = sys.files.readBytes(path)` is of type `Bytes`: `b.length`, `b.at(i)` (a number
   0 to 255), `b.intAt(i, n)` (the whole number in the `n` bytes, 1 to 8, from place `i`, lowest byte first),
-  `b.floatAt(i)` (the Float in 8 bytes), `b.textAt(i, n)` (those `n` bytes as text). Bytes cannot be changed,
+  `b.floatAt(i)` (the Float in 8 bytes), `b.textAt(i, n)` (those `n` bytes as text, as they are),
+  `b.findByte(n, from)` (the place of the next byte `n` at or after `from`, or -1). Bytes cannot be changed,
   looped over or printed. To write, fill a `List[Int]`: `sys.files.writeBytes(path, [80, 75, 3, 4])`;
   `s.bytes` is a text as such a list.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
@@ -169,7 +170,7 @@ main(sys) {
   miss is expected. The top names each
   host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
-  (seconds from a date text, also `2026-01-31T12:00:00.123+01:00` or `2026-01-31 12:00`; 0 if it is none).
+  (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
 - A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
   (both from 0; the style is "" or words such as "bold red" or "reverse"; a number 0 to 255 is a colour

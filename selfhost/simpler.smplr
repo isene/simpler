@@ -333,6 +333,7 @@ main(sys) {
   sys.screen.print("long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }")
   sys.screen.print("typedef struct { long len; unsigned char* data; } SBytes;")
   sys.screen.print("long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)malloc(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }")
+  sys.screen.print("long y_find(long yp, long v, long from) { SBytes* y = (SBytes*)(intptr_t)yp; if (from < 0) from = 0; if (from >= y->len || v < 0 || v > 255) return -1; unsigned char* q = (unsigned char*)memchr(y->data + from, (int)v, (size_t)(y->len - from)); return q ? (long)(q - y->data) : -1; }")
   sys.screen.print("long y_len(long yp) { return ((SBytes*)(intptr_t)yp)->len; }")
   sys.screen.print("long y_atc(long yp, long i, long line) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || i >= y->len) { fprintf(stderr, \"%s: byte %ld, but there are %ld bytes\\n\", simpler_at(line), i, y->len); exit(1); } return y->data[i]; }")
   sys.screen.print("static SBytes* y_need(long yp, long i, long n, long line, const char* what) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || n < 0 || i + n > y->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but there are %ld\\n\", simpler_at(line), what, n, i, y->len); exit(1); } return y; }")
@@ -4119,7 +4120,7 @@ checkField(t : Str, fld : Str, ctx : Ctx) : Int {
       failAt(t.concat(" has no method ").concat(fld), ctx)
     }
     if (t == "Bytes") && (fld != "length") {
-      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i) and textAt(i, n); no ".concat(fld), ctx)
+      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i), textAt(i, n) and findByte(n, from); no ".concat(fld), ctx)
     }
     if isRec(t, ctx).not && isBuiltinField(fld).not {
       failAt("no field or function named ".concat(fld), ctx)
@@ -4146,8 +4147,8 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
     if isNumType(t) && isTextMethod(name) {
       failAt(t.concat(" has no method ").concat(name), ctx)
     }
-    if (t == "Bytes") && (name != "at") && (name != "intAt") && (name != "floatAt") && (name != "textAt") {
-      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i) and textAt(i, n); no ".concat(name), ctx)
+    if (t == "Bytes") && (name != "at") && (name != "intAt") && (name != "floatAt") && (name != "textAt") && (name != "findByte") {
+      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i), textAt(i, n) and findByte(n, from); no ".concat(name), ctx)
     }
     if (name == "at") && (args.length == 1) {
       at = exprType(args.at(0), ctx)
@@ -4176,6 +4177,11 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
       }
       if exprType(args.at(0), ctx) != "Str" {
         failAt("join expects the text to put between, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
+    if name == "findByte" {
+      if (t != "Bytes") || (exprType(args.at(0), ctx) != "Int") || (exprType(args.at(1), ctx) != "Int") {
+        failAt("findByte(n, from) gives the place of the next byte n in Bytes, or -1", ctx)
       }
     }
     if (name == "textAt") || (name == "intAt") || (name == "floatAt") {
@@ -4241,7 +4247,7 @@ methodArgs(name : Str) : Int {
   if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") {
     r = 2
   }
   if (name == "feed") || (name == "send") {
@@ -4377,6 +4383,9 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "writeBytes" {
     mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
     r = "simpler_writebytes(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_wr, ").concat(ln).concat(", \"write\"), ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "findByte" {
+    r = "y_find(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
   }
   if name == "textAt" {
     r = "b_text(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
@@ -4751,7 +4760,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "readBytes" {
     r = "Bytes"
   }
-  if name == "intAt" {
+  if (name == "intAt") || (name == "findByte") {
     r = "Int"
   }
   if name == "floatAt" {
