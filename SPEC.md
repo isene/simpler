@@ -435,6 +435,7 @@ carries a capability must name its type (`out : Screen`).
 
 `?` marks a call that can fail and propagates the failure upward; it is
 required on `sys.files.read` (which yields `""` for a file it cannot read).
+`exit(n)` ends the program with exit status `n` and prints nothing.
 `fail(message)` writes `message` to stderr and exits with a non-zero status, the
 way a Unix tool reports an error. `fail` may be called anywhere, not only as a
 guard at the top:

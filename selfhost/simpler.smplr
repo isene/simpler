@@ -513,6 +513,7 @@ main(sys) {
   sys.screen.print("long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }")
   sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
+  sys.screen.print("long simpler_exit(long c) { exit((int)c); return 0; }")
   sys.screen.print("long simpler_failed = 0;")
   sys.screen.print("long s_assert(long c) { if (!c) simpler_failed = 1; return 0; }")
   prog.types.each { t in
@@ -3740,7 +3741,7 @@ knownCall(name : Str, ctx : Ctx) : Bool {
   if (variantOf(name, ctx) == "").not {
     r = true
   }
-  if (name == "Map").or(name == "fail").or(name == "assert").or(name == "l_range") {
+  if (name == "Map").or(name == "fail").or(name == "exit").or(name == "exit_c").or(name == "assert").or(name == "l_range") {
     r = true
   }
   r
@@ -3759,6 +3760,15 @@ emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     }
     if (exprType(args.at(0), ctx) == "Bool").not {
       failAt("assert needs a Bool, got ".concat(exprType(args.at(0), ctx)), ctx)
+    }
+  }
+  if ((name == "exit") || (name == "exit_c")) && hasName(ctx.sigs.fnNames, name).not {
+    cn = "simpler_exit"
+    if (args.length == 1).not {
+      failAt("exit takes the exit status, one Int", ctx)
+    }
+    if (exprType(args.at(0), ctx) == "Int").not {
+      failAt("exit takes the exit status as an Int, got ".concat(exprType(args.at(0), ctx)), ctx)
     }
   }
   if hasName(ctx.sigs.fnNames, name) {

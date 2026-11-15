@@ -1683,6 +1683,12 @@ REGEX
 reout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run re2.smplr 2>&1 | tr '\n' '~' )"
 if [ "$reout" = 're2.smplr:5: the pattern "(a+)+$" takes too many steps on this text~2~cc<a>2~' ]; then ok; else nope "looking ahead and behind, and a pattern that runs away (got: $reout)"; fi
 
+# exit(n) ends the program with that status and no message.
+printf 'pick(n : Int) : Int {\n  if n > 1 {\n    exit(n)\n  }\n  n\n}\nmain(sys) {\n  sys.screen.print("a")\n  pick(1)\n  pick(7)\n  sys.screen.print("b")\n}\n' > "$TMP/mod/exit.smplr"
+exitout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run exit.smplr 2>&1; echo "rc=$?" )"
+if [ "$exitout" = "a
+rc=7" ]; then ok; else nope "exit with a status (got: $exitout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

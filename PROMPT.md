@@ -185,7 +185,8 @@ main(sys) {
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
   (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
 - No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
-- `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
+- `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with
+  that status and prints nothing. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
 - Decimal numbers are `Float`: `3.0`. `Int` and `Float` never mix: use `.toFloat` and `.toInt`.
 
