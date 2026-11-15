@@ -8,6 +8,7 @@ long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->t
 typedef struct { long* data; long len; long cap; } SList;
 long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }
 long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }
+long l_with(long lp, long x) { l_push(lp, x); return lp; }
 long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }
 long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }
 long s_len(long s) { return (long)strlen((const char*)(intptr_t)s); }
@@ -217,6 +218,8 @@ long u_checkCases(long t, long arms, long ctx);
 long u_armCovers(long arms, long cname);
 long u_armHasBind(long arms);
 long u_emitExpr(long e, long ctx);
+long u_emitList(long es, long ctx);
+long u_listType(long es, long ctx);
 long u_emitBin(long op, long a, long b, long ctx);
 long u_isFloatArith(long op);
 long u_checkBinOp(long op, long a, long b, long ctx);
@@ -293,6 +296,7 @@ int main(int argc, char** argv) {
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* data; long len; long cap; } SList;");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }");
+  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_with(long lp, long x) { l_push(lp, x); return lp; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }");
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_len(long s) { return (long)strlen((const char*)(intptr_t)s); }");
@@ -1824,7 +1828,7 @@ long u_emitExpr(long e, long ctx) {
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return s_concat(s_concat((long)(intptr_t)"d2l(", s), (long)(intptr_t)")"); }
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return u_emitVar(s, ctx); }
   case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)\"", u_cEscape(s)), (long)(intptr_t)"\""); }
-  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"l_new()"; }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_emitList(es, ctx); }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return u_emitBin(op, a, b, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_emitCall(name, args, ctx); }
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return (long)(intptr_t)"0"; }
@@ -1833,6 +1837,27 @@ long u_emitExpr(long e, long ctx) {
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return (long)(intptr_t)"0"; }
   }
   return 0;
+}
+long u_emitList(long es, long ctx) {
+  long r = 0;
+  long k = 0;
+  long m = 0;
+  r = (long)(intptr_t)"l_new()";
+  k = 0L;
+  m = l_len(es);
+  while ((k < m)) {
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "), u_emitExpr(l_at(es, k), ctx)), (long)(intptr_t)")");
+  k = (k + 1L);
+  }
+  return r;
+}
+long u_listType(long es, long ctx) {
+  long r = 0;
+  r = (long)(intptr_t)"List";
+  if ((l_len(es) > 0L)) {
+  r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_at(es, 0L), ctx)), (long)(intptr_t)"]");
+  }
+  return r;
 }
 long u_emitBin(long op, long a, long b, long ctx) {
   long ca = 0;
@@ -2356,7 +2381,7 @@ long u_exprType(long e, long ctx) {
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Float"; }
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return u_varType(s, ctx); }
   case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Str"; }
-  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"List"; }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_listType(es, ctx); }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return u_binType(op, a, b, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_callRet(name, ctx); }
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return (long)(intptr_t)"Int"; }

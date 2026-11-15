@@ -199,6 +199,22 @@ else
     nope "slug compiles"
 fi
 
+# A list literal keeps its elements (it once compiled to an empty list).
+printf '%s' 'main(sys) {
+  vals = [1000, 900, 5]
+  syms = ["M", "CM", "V"]
+  sys.screen.print(vals.length.toStr)
+  sys.screen.print(syms.at(1))
+  sys.screen.print((vals.at(0) + vals.at(2)).toStr)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > lit.c 2>/dev/null )
+rm -f "$TMP/input.smplr"
+if cc -o "$TMP/lit" "$TMP/lit.c" 2>/dev/null; then
+    if [ "$("$TMP/lit")" = "$(printf '3\nCM\n1005')" ]; then ok; else nope "list literal (got: $("$TMP/lit"))"; fi
+else
+    nope "list literal compiles"
+fi
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {

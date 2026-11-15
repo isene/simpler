@@ -190,6 +190,7 @@ main(sys) {
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
   sys.screen.print("long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }")
   sys.screen.print("long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }")
+  sys.screen.print("long l_with(long lp, long x) { l_push(lp, x); return lp; }")
   sys.screen.print("long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }")
   sys.screen.print("long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }")
   sys.screen.print("long s_len(long s) { return (long)strlen((const char*)(intptr_t)s); }")
@@ -1603,7 +1604,7 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
     FloatLit(s) -> "d2l(".concat(s).concat(")")
     Var(s) -> emitVar(s, ctx)
     StrLit(s) -> "(long)(intptr_t)\"".concat(cEscape(s)).concat("\"")
-    ListLit(es) -> "l_new()"
+    ListLit(es) -> emitList(es, ctx)
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
     Call(name, args) -> emitCall(name, args, ctx)
     Match(scrut, arms) -> "0"
@@ -1611,6 +1612,26 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
     Method(recv, name, args) -> emitMethod(recv, name, args, ctx)
     Each(recv, param, body) -> "0"
   }
+}
+
+// A list literal: start empty, then add each element in order.
+emitList(es : List[Expr], ctx : Ctx) : Str {
+  r = "l_new()"
+  k = 0
+  m = es.length
+  while k < m {
+    r = "l_with(".concat(r).concat(", ").concat(emitExpr(es.at(k), ctx)).concat(")")
+    k = k + 1
+  }
+  r
+}
+
+listType(es : List[Expr], ctx : Ctx) : Str {
+  r = "List"
+  if es.length > 0 {
+    r = "List[".concat(exprType(es.at(0), ctx)).concat("]")
+  }
+  r
 }
 
 // `==` on strings is a library call. Float values are stored as the bits of
@@ -2153,7 +2174,7 @@ exprType(e : Expr, ctx : Ctx) : Str {
     FloatLit(s) -> "Float"
     Var(s) -> varType(s, ctx)
     StrLit(s) -> "Str"
-    ListLit(es) -> "List"
+    ListLit(es) -> listType(es, ctx)
     Bin(op, a, b) -> binType(op, a, b, ctx)
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> "Int"
