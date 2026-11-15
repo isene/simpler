@@ -1585,6 +1585,27 @@ printf 'reads "~/notes/"\nmain(sys) {\n  sys.screen.print(sys.files.read(sys.arg
 homeout="$( cd "$TMP/mod" && HOME="$TMP/home" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run home.smplr '~/other.txt' 2>&1 )"
 if [ "$homeout" = "home.smplr:3: this program may not read \"$TMP/home/other.txt\"" ]; then ok; else nope "the home folder rule (got: $homeout)"; fi
 
+# JSON: the value under a key or at a place, the items and the keys.
+cat > "$TMP/mod/json.smplr" <<'JSON'
+main(sys) {
+  t = "{ \"a.b\": {\"n\": 12.5, \"ok\": true, \"s\": \"hi \\\"you\\\"\\n\\u00e5\\ud83e\\udd17\"}, \"list\": [1, \"two\", [3], {\"k\": null}], \"e\": \"\" }"
+  sys.screen.print(t.json("a.b").json("n"))
+  sys.screen.print(t.json("a.b").json("ok"))
+  sys.screen.print(t.json("a.b").json("s"))
+  sys.screen.print(t.json("list").json("1") + "|" + t.json("list").json("2") + "|" + t.json("list").json("3").json("k"))
+  sys.screen.print("[" + t.json("nope") + t.json("list").json("9") + t.json("list").json("x") + t.json("e") + "nojson".json("a") + "]")
+  sys.screen.print(t.jsonKeys.join(","))
+  sys.screen.print(t.json("list").jsonItems.join(";"))
+  sys.screen.print(t.json("a.b").jsonItems.length)
+  sys.screen.print("{\"a\": [".jsonItems.length + "[1,".jsonItems.length + "".jsonKeys.length)
+}
+JSON
+jsonout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run json.smplr 2>&1 | tr '\n' '|' )"
+if [ "$jsonout" = '12.5|true|hi "you"|å🤗|two|[3]|null|[]|a.b,list,e|1;two;[3];{"k": null}|3|2|' ]; then ok; else nope "json, jsonItems and jsonKeys (got: $jsonout)"; fi
+printf 'main(sys) {\n  sys.screen.print(5.json("a"))\n}\n' > "$TMP/mod/json2.smplr"
+jsonout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run json2.smplr 2>&1 )"
+if [ "$jsonout" = 'json2.smplr:2: Int has no method json' ]; then ok; else nope "json on a number (got: $jsonout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

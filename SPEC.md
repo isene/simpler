@@ -269,6 +269,9 @@ arguments. Dispatch is by the receiver's static type.
 | `s.split(d)` | `List[Str]` | split on the first character of `d` |
 | `s.contains(t)` | `Bool` | is `t` a substring |
 | `s.find(t)` | `Int` | the place where `t` first starts, or -1 |
+| `s.json(k)` | `Str` | `s` read as JSON: the value under key `k` of an object, or at place `k` (`"0"`, `"1"`) of an array; a text comes back without quotes and escapes, a number, `true`, `false` or `null` as written, an object or array as its JSON; `""` when missing |
+| `s.jsonItems` | `List[Str]` | the items of a JSON array, or the values of a JSON object |
+| `s.jsonKeys` | `List[Str]` | the keys of a JSON object |
 | `s.upper`, `s.lower` | `Str` | the letters a to z in capitals or in small letters |
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
 | `s.padLeft(n)` | `Str` | pad with spaces to width `n` (right-align) |

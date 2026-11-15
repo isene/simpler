@@ -187,6 +187,9 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
+- JSON in a Str: `s.json("name")` is the value under that key, `s.json("0")` the item at that place in an array;
+  it comes back as a Str (a text without its quotes, `12.5`, `true`, or the JSON of an inner object), `""` when missing.
+  Chain it: `s.json("user").json("name")`. `s.jsonItems` and `s.jsonKeys` are `List[Str]`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.abs`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),

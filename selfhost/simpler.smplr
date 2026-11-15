@@ -323,6 +323,14 @@ main(sys) {
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
   sys.screen.print("long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_find(long h, long n) { const char* p = (const char*)(intptr_t)h; const char* q = strstr(p, (const char*)(intptr_t)n); return q ? (long)(q - p) : -1; }")
+  sys.screen.print("static const char* js_ws(const char* p) { while (*p == 32 || *p == 9 || *p == 10 || *p == 13) p++; return p; }")
+  sys.screen.print("static const char* js_str(const char* p) { p++; while (*p && *p != 34) { if (*p == 92 && p[1]) p++; p++; } if (*p) p++; return p; }")
+  sys.screen.print("static const char* js_skip(const char* p) { p = js_ws(p); if (*p == 34) return js_str(p); if (*p == 123 || *p == 91) { long d = 0; while (*p) { if (*p == 34) { p = js_str(p); continue; } if (*p == 123 || *p == 91) d++; if (*p == 125 || *p == 93) { d--; if (d == 0) return p + 1; } p++; } return p; } while (*p && *p != 44 && *p != 125 && *p != 93 && *p != 32 && *p != 9 && *p != 10 && *p != 13) p++; return p; }")
+  sys.screen.print("static long js_hex(const char* p) { long u = 0; for (int k = 0; k < 4; k++) { char h = p[k]; long v; if (h >= 48 && h <= 57) v = h - 48; else if ((h | 32) >= 97 && (h | 32) <= 102) v = (h | 32) - 87; else return -1; u = u * 16 + v; } return u; }")
+  sys.screen.print("static long js_val(const char* p) { p = js_ws(p); const char* e = js_skip(p); char* r = (char*)malloc((e - p) + 1); long o = 0; if (*p != 34) { o = e - p; memcpy(r, p, o); r[o] = 0; return (long)(intptr_t)r; } p++; while (*p && *p != 34) { if (*p != 92 || p[1] == 0) { r[o++] = *p++; continue; } p++; char c = *p++; if (c == 110) r[o++] = 10; else if (c == 116) r[o++] = 9; else if (c == 114) r[o++] = 13; else if (c == 98) r[o++] = 8; else if (c == 102) r[o++] = 12; else if (c == 117) { long u = js_hex(p); if (u < 0) continue; p += 4; if (u >= 0xD800 && u <= 0xDBFF && p[0] == 92 && p[1] == 117) { long lo = js_hex(p + 2); if (lo >= 0xDC00 && lo <= 0xDFFF) { u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00); p += 6; } } if (u == 0) continue; if (u < 0x80) r[o++] = (char)u; else if (u < 0x800) { r[o++] = (char)(0xC0 | (u >> 6)); r[o++] = (char)(0x80 | (u & 63)); } else if (u < 0x10000) { r[o++] = (char)(0xE0 | (u >> 12)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } else { r[o++] = (char)(0xF0 | (u >> 18)); r[o++] = (char)(0x80 | ((u >> 12) & 63)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } } else r[o++] = c; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }")
+  sys.screen.print("long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }")
+  sys.screen.print("long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }")
   sys.screen.print("long s_case(long s, long up) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); char* r = (char*)malloc(n + 1); for (long i = 0; i <= n; i++) { char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; r[i] = c; } return (long)(intptr_t)r; }")
   sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)malloc(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
   sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); long pad = n - len; for (long i = 0; i < pad; i++) r[i] = 32; for (long i = 0; i < len; i++) r[pad + i] = p[i]; r[n] = 0; return (long)(intptr_t)r; }")
@@ -2705,7 +2713,7 @@ handed(e : Expr, ctx : Ctx) : Bool !Mut {
 
 // keys and byValue are new lists of text; sort is a new list of the same items.
 handedField(recv : Expr, fld : Str, ctx : Ctx) : Bool !Mut {
-  if (fld == "keys") || (fld == "byValue") {
+  if (fld == "keys") || (fld == "byValue") || (fld == "jsonItems") || (fld == "jsonKeys") {
     return false
   }
   if fld == "sort" {
@@ -3892,6 +3900,12 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "upper" {
       r = "s_case(".concat(recvC).concat(", 1)")
     }
+    if fld == "jsonItems" {
+      r = "s_jsonlist(".concat(recvC).concat(", 0)")
+    }
+    if fld == "jsonKeys" {
+      r = "s_jsonlist(".concat(recvC).concat(", 1)")
+    }
     if fld == "lower" {
       r = "s_case(".concat(recvC).concat(", 0)")
     }
@@ -3964,7 +3978,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -4090,11 +4104,11 @@ isNumType(t : Str) : Bool {
 }
 
 isTextField(fld : Str) : Bool {
-  (fld == "length") || (fld == "trim") || (fld == "upper") || (fld == "lower") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
+  (fld == "length") || (fld == "trim") || (fld == "upper") || (fld == "lower") || (fld == "jsonItems") || (fld == "jsonKeys") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
 }
 
 isTextMethod(name : Str) : Bool {
-  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "find") || (name == "join") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
+  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "find") || (name == "json") || (name == "join") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
 }
 
 // A method must exist on its receiver, and `at` / `push` take the right type.
@@ -4130,6 +4144,11 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
       }
       if exprType(args.at(0), ctx) != "Str" {
         failAt("join expects the text to put between, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
+    if (name == "json") && (args.length == 1) {
+      if (t != "Str") || (exprType(args.at(0), ctx) != "Str") {
+        failAt("json takes a key or a place as a text, and gives the value there as a text", ctx)
       }
     }
     if (name == "find") && (args.length == 1) {
@@ -4326,6 +4345,9 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "find" {
     r = "s_find(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "json" {
+    r = "s_json(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "join" {
     r = "l_join(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -4582,7 +4604,7 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if fld == "stdin" {
     r = "Str"
   }
-  if fld == "keys" {
+  if (fld == "keys") || (fld == "jsonItems") || (fld == "jsonKeys") {
     r = "List[Str]"
   }
   if fld == "byValue" {
@@ -4651,7 +4673,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if (name == "contains") || (name == "startsWith") || (name == "endsWith") {
     r = "Bool"
   }
-  if name == "replace" {
+  if (name == "replace") || (name == "json") {
     r = "Str"
   }
   if name == "find" {
