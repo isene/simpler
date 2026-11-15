@@ -68,6 +68,14 @@ Fn = type {
 Lexed = type {
   toks : List[Tok]
   lines : List[Int]
+  files : List[Str]
+}
+
+// A module: a file brought in by a uses line. Its names get its name in front.
+Mod = type {
+  name : Str
+  lx : Lexed
+  names : List[Str]
 }
 
 Case = type {
@@ -98,6 +106,7 @@ Prog = type {
   runs : List[Str]
   fetches : List[Str]
   mails : List[Str]
+  files : List[Str]
 }
 
 // Local type environment: parallel names and their types.
@@ -122,6 +131,7 @@ Sigs = type {
   runs : List[Str]
   fetches : List[Str]
   mails : List[Str]
+  files : List[Str]
 }
 
 // Emit context: the locals in scope plus the program signatures.
@@ -203,11 +213,34 @@ PArgs = type {
   next : Int
 }
 
-reads "input.smplr"
+reads "*.smplr"
 
 main(sys) {
   src = sys.files.read("input.smplr")?
-  lexed = lex(src)
+  files : List[Str] = ["input.smplr"]
+  queue : List[Str] = []
+  queueLines : List[Int] = []
+  mainUses : List[Str] = []
+  mainLx = qualify(takeUses(lex(src, files), mainUses, queue, queueLines), mainUses)
+  mods : List[Mod] = []
+  q = 0
+  while q < queue.length {
+    name = queue.at(q)
+    if hasMod(mods, name).not {
+      file = name.concat(".smplr")
+      if sys.files.exists(file).not {
+        fail(spot(files, queueLines.at(q)).concat("no module named ").concat(name).concat(": the file ").concat(file).concat(" was not found"))
+      }
+      msrc = sys.files.read(file)?
+      files.push(file)
+      mods.push(makeMod(name, msrc, files, queue, queueLines))
+    }
+    q = q + 1
+  }
+  lexed = mainLx
+  if mods.length > 0 {
+    lexed = joinMods(mods, mainLx)
+  }
   prog = parse(lexed)
   sigs = buildSigs(prog)
   // `simpler what` lists everything the program can touch, and writes no C.
@@ -239,6 +272,14 @@ main(sys) {
   sys.screen.print("#include <sys/ioctl.h>")
   sys.screen.print("#include <signal.h>")
   sys.screen.print("#include <poll.h>")
+  fl = "static const char* simpler_fl[] = {"
+  q = 0
+  while q < files.length {
+    fl = fl.concat("\"").concat(files.at(q)).concat("\", ")
+    q = q + 1
+  }
+  sys.screen.print(fl.concat("0};"))
+  sys.screen.print("static const char* simpler_at(long line) { static char b[300]; snprintf(b, sizeof b, \"%s:%ld\", simpler_fl[line / 1000000], line % 1000000); return b; }")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
   sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
@@ -253,15 +294,15 @@ main(sys) {
   sys.screen.print("long s_lenp(const char* p) { for (int k = 0; k < 4; k++) if (sl_p[k] == p) return sl_n[k]; long n = (long)strlen(p); sl_p[sl_k] = p; sl_n[sl_k] = n; sl_k = (sl_k + 1) & 3; return n; }")
   sys.screen.print("long s_len(long s) { return s_lenp((const char*)(intptr_t)s); }")
   // A running program stops with its source line, never goes on with a wrong value.
-  sys.screen.print("long l_setc(long lp, long i, long x, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } l->data[i] = x; return 0; }")
-  sys.screen.print("long l_removec(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } long x = l->data[i]; for (long k = i; k + 1 < l->len; k++) l->data[k] = l->data[k + 1]; l->len = l->len - 1; return x; }")
-  sys.screen.print("long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } return l->data[i]; }")
-  sys.screen.print("long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; long n = s_lenp(p); if (i < 0 || i >= n) { fprintf(stderr, \"input.smplr:%ld: text index %ld, but the text has %ld characters\\n\", line, i, n); exit(1); } char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
-  sys.screen.print("long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; long len = s_lenp(p); if (a < 0 || b > len) { fprintf(stderr, \"input.smplr:%ld: slice %ld to %ld, but the text has %ld characters\\n\", line, a, b, len); exit(1); } if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long l_setc(long lp, long i, long x, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } l->data[i] = x; return 0; }")
+  sys.screen.print("long l_removec(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } long x = l->data[i]; for (long k = i; k + 1 < l->len; k++) l->data[k] = l->data[k + 1]; l->len = l->len - 1; return x; }")
+  sys.screen.print("long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } return l->data[i]; }")
+  sys.screen.print("long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; long n = s_lenp(p); if (i < 0 || i >= n) { fprintf(stderr, \"%s: text index %ld, but the text has %ld characters\\n\", simpler_at(line), i, n); exit(1); } char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; long len = s_lenp(p); if (a < 0 || b > len) { fprintf(stderr, \"%s: slice %ld to %ld, but the text has %ld characters\\n\", simpler_at(line), a, b, len); exit(1); } if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_isint(long s) { const char* p = (const char*)(intptr_t)s; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; if (*p == 45 || *p == 43) p++; if (*p < 48 || *p > 57) return 0; while (*p >= 48 && *p <= 57) p++; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; return *p == 0; }")
-  sys.screen.print("long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", line, (const char*)(intptr_t)s); exit(1); } return atol((const char*)(intptr_t)s); }")
-  sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"input.smplr:%ld: division by zero\\n\", line); exit(1); } return a / b; }")
-  sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"input.smplr:%ld: division by zero\\n\", line); exit(1); } return a % b; }")
+  sys.screen.print("long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"%s: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", simpler_at(line), (const char*)(intptr_t)s); exit(1); } return atol((const char*)(intptr_t)s); }")
+  sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a / b; }")
+  sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a % b; }")
   sys.screen.print("long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_code(long s) { return (long)(unsigned char)((const char*)(intptr_t)s)[0]; }")
   sys.screen.print("long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
@@ -304,13 +345,13 @@ main(sys) {
   sys.screen.print("long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
   sys.screen.print("static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }")
-  sys.screen.print("static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", line, verb, p, dir); exit(1); }")
-  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"input.smplr:%ld: this program may not %s \\\"%s\\\"\\n\", line, verb, p); exit(1); return 0; }")
+  sys.screen.print("static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; fprintf(stderr, \"%s: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", simpler_at(line), verb, p, dir); exit(1); }")
+  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = (const char*)(intptr_t)path; for (int k = 0; ok[k]; k++) { const char* e = ok[k]; size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"%s: this program may not %s \\\"%s\\\"\\n\", simpler_at(line), verb, p); exit(1); return 0; }")
   sys.screen.print("long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)malloc(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)malloc(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)malloc(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }")
   sys.screen.print("long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0; }")
-  sys.screen.print("long simpler_rename(long a, long b, long line) { if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"input.smplr:%ld: could not rename \\\"%s\\\": %s\\n\", line, (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
-  sys.screen.print("long simpler_delete(long a, long line) { if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"input.smplr:%ld: could not delete \\\"%s\\\": %s\\n\", line, (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
+  sys.screen.print("long simpler_rename(long a, long b, long line) { if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"%s: could not rename \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
+  sys.screen.print("long simpler_delete(long a, long line) { if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"%s: could not delete \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
   sys.screen.print(mayTable("simpler_rd", prog.reads))
   sys.screen.print(mayTable("simpler_wr", prog.writes))
   sys.screen.print(mayTable("simpler_rn", prog.runs))
@@ -318,13 +359,13 @@ main(sys) {
   sys.screen.print(mayTable("simpler_ml", prog.mails))
   sys.screen.print("long simpler_exec(char** av, int capture, int* code, long input) { int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = tmpfile(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
-  sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"input.smplr:%ld: this program may not run \\\"%s\\\"\\n\", line, p); exit(1); return 0; }")
-  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } if (!ok) { fprintf(stderr, \"input.smplr:%ld: this program may not mail \\\"%s\\\"\\n\", line, t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"input.smplr:%ld: the subject of a mail is one line\\n\", line); exit(1); } const char* prog = getenv(\"SIMPLER_SENDMAIL\"); if (!prog || !*prog) prog = \"sendmail\"; char* msg = (char*)malloc(tn + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); char* av[] = {(char*)prog, (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", line, t, prog, code); exit(1); } return 0; }")
-  sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" ended with status %d\\n\", line, (const char*)(intptr_t)name, code); exit(1); } return out; }")
+  sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"%s: this program may not run \\\"%s\\\"\\n\", simpler_at(line), p); exit(1); return 0; }")
+  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } if (!ok) { fprintf(stderr, \"%s: this program may not mail \\\"%s\\\"\\n\", simpler_at(line), t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"%s: the subject of a mail is one line\\n\", simpler_at(line)); exit(1); } const char* prog = getenv(\"SIMPLER_SENDMAIL\"); if (!prog || !*prog) prog = \"sendmail\"; char* msg = (char*)malloc(tn + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); char* av[] = {(char*)prog, (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); if (code != 0) { fprintf(stderr, \"%s: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", simpler_at(line), t, prog, code); exit(1); } return 0; }")
+  sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"%s: \\\"%s\\\" ended with status %d\\n\", simpler_at(line), (const char*)(intptr_t)name, code); exit(1); } return out; }")
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
-  sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"input.smplr:%ld: this program may not fetch \\\"%s\\\"\\n\", line, u); exit(1); return 0; }")
+  sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }")
   sys.screen.print("long simpler_curl(long url, long body, long post, long* st) { char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
-  sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } return out; }")
+  sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }")
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
   sys.screen.print("static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;")
   sys.screen.print("static void simpler_term_end(void) { if (!simpler_tty) return; simpler_tty = 0; fputs(\"\\033[0m\\033[?25h\\033[?1049l\", stdout); fflush(stdout); tcsetattr(0, TCSAFLUSH, &simpler_tio); if (simpler_err >= 0) { fflush(stderr); dup2(simpler_err, 2); close(simpler_err); simpler_err = -1; if (simpler_errf) { char b[512]; size_t n; rewind(simpler_errf); while ((n = fread(b, 1, sizeof b, simpler_errf)) > 0) fwrite(b, 1, n, stderr); fclose(simpler_errf); simpler_errf = 0; } } }")
@@ -335,7 +376,7 @@ main(sys) {
   sys.screen.print("long simpler_term_size(long cols) { struct winsize w; if (ioctl(1, TIOCGWINSZ, &w) != 0 || w.ws_row == 0) return cols ? 80 : 24; return cols ? w.ws_col : w.ws_row; }")
   sys.screen.print("long simpler_term_clear(void) { simpler_term_on(); fputs(\"\\033[0m\\033[2J\", stdout); return 0; }")
   sys.screen.print("static const char* simpler_style(const char* w, long n) { static const char* k[] = {\"bold\",\"1\",\"dim\",\"2\",\"underline\",\"4\",\"reverse\",\"7\",\"black\",\"30\",\"red\",\"31\",\"green\",\"32\",\"yellow\",\"33\",\"blue\",\"34\",\"magenta\",\"35\",\"cyan\",\"36\",\"white\",\"37\",\"gray\",\"90\",0}; for (int i = 0; k[i]; i += 2) if ((long)strlen(k[i]) == n && strncmp(k[i], w, n) == 0) return k[i + 1]; return 0; }")
-  sys.screen.print("long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_term_size(1) - col; if (row < 0 || col < 0 || row >= simpler_term_size(0) || room <= 0) return 0; printf(\"\\033[%ld;%ldH\\033[0m\", row + 1, col + 1); while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"input.smplr:%ld: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray\\n\", line, (int)n, y); exit(1); } printf(\"\\033[%sm\", c); y += n; } for (; *t; t++) { unsigned char c = (unsigned char)*t; if ((c & 0xC0) != 0x80) { if (room == 0) break; room--; } putchar(c < 32 || c == 127 ? '?' : c); } fputs(\"\\033[0m\", stdout); return 0; }")
+  sys.screen.print("long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_term_size(1) - col; if (row < 0 || col < 0 || row >= simpler_term_size(0) || room <= 0) return 0; printf(\"\\033[%ld;%ldH\\033[0m\", row + 1, col + 1); while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"%s: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray\\n\", simpler_at(line), (int)n, y); exit(1); } printf(\"\\033[%sm\", c); y += n; } for (; *t; t++) { unsigned char c = (unsigned char)*t; if ((c & 0xC0) != 0x80) { if (room == 0) break; room--; } putchar(c < 32 || c == 127 ? '?' : c); } fputs(\"\\033[0m\", stdout); return 0; }")
   sys.screen.print("static long simpler_keyname(const char* k) { return (long)(intptr_t)k; }")
   sys.screen.print("long simpler_term_key(void) { simpler_term_on(); fflush(stdout); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) return simpler_keyname(errno == EINTR ? \"resize\" : \"eof\"); if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)malloc(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_now() { return (long)time(0); }")
@@ -663,7 +704,7 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
       if (muts == "").not {
         muts = muts.concat(", ")
       }
-      muts = muts.concat(f.name)
+      muts = muts.concat(f.name.replace("__", "."))
     }
   }
   if (muts == "").not {
@@ -703,7 +744,7 @@ whatKind(w : What, kind : Str) : Str {
           if (who == "").not {
             who = who.concat(", ")
           }
-          who = who.concat(w.fns.at(j))
+          who = who.concat(w.fns.at(j).replace("__", "."))
         }
         j = j + 1
       }
@@ -898,10 +939,193 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches, mails = prog.mails)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches, mails = prog.mails, files = prog.files)
 }
 
 // --- parse: tokens to a program -----------------------------------------
+
+// --- modules ---------------------------------------------------------------
+// `uses "crust"` at the top brings in crust.smplr. Every top-level name of a
+// module gets the module's name in front (crust__box), and the program
+// writes crust.box. All of it is done on the tokens, before the parser, so
+// the checks and `simpler what` see one whole program.
+
+// A line number carries its file: file number * 1000000 + line.
+spot(files : List[Str], line : Int) : Str {
+  m = line / 1000000
+  name = "input.smplr"
+  if m < files.length {
+    name = files.at(m)
+  }
+  name.concat(":").concat((line % 1000000).toStr).concat(": ")
+}
+
+hasMod(mods : List[Mod], name : Str) : Bool {
+  found = false
+  mods.each { m in
+    if m.name == name {
+      found = true
+    }
+  }
+  found
+}
+
+modNameOk(name : Str) : Bool {
+  ok = name.length > 0 && name != "input" && name.contains("__").not
+  k = 0
+  while k < name.length {
+    if isAlnum(name.at(k).code).not {
+      ok = false
+    }
+    k = k + 1
+  }
+  ok
+}
+
+// Takes the uses lines out of a file's tokens. `mine` gets the names for
+// this file, the queue gets them for loading.
+takeUses(lx : Lexed, mine : List[Str], queue : List[Str], queueLines : List[Int]) : Lexed !Mut {
+  toks : List[Tok] = []
+  lines : List[Int] = []
+  depth = 0
+  i = 0
+  n = lx.toks.length
+  while i < n {
+    if isPunct(lx, i, "{") {
+      depth = depth + 1
+    }
+    if isPunct(lx, i, "}") {
+      depth = depth - 1
+    }
+    if depth == 0 && isWord(lx, i, "uses") && isStrTok(lx, i + 1) {
+      name = strAt(lx, i + 1)
+      if modNameOk(name).not {
+        failLine(lx, i + 1, "a module name has only letters, digits and _")
+      }
+      mine.push(name)
+      queue.push(name)
+      queueLines.push(lx.lines.at(i))
+      i = i + 2
+    } else {
+      toks.push(lx.toks.at(i))
+      lines.push(lx.lines.at(i))
+      i = i + 1
+    }
+  }
+  Lexed(toks = toks, lines = lines, files = lx.files)
+}
+
+// crust.box becomes the one name crust__box, for each module this file uses.
+qualify(lx : Lexed, mine : List[Str]) : Lexed !Mut {
+  toks : List[Tok] = []
+  lines : List[Int] = []
+  i = 0
+  n = lx.toks.length
+  while i < n {
+    id = ""
+    if isIdent(lx, i) {
+      id = identAt(lx, i)
+    }
+    afterDot = false
+    if i > 0 {
+      afterDot = isPunct(lx, i - 1, ".")
+    }
+    if id != "" && afterDot.not && hasName(mine, id) {
+      named = false
+      if isPunct(lx, i + 1, ".") {
+        named = isIdent(lx, i + 2)
+      }
+      if named.not {
+        failLine(lx, i, id.concat(" is a module here: write ").concat(id).concat(".name for something in it, and give a variable another name"))
+      }
+      toks.push(Ident(id.concat("__").concat(identAt(lx, i + 2))))
+      lines.push(lx.lines.at(i))
+      i = i + 3
+    } else {
+      toks.push(lx.toks.at(i))
+      lines.push(lx.lines.at(i))
+      i = i + 1
+    }
+  }
+  Lexed(toks = toks, lines = lines, files = lx.files)
+}
+
+// Reads one module: its tokens, and the names it declares.
+makeMod(name : Str, src : Str, files : List[Str], queue : List[Str], queueLines : List[Int]) : Mod !Mut {
+  mine : List[Str] = []
+  lx = qualify(takeUses(lex(src, files), mine, queue, queueLines), mine)
+  p = parse(lx)
+  first = spot(files, (files.length - 1) * 1000000 + 1)
+  if p.reads.length + p.writes.length + p.runs.length + p.fetches.length + p.mails.length > 0 {
+    fail(first.concat("a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it"))
+  }
+  names : List[Str] = []
+  fields : List[Str] = []
+  p.records.each { r in
+    names.push(r.name)
+    r.fields.each { f in
+      fields.push(f)
+    }
+  }
+  p.types.each { t in
+    names.push(t.name)
+    t.cases.each { c in
+      names.push(c.cname)
+    }
+  }
+  p.fns.each { f in
+    if f.name == "main" {
+      fail(spot(files, f.line).concat("a module has no main; main belongs to the program that uses it"))
+    }
+    names.push(f.name)
+  }
+  names.each { nm in
+    if hasName(fields, nm) {
+      fail(first.concat("in a module, a function or type may not have the name of a field: ").concat(nm))
+    }
+    if nm == "Str" || nm == "Int" || nm == "Float" || nm == "Bool" || nm == "List" || nm == "Map" {
+      fail(first.concat("in a module, nothing may have the name of a built-in type: ").concat(nm))
+    }
+  }
+  Mod(name = name, lx = lx, names = names)
+}
+
+// One token list for the parser: each module with its names renamed, then
+// the program itself.
+joinMods(mods : List[Mod], mainLx : Lexed) : Lexed !Mut {
+  toks : List[Tok] = []
+  lines : List[Int] = []
+  mods.each { m in
+    lx = m.lx
+    pre = m.name.concat("__")
+    i = 0
+    n = lx.toks.length - 1
+    while i < n {
+      id = ""
+      if isIdent(lx, i) {
+        id = identAt(lx, i)
+      }
+      afterDot = false
+      if i > 0 {
+        afterDot = isPunct(lx, i - 1, ".")
+      }
+      if id != "" && afterDot.not && hasName(m.names, id) {
+        toks.push(Ident(pre.concat(id)))
+      } else {
+        toks.push(lx.toks.at(i))
+      }
+      lines.push(lx.lines.at(i))
+      i = i + 1
+    }
+  }
+  i = 0
+  while i < mainLx.toks.length {
+    toks.push(mainLx.toks.at(i))
+    lines.push(mainLx.lines.at(i))
+    i = i + 1
+  }
+  Lexed(toks = toks, lines = lines, files = mainLx.files)
+}
 
 parse(toks : Lexed) : Prog {
   types : List[TyDef] = []
@@ -945,7 +1169,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails)
+  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, files = toks.files)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -986,7 +1210,7 @@ showPunct(p : Str) : Str {
 }
 
 failLine(toks : Lexed, i : Int, msg : Str) : Int {
-  fail("input.smplr:".concat(lineOf(toks, i).toStr).concat(": ").concat(msg))
+  fail(spot(toks.files, lineOf(toks, i)).concat(msg.replace("__", ".")))
 }
 
 failTok(toks : Lexed, i : Int, msg : Str) : Int {
@@ -2423,7 +2647,7 @@ emitLine(n : Int, ctx : Ctx) : Str !Mut {
 
 // Report a compile error at the statement being read.
 failAt(msg : Str, ctx : Ctx) : Int {
-  fail("input.smplr:".concat(envGet(ctx.env, "__line__")).concat(": ").concat(msg))
+  fail(spot(ctx.sigs.files, envGet(ctx.env, "__line__").toInt).concat(msg.replace("__", ".")))
 }
 
 // --- effects: a function must declare every effect its body uses --------
@@ -2595,13 +2819,13 @@ noType(t : Str) : Str {
 checkTypes(prog : Prog, sigs : Sigs) : Int {
   prog.fns.each { f in
     if (capNeed(f.name) == "Programs") || (capNeed(f.name) == "Net") || (capNeed(f.name) == "Clock") || (capNeed(f.name) == "Env") {
-      fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(f.name).concat(" is the name of a built-in method; give this function another name"))
+      fail(spot(sigs.files, f.line).concat(f.name).concat(" is the name of a built-in method; give this function another name"))
     }
   }
   prog.records.each { r in
     r.ftypes.each { t in
       if typeKnown(t, sigs).not {
-        fail("input.smplr:".concat(r.line.toStr).concat(": ").concat(noType(t)))
+        fail(spot(sigs.files, r.line).concat(noType(t)))
       }
     }
   }
@@ -2609,7 +2833,7 @@ checkTypes(prog : Prog, sigs : Sigs) : Int {
     td.cases.each { c in
       c.ptypes.each { t in
         if typeKnown(t, sigs).not {
-          fail("input.smplr:".concat(td.line.toStr).concat(": ").concat(noType(t)))
+          fail(spot(sigs.files, td.line).concat(noType(t)))
         }
       }
     }
@@ -2617,45 +2841,45 @@ checkTypes(prog : Prog, sigs : Sigs) : Int {
   prog.fns.each { f in
     f.ptypes.each { t in
       if typeKnown(t, sigs).not {
-        fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(noType(t)))
+        fail(spot(sigs.files, f.line).concat(noType(t)))
       }
     }
     if typeKnown(f.ret, sigs).not {
-      fail("input.smplr:".concat(f.line.toStr).concat(": ").concat(noType(f.ret)))
+      fail(spot(sigs.files, f.line).concat(noType(f.ret)))
     }
   }
   0
 }
 
 // break and continue belong inside a loop.
-jumpBody(body : List[Stmt], inLoop : Bool) : Int {
+jumpBody(fl : List[Str], body : List[Stmt], inLoop : Bool) : Int {
   line = 0
   body.each { s in
-    line = jumpStmt(s, inLoop, line)
+    line = jumpStmt(fl, s, inLoop, line)
   }
   0
 }
 
-jumpStmt(s : Stmt, inLoop : Bool, line : Int) : Int {
+jumpStmt(fl : List[Str], s : Stmt, inLoop : Bool, line : Int) : Int {
   s.match {
     Let(name, ty, e) -> line
-    Bare(e) -> jumpExpr(e, inLoop, line)
-    If(c, t, el) -> line + jumpBody(t, inLoop) + jumpBody(el, inLoop)
-    While(c, b) -> line + jumpBody(b, true)
+    Bare(e) -> jumpExpr(fl, e, inLoop, line)
+    If(c, t, el) -> line + jumpBody(fl, t, inLoop) + jumpBody(fl, el, inLoop)
+    While(c, b) -> line + jumpBody(fl, b, true)
     Ret(e) -> line
     Line(n) -> n
-    Jump(w) -> jumpAt(w, inLoop, line)
+    Jump(w) -> jumpAt(fl, w, inLoop, line)
   }
 }
 
-jumpAt(w : Str, inLoop : Bool, line : Int) : Int {
+jumpAt(fl : List[Str], w : Str, inLoop : Bool, line : Int) : Int {
   if inLoop.not {
-    fail("input.smplr:".concat(line.toStr).concat(": ").concat(w).concat(" is only for inside a loop"))
+    fail(spot(fl, line).concat(w).concat(" is only for inside a loop"))
   }
   line
 }
 
-jumpExpr(e : Expr, inLoop : Bool, line : Int) : Int {
+jumpExpr(fl : List[Str], e : Expr, inLoop : Bool, line : Int) : Int {
   e.match {
     Num(n) -> line
     FloatLit(t) -> line
@@ -2667,14 +2891,14 @@ jumpExpr(e : Expr, inLoop : Bool, line : Int) : Int {
     Match(scrut, arms) -> line
     Field(recv, fld) -> line
     Method(recv, name, args) -> line
-    Each(recv, param, body) -> line + jumpBody(body, true)
+    Each(recv, param, body) -> line + jumpBody(fl, body, true)
   }
 }
 
 retPass(prog : Prog, sigs : Sigs) : Int !Mut {
   checkTypes(prog, sigs)
   prog.fns.each { f in
-    jumpBody(f.body, false)
+    jumpBody(sigs.files, f.body, false)
   }
   changed = true
   while changed {
@@ -4534,13 +4758,13 @@ isMulOp(toks : Lexed, i : Int) : Bool {
 
 // --- lex: the full Simpler token set ------------------------------------
 
-lex(src : Str) : Lexed {
+lex(src : Str, files : List[Str]) : Lexed {
   toks : List[Tok] = []
   lines : List[Int] = []
   taken = cTaken()
   n = src.length
   i = 0
-  line = 1
+  line = (files.length - 1) * 1000000 + 1
   while i < n {
     c = src.at(i).code
     if isSpace(c) {
@@ -4559,12 +4783,12 @@ lex(src : Str) : Lexed {
           s = ""
           while (j < n).and((src.at(j).code == c).not) {
             if src.at(j).code == 10 {
-              fail("input.smplr:".concat(line.toStr).concat(": a text is missing its closing quote"))
+              fail(spot(files, line).concat("a text is missing its closing quote"))
             }
             if src.at(j).code == 92 {
               j = j + 1
               if j == n {
-                fail("input.smplr:".concat(line.toStr).concat(": a text is missing its closing quote"))
+                fail(spot(files, line).concat("a text is missing its closing quote"))
               }
               s = s.concat(esc(src, j))
             } else {
@@ -4573,7 +4797,7 @@ lex(src : Str) : Lexed {
             j = j + 1
           }
           if j == n {
-            fail("input.smplr:".concat(line.toStr).concat(": a text is missing its closing quote"))
+            fail(spot(files, line).concat("a text is missing its closing quote"))
           }
           toks.push(Str(s))
           lines.push(line)
@@ -4648,7 +4872,7 @@ lex(src : Str) : Lexed {
   }
   toks.push(Eof)
   lines.push(line)
-  Lexed(toks = toks, lines = lines)
+  Lexed(toks = toks, lines = lines, files = files)
 }
 
 esc(src : Str, j : Int) : Str {

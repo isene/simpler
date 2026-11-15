@@ -9,12 +9,16 @@ set -e
 dir=${SIMPLER_HOME:-$HOME/.local/lib/simpler}
 bin=${SIMPLER_BIN:-$HOME/.local/bin}
 base=https://raw.githubusercontent.com/isene/simpler/master
-mkdir -p "$dir" "$bin"
+mkdir -p "$dir/lib" "$bin"
 if [ -f selfhost/simpler.c ] && [ -f simpler ] && [ -f PROMPT.md ]; then
     cp selfhost/simpler.c simpler PROMPT.md "$dir/"
+    cp lib/*.smplr "$dir/lib/"
 else
     for f in selfhost/simpler.c simpler PROMPT.md; do
         curl -fsSL "$base/$f" -o "$dir/$(basename "$f")"
+    done
+    for m in crust; do
+        curl -fsSL "$base/lib/$m.smplr" -o "$dir/lib/$m.smplr"
     done
 fi
 ${CC:-cc} -O2 -w "$dir/simpler.c" -o "$dir/simplerc" -lm

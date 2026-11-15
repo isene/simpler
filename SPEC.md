@@ -495,7 +495,7 @@ More working tools live in [`selfhost/`](selfhost/): `linenum`, `sumcol`,
 Knowing what is *not* here is as useful as knowing what is. Do not reach for
 these; they do not exist:
 
-- No `import` / modules / globals (capabilities replace them).
+- No globals (capabilities replace them).
 - No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).
@@ -505,7 +505,46 @@ these; they do not exist:
 - No tuples, no null. A `Map` returns a typed default (`0` or `""`) for a
   missing key.
 
-## 13. How it runs
+## 13. Modules
+
+A module is a file of functions and types that many programs share.
+
+```
+uses "crust"
+
+main(sys) {
+  t = sys.term
+  p = crust.full(t)
+  crust.frame(t, p, "Hello", "cyan")
+  k = t.key
+}
+```
+
+- `uses "crust"` at the top brings in `crust.smplr`. The file is looked for
+  next to the program, then in the folder `$SIMPLER_LIB`, then in the `lib`
+  folder that came with simpler.
+- A function of the module is called as `crust.frame(...)`. A type, a record
+  or a variant case is written `crust.Pane`. A name without the module in
+  front never reaches into a module, so two modules may use the same names.
+- No variable may have the name of a module the file uses.
+- A module is plain Simpler. It has no `main`, so it never holds `sys`: what
+  it may touch is handed to it as a parameter (`t : Term`, `fs : Files`), and
+  its functions carry the same effect marks as any other.
+- A module has no `reads`, `writes`, `runs`, `fetches` or `mails` line. Those
+  stay at the top of the program, and they bind the module's code too.
+  `simpler what` lists a module's reach with the program's, as
+  `(in crust.frame)`.
+- A module may use other modules. Inside it, no function or type may have the
+  name of one of its record fields.
+- A message names the file: `crust.smplr:57: ...`.
+- `simpler prompt crust` prints the module's page: its types and the head of
+  each function, with the comment above it. Give that page to the AI together
+  with the main page. `simpler test lib/crust.smplr` runs a module's tests.
+
+`crust` comes with simpler: panes, borders and a list with a picked line, for
+full-screen terminal programs.
+
+## 14. How it runs
 
 The compiler transpiles Simpler to C and hands it to the system C compiler,
 which buys a mature optimizer and every platform for free. There is no garbage

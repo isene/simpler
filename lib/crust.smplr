@@ -1,0 +1,136 @@
+// crust: panes with borders for a full-screen terminal program.
+// Hand its functions the terminal from main: t = sys.term.
+
+// A pane is a box on the screen: its top-left place and its size.
+Pane = type {
+  row : Int
+  col : Int
+  rows : Int
+  cols : Int
+}
+
+// The whole screen as one pane.
+full(t : Term) : Pane {
+  Pane(row = 0, col = 0, rows = t.rows, cols = t.cols)
+}
+
+// The left part of a pane, n columns wide.
+left(p : Pane, n : Int) : Pane {
+  Pane(row = p.row, col = p.col, rows = p.rows, cols = n)
+}
+
+// What is to the right of left(p, n).
+right(p : Pane, n : Int) : Pane {
+  Pane(row = p.row, col = p.col + n, rows = p.rows, cols = p.cols - n)
+}
+
+// The top part of a pane, n lines high.
+top(p : Pane, n : Int) : Pane {
+  Pane(row = p.row, col = p.col, rows = n, cols = p.cols)
+}
+
+// What is below top(p, n).
+bottom(p : Pane, n : Int) : Pane {
+  Pane(row = p.row + n, col = p.col, rows = p.rows - n, cols = p.cols)
+}
+
+// The room inside a pane's border.
+inner(p : Pane) : Pane {
+  Pane(row = p.row + 1, col = p.col + 1, rows = p.rows - 2, cols = p.cols - 2)
+}
+
+// A text made of n copies of s.
+times(s : Str, n : Int) : Str {
+  out = ""
+  k = 0
+  while k < n {
+    out = out.concat(s)
+    k = k + 1
+  }
+  out
+}
+
+// Draws a border around the pane with a title in its top line. Style as in t.put, or "".
+frame(t : Term, p : Pane, title : Str, style : Str) {
+  if p.rows >= 2 && p.cols >= 2 {
+    bar = times("─", p.cols - 2)
+    t.put(p.row, p.col, "┌".concat(bar).concat("┐"), style)
+    k = 1
+    while k < p.rows - 1 {
+      t.put(p.row + k, p.col, "│", style)
+      t.put(p.row + k, p.col + p.cols - 1, "│", style)
+      k = k + 1
+    }
+    t.put(p.row + p.rows - 1, p.col, "└".concat(bar).concat("┘"), style)
+    if title.length > 0 && p.cols > 6 {
+      t.put(p.row, p.col + 2, " ".concat(title.slice(0, min(title.length, p.cols - 6))).concat(" "), style)
+    }
+  }
+}
+
+min(a : Int, b : Int) : Int {
+  r = a
+  if b < a {
+    r = b
+  }
+  r
+}
+
+// Writes text on line n of the pane (0 is its first line), cut and filled to the pane's width.
+line(t : Term, p : Pane, n : Int, text : Str, style : Str) {
+  if n >= 0 && n < p.rows && p.cols > 0 {
+    t.put(p.row + n, p.col, text.slice(0, min(text.length, p.cols)).padRight(p.cols), style)
+  }
+}
+
+// Empties the pane.
+wipe(t : Term, p : Pane) {
+  k = 0
+  while k < p.rows {
+    line(t, p, k, "", "")
+    k = k + 1
+  }
+}
+
+// Shows the items from number `first` down the pane, the one numbered `picked` in reverse.
+list(t : Term, p : Pane, items : List[Str], first : Int, picked : Int) {
+  k = 0
+  while k < p.rows {
+    i = first + k
+    text = ""
+    if i < items.length {
+      text = items.at(i)
+    }
+    style = ""
+    if i == picked && i < items.length {
+      style = "reverse"
+    }
+    line(t, p, k, text, style)
+    k = k + 1
+  }
+}
+
+// The `first` to give list so the picked item is on the pane: pass the old first, get the new.
+scroll(first : Int, picked : Int, rows : Int) : Int {
+  r = first
+  if picked < r {
+    r = picked
+  }
+  if picked >= r + rows {
+    r = picked - rows + 1
+  }
+  r
+}
+
+test_scroll() {
+  assert(scroll(0, 3, 10) == 0)
+  assert(scroll(0, 12, 10) == 3)
+  assert(scroll(5, 2, 10) == 2)
+}
+
+test_split() {
+  p = Pane(row = 0, col = 0, rows = 24, cols = 80)
+  assert(right(p, 30).col == 30)
+  assert(right(p, 30).cols == 50)
+  assert(inner(bottom(p, 4)).row == 5)
+}

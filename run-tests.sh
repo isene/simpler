@@ -1533,6 +1533,29 @@ screen  prints  (in main)' ] || [ "$cliout" = 'hi you
 prog.smplr:4: list index 5, but the list has 1 items
 screen  prints  (in main)' ]; then ok; else nope "the simpler command (got: $cliout)"; fi
 
+# Modules: uses brings in a file, names carry the module, messages name the file.
+mkdir -p "$TMP/mod/lib2"
+printf 'uses "geo"\nBox = type {\n  w : Int\n  h : Int\n}\nShape = type {\n  Round(Int)\n  Flat(Box)\n}\narea(s : Shape) : Int {\n  s.match {\n    Round(r) -> geo.pi() * r * r\n    Flat(b) -> b.w * b.h\n  }\n}\nshow(out : Screen, b : Box) !IO {\n  out.print("box " + b.w.toStr)\n}\nthird(xs : List[Int]) : Int {\n  xs.at(3)\n}\n' > "$TMP/mod/shape.smplr"
+printf 'uses "shape"\npi() : Int {\n  3\n}\n' > "$TMP/mod/lib2/geo.smplr"
+printf 'uses "shape"\narea(n : Int) : Int {\n  n\n}\nmain(sys) {\n  b = shape.Box(w = 2, h = 5)\n  s : shape.Shape = shape.Flat(b)\n  sys.screen.print(shape.area(s) + shape.area(shape.Round(2)) + area(1))\n  s.match {\n    shape.Round(r) -> sys.screen.print("round")\n    shape.Flat(x) -> shape.show(sys.screen, x)\n  }\n  sys.screen.print(shape.third([1]))\n}\n' > "$TMP/mod/prog.smplr"
+modrun() { ( cd "$TMP/mod" && SIMPLER_LIB="$TMP/mod/lib2" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" "$@" 2>&1 ); }
+modout="$( modrun run prog.smplr | sort | tr '\n' '|'; modrun what prog.smplr | head -1 )"
+if [ "$modout" = '23|box 2|shape.smplr:20: list index 3, but the list has 1 items|screen  prints  (in shape.show, main)' ]; then ok; else nope "a program with modules (got: $modout)"; fi
+moderr() { printf "$1" > "$TMP/mod/bad.smplr"; modrun run bad.smplr; }
+if [ "$(moderr 'uses "nope"\nmain(sys) {\n}\n')" = 'bad.smplr:1: no module named nope: the file nope.smplr was not found' ]; then ok; else nope "a missing module"; fi
+if [ "$(moderr 'uses "shape"\nmain(sys) {\n  shape = 2\n}\n')" = 'bad.smplr:3: shape is a module here: write shape.name for something in it, and give a variable another name' ]; then ok; else nope "a variable named as a module"; fi
+if [ "$(moderr 'uses "shape"\nmain(sys) {\n  sys.screen.print(shape.nope(1))\n}\n')" = 'bad.smplr:3: no function named shape.nope' ]; then ok; else nope "a name the module does not have"; fi
+if [ "$(moderr 'uses "../shape"\nmain(sys) {\n}\n')" = 'bad.smplr:1: a module name has only letters, digits and _' ]; then ok; else nope "a module name with a path in it (got: $(moderr 'uses "../shape"\nmain(sys) {\n}\n'))"; fi
+printf 'reads "x"\nf() : Int {\n  1\n}\n' > "$TMP/mod/m1.smplr"; printf 'main(sys) {\n}\n' > "$TMP/mod/m2.smplr"; printf 'f(x : Int) : Int {\n  x +\n}\n' > "$TMP/mod/m3.smplr"
+modbad="$( for m in m1 m2 m3; do moderr "uses \"$m\"\nmain(sys) {\n}\n"; done | tr '\n' '|' )"
+if [ "$modbad" = 'm1.smplr:1: a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it|m2.smplr:1: a module has no main; main belongs to the program that uses it|m3.smplr:3: expected a value, found }|' ]; then ok; else nope "what a module may not have (got: $modbad)"; fi
+# crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
+if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi
+printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t), 3)\n  crust.frame(t, p, "Hi", "")\n  crust.line(t, crust.inner(p), 0, "in " + crust.inner(p).cols.toStr, "")\n  k = t.key\n  t.stop\n  sys.screen.print("key " + k)\n}\n' > "$TMP/mod/pane.smplr"
+( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build pane.smplr -o pane 2>&1 )
+crout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./pane' /dev/null 2>/dev/null | tr -d '\r' )"
+if printf '%s' "$crout" | grep -qF '┌──' && printf '%s' "$crout" | grep -qF ' Hi ' && printf '%s' "$crout" | grep -qF 'in 18' && printf '%s' "$crout" | grep -qF 'key x'; then ok; else nope "crust draws a frame (got: $crout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

@@ -6,7 +6,7 @@
 #   simpler what prog.smplr              list everything the program can touch
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
-#   simpler prompt                       print the one page to give an AI
+#   simpler prompt [module]              print the one page to give an AI, or a module's page
 set -e
 
 self=$0
@@ -28,18 +28,59 @@ compiler() {
     echo "$home/selfhost/simpler"
 }
 
-# to_c FILE MODE OUT: compile FILE to C in OUT, with messages that name FILE.
-to_c() {
+# Where a module's file is looked for: next to the program, then $SIMPLER_LIB,
+# then the lib folder that came with simpler.
+find_mod() {
+    for d in "$progdir" "$SIMPLER_LIB" "$home/lib"; do
+        if [ -n "$d" ] && [ -f "$d/$1.smplr" ]; then echo "$d/$1.smplr"; return; fi
+    done
+}
+
+# copy_mods FILE: put every module FILE uses, and the ones those use, in $work.
+copy_mods() {
+    for m in $(sed -n 's/^uses "\([A-Za-z0-9_]*\)"[[:space:]]*$/\1/p' "$1"); do
+        [ "$m" = input ] || [ -f "$work/$m.smplr" ] && continue
+        f=$(find_mod "$m")
+        [ -n "$f" ] || continue
+        cp "$f" "$work/$m.smplr"
+        copy_mods "$work/$m.smplr"
+    done
+}
+
+# prep FILE: a work folder with FILE as input.smplr and its modules beside it.
+prep() {
     [ -f "$1" ] || { echo "simpler: no file named $1" >&2; exit 2; }
     work=$(mktemp -d)
+    progdir=$(dirname "$1")
     cp "$1" "$work/input.smplr"
-    if ! (cd "$work" && "$cc_simpler" $2 > out 2> err); then
+    copy_mods "$work/input.smplr"
+}
+
+# to_c MODE OUT: compile the work folder to C in OUT, with messages that name the file.
+to_c() {
+    if ! (cd "$work" && "$cc_simpler" $1 > out 2> err); then
         sed "s|^input\.smplr:|$shown:|" "$work/err" >&2
         rm -rf "$work"
         exit 1
     fi
-    sed "s|input\.smplr:%ld|$shown:%ld|g" "$work/out" > "$3"
+    sed "s|simpler_fl\[\] = {\"input\.smplr\"|simpler_fl[] = {\"$shown\"|" "$work/out" > "$2"
     rm -rf "$work"
+}
+
+# The page for one module: its comments, types and function heads.
+mod_page() {
+    progdir=.
+    f=$(find_mod "$1")
+    [ -n "$f" ] || { echo "simpler: no module named $1" >&2; exit 2; }
+    echo "Module $1. Put  uses \"$1\"  at the top of the program. Call a function as $1.name(...)"
+    echo "and write a type as $1.Name. The module's functions and types:"
+    echo
+    awk '/^\/\// { c = c $0 "\n"; next }
+         /^[A-Za-z_][A-Za-z0-9_]* = type \{/ { printf "%s", c; t = 1 }
+         t { print; if ($0 ~ /^\}/) t = 0; c = ""; next }
+         /^test_/ { c = ""; next }
+         /^[A-Za-z_][A-Za-z0-9_]*\(.*\{[ \t]*$/ { sub(/[ \t]*\{[ \t]*$/, ""); printf "%s%s\n", c, $0 }
+         { c = "" }' "$f"
 }
 
 # A name that is safe inside a message; any other file is shown as input.smplr.
@@ -51,7 +92,7 @@ cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case $cmd in
     help|-h|--help) usage ;;
-    prompt) cat "$home/PROMPT.md"; exit ;;
+    prompt) if [ $# -gt 0 ]; then mod_page "$1"; else cat "$home/PROMPT.md"; fi; exit ;;
     run|build|what|test|c) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
@@ -63,33 +104,35 @@ cc_simpler=$(compiler)
 
 case $cmd in
     what)
-        [ -f "$file" ] || { echo "simpler: no file named $file" >&2; exit 2; }
-        work=$(mktemp -d); cp "$file" "$work/input.smplr"
+        prep "$file"
         (cd "$work" && "$cc_simpler" what) 2>&1 | sed "s|^input\.smplr:|$shown:|"
         rm -rf "$work" ;;
     c)
-        out=$(mktemp); to_c "$file" "" "$out"; cat "$out"; rm -f "$out" ;;
+        out=$(mktemp); prep "$file"; to_c "" "$out"; cat "$out"; rm -f "$out" ;;
     test)
-        dir=$(mktemp -d); to_c "$file" test "$dir/t.c"
+        dir=$(mktemp -d); prep "$file"; to_c test "$dir/t.c"
         ${CC:-cc} -w "$dir/t.c" -o "$dir/t" -lm
         code=0; "$dir/t" || code=$?
         rm -rf "$dir"; exit $code ;;
     build)
         name=$(basename "$file" .smplr)
         [ "$1" = "-o" ] && name=$2
-        dir=$(mktemp -d); to_c "$file" "" "$dir/p.c"
+        dir=$(mktemp -d); prep "$file"; to_c "" "$dir/p.c"
         ${CC:-cc} -O2 -w "$dir/p.c" -o "$name" -lm
         rm -rf "$dir" ;;
     run)
         # The built program is kept under a name made from the source and the
         # compiler, so a second run of the same program starts at once.
-        sum=$(cat "$file" "$cc_simpler" 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
+        prep "$file"
+        sum=$(cat "$work"/*.smplr "$cc_simpler" 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
         cache=${XDG_CACHE_HOME:-$HOME/.cache}/simpler
         if [ ! -x "$cache/$sum" ]; then
             mkdir -p "$cache"
-            dir=$(mktemp -d); to_c "$file" "" "$dir/p.c"
+            dir=$(mktemp -d); to_c "" "$dir/p.c"
             ${CC:-cc} -O1 -w "$dir/p.c" -o "$dir/p" -lm
             mv "$dir/p" "$cache/$sum"; rm -rf "$dir"
+        else
+            rm -rf "$work"
         fi
         exec "$cache/$sum" "$@" ;;
 esac

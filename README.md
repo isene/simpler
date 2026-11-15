@@ -113,7 +113,16 @@ simpler what hello.smplr       # list everything the program can touch
 simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
+simpler prompt crust           # the page for one module
 ```
+
+**Modules.** `uses "crust"` at the top of a program brings in `crust.smplr`:
+from next to the program, from `$SIMPLER_LIB`, or from the `lib` folder that
+came with simpler. Its functions are called as `crust.frame(...)`. A module is
+plain Simpler with no `main`, so it can touch only what the program hands it,
+and the program's top lines bind the module's code too.
+[`lib/crust.smplr`](lib/crust.smplr) is the first one: panes and borders for
+full-screen terminal programs.
 
 What goes on underneath:
 

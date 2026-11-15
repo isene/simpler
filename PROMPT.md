@@ -166,6 +166,9 @@ main(sys) {
   "backspace", "delete", "up", "down", "left", "right", "home", "end", "pgup", "pgdn", "ctrl-x",
   "resize" (the window changed size) or "eof". `t.rows`, `t.cols`, `t.clear`. `t.stop` gives the
   terminal back; do it before `sys.screen.print`. The loop is: draw, `k = t.key`, act on `k`.
+- A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
+  `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
+  module only when you were given its page.
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
   (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
 - No function of yours may be named `run`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
