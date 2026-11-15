@@ -54,6 +54,21 @@ The rest follows from a few committed decisions:
 The full reasoning, including why it is built to be written by an AI, is in
 [the spec](SPEC.md) and [the book](Simpler.pdf).
 
+## The goal
+
+Run a program an AI wrote without reading it. Five goalposts, each with a
+measure:
+
+| Goal | Measure | November 2026 |
+|------|---------|---------------|
+| Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; five fault types stop |
+| Nothing is touched unseen | one command lists every file, screen and mail use of a program | the rule is enforced; the command is not written |
+| As right as Rust on the first try | 20 tools written by a model, compiled, run and compared | 19 to 20 in Simpler, 20 in Rust |
+| No dearer than Rust | output tokens per working program | 1.9 times Rust, all of it the model thinking |
+| The whole language fits in a prompt | size of `SPEC.md` | about 4,000 tokens |
+
+Speed and code a person likes to read are not goals.
+
 ## A taste
 
 ```

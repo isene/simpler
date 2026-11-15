@@ -783,6 +783,31 @@ stops "remainder by zero" \
   n = sys.stdin.trim.toInt
   sys.screen.print(10 % n)
 }' "0" "input.smplr:3: division by zero"
+stops "toInt of a text that is no number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n)
+}' "12x" 'input.smplr:2: "12x" is not a whole number; test with .isInt first'
+# the values of a call run left to right, whatever the C compiler would pick
+printf '%s' 'note(log : List[Str], s : Str) : Int {
+  log.push(s)
+  log.length
+}
+pair(a : Int, b : Int, c : Int) : Str {
+  a.toStr.concat(b.toStr).concat(c.toStr)
+}
+main(sys) {
+  log : List[Str] = []
+  sys.screen.print(pair(note(log, "a"), note(log, "b"), note(log, "c")))
+  sys.screen.print(note(log, "d") - note(log, "e"))
+  xs = [note(log, "f"), note(log, "g")]
+  sys.screen.print(xs.at(0) - xs.at(1))
+  sys.screen.print("7".isInt && " -3 ".isInt && "x".isInt.not && "".isInt.not)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > order.c 2>/dev/null )
+for opt in -O0 -O2; do
+    if cc $opt -o "$TMP/order" "$TMP/order.c" 2>/dev/null && [ "$("$TMP/order" | tr '\n' ' ')" = "123 -1 -1 true " ]; then ok; else nope "left to right at $opt"; fi
+done
 check_err "text ends in a backslash" \
     'main(sys) {
   x = "a\' \

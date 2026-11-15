@@ -264,7 +264,8 @@ arguments. Dispatch is by the receiver's static type.
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
 | `s.padLeft(n)` | `Str` | pad with spaces to width `n` (right-align) |
 | `s.padRight(n)` | `Str` | pad with spaces to width `n` (left-align) |
-| `s.toInt` | `Int` | parse (0 if not a number) |
+| `s.toInt` | `Int` | parse; a text that is no whole number stops the program |
+| `s.isInt` | `Bool` | is it a whole number (spaces around it allowed)? Test before `toInt` on input you do not trust |
 | `s.toFloat` | `Float` | parse (0 if not a number) |
 | `s == t` | `Bool` | equality |
 
@@ -433,8 +434,11 @@ cc out.c -o wordfreq
 
 `./simpler test > tests.c` writes the test runner in place of the program.
 
+The values of a call run left to right: in `f(a(), b())`, `a` runs first.
+
 A running program never goes on with a wrong value. A list or text index past
-the end, a slice past the end and a whole-number division by zero stop it with
+the end, a slice past the end, a whole-number division by zero and `toInt` on
+a text that is no whole number stop it with
 `input.smplr:<line>: <what happened>` on stderr and exit code 1. (A missing map
 key is no error: `get` gives 0 or "".)
 

@@ -176,6 +176,13 @@ PType = type {
   next : Int
 }
 
+// The values of one call, after those that must run in order were moved
+// into temporaries: `pre` declares the temporaries, `ops` are what is left.
+Hoist = type {
+  pre : Str
+  ops : List[Expr]
+}
+
 PArgs = type {
   list : List[Expr]
   next : Int
@@ -208,6 +215,8 @@ main(sys) {
   sys.screen.print("long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } return l->data[i]; }")
   sys.screen.print("long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; long n = s_lenp(p); if (i < 0 || i >= n) { fprintf(stderr, \"input.smplr:%ld: text index %ld, but the text has %ld characters\\n\", line, i, n); exit(1); } char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; long len = s_lenp(p); if (a < 0 || b > len) { fprintf(stderr, \"input.smplr:%ld: slice %ld to %ld, but the text has %ld characters\\n\", line, a, b, len); exit(1); } if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long s_isint(long s) { const char* p = (const char*)(intptr_t)s; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; if (*p == 45 || *p == 43) p++; if (*p < 48 || *p > 57) return 0; while (*p >= 48 && *p <= 57) p++; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; return *p == 0; }")
+  sys.screen.print("long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"input.smplr:%ld: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", line, (const char*)(intptr_t)s); exit(1); } return atol((const char*)(intptr_t)s); }")
   sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"input.smplr:%ld: division by zero\\n\", line); exit(1); } return a / b; }")
   sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"input.smplr:%ld: division by zero\\n\", line); exit(1); } return a % b; }")
   sys.screen.print("long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
@@ -1476,7 +1485,7 @@ emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
 // only the print at the end matters.
 emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
-  if name == "print" {
+  if name == "print" && args.length == 1 && calm(args.at(0)) {
     r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
   }
   r
@@ -1957,8 +1966,101 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
   }
 }
 
-// A list literal: start empty, then add each element in order.
+// --- order: the values of a call run left to right ----------------------
+// C does not say which argument of a call runs first. Simpler does: left to
+// right. Where two or more values of one call could do work (a call, a list
+// read), each is put in a temporary of its own, in order, before the call.
+
+// A calm value does no work and cannot be changed by another value's work:
+// a literal, a local name, or arithmetic on those.
+calm(e : Expr) : Bool {
+  e.match {
+    Num(v) -> true
+    FloatLit(s) -> true
+    Var(s) -> true
+    StrLit(s) -> true
+    ListLit(es) -> es.length == 0
+    Field(recv, fld) -> isCapField(fld) && calm(recv)
+    Bin(op, a, b) -> (op == "/").not && (op == "%").not && calm(a) && calm(b)
+    Call(name, args) -> false
+    Match(scrut, arms) -> false
+    Method(recv, name, args) -> false
+    Each(recv, param, body) -> false
+  }
+}
+
+hoist(ops : List[Expr], ctx : Ctx) : Hoist {
+  busy = 0
+  ops.each { o in
+    if calm(o).not {
+      busy = busy + 1
+    }
+  }
+  pre = ""
+  out : List[Expr] = []
+  ops.each { o in
+    if busy > 1 && calm(o).not {
+      c = emitExpr(o, ctx)
+      ty = exprType(o, ctx)
+      name = "_t".concat(ctx.env.names.length.toStr)
+      envPut(ctx.env, name, ty)
+      pre = pre.concat("long ").concat(name).concat(" = ").concat(c).concat("; ")
+      out.push(Var(name))
+    } else {
+      out.push(o)
+    }
+  }
+  Hoist(pre = pre, ops = out)
+}
+
+// A GNU C statement expression: the temporaries, then the call itself.
+inOrder(pre : Str, c : Str) : Str {
+  r = c
+  if (pre == "").not {
+    r = "({ ".concat(pre).concat(c).concat("; })")
+  }
+  r
+}
+
+emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+  // && and || stop at the first value that settles them, so they keep their form
+  if (op == "&&") || (op == "||") || (op == "u-") {
+    return emitBin0(op, a, b, ctx)
+  }
+  h = hoist([a, b], ctx)
+  inOrder(h.pre, emitBin0(op, h.ops.at(0), h.ops.at(1), ctx))
+}
+
+emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
+  h = hoist(args, ctx)
+  inOrder(h.pre, emitCall0(name, h.ops, ctx))
+}
+
+emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
+  if (name == "and") || (name == "or") {
+    return emitMethod0(recv, name, args, ctx)
+  }
+  all : List[Expr] = [recv]
+  args.each { a in
+    all.push(a)
+  }
+  h = hoist(all, ctx)
+  rest : List[Expr] = []
+  k = 1
+  while k < h.ops.length {
+    rest.push(h.ops.at(k))
+    k = k + 1
+  }
+  inOrder(h.pre, emitMethod0(h.ops.at(0), name, rest, ctx))
+}
+
 emitList(es : List[Expr], ctx : Ctx) : Str {
+  h = hoist(es, ctx)
+  inOrder(h.pre, emitList0(h.ops, ctx))
+}
+
+// A list literal: start empty, then add each element in order.
+emitList0(es : List[Expr], ctx : Ctx) : Str {
   r = "l_new()"
   k = 0
   m = es.length
@@ -1980,7 +2082,7 @@ listType(es : List[Expr], ctx : Ctx) : Str {
 // `==` on strings is a library call. Float values are stored as the bits of
 // a double, so float math reinterprets through l2d/d2l; integer math is the
 // plain C operator.
-emitBin(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
+emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
   checkBinOp(op, a, b, ctx)
   ca = emitExpr(a, ctx)
   cb = emitExpr(b, ctx)
@@ -2072,7 +2174,7 @@ knownCall(name : Str, ctx : Ctx) : Bool {
   r
 }
 
-emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str {
   if knownCall(name, ctx).not {
     failAt("no function named ".concat(name), ctx)
   }
@@ -2300,8 +2402,11 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
         r = "f_tostr(".concat(recvC).concat(")")
       }
     }
+    if fld == "isInt" {
+      r = "s_isint(".concat(recvC).concat(")")
+    }
     if fld == "toInt" {
-      r = "s_toint(".concat(recvC).concat(")")
+      r = "s_tointc(".concat(recvC).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
       if t == "Float" {
         r = "f_toi(".concat(recvC).concat(")")
       }
@@ -2378,7 +2483,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -2484,7 +2589,7 @@ isNumType(t : Str) : Bool {
 }
 
 isTextField(fld : Str) : Bool {
-  (fld == "length") || (fld == "trim") || (fld == "code") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
+  (fld == "length") || (fld == "trim") || (fld == "code") || (fld == "isInt") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
 }
 
 isTextMethod(name : Str) : Bool {
@@ -2540,7 +2645,7 @@ methodArgs(name : Str) : Int {
   r
 }
 
-emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
+emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   t = exprType(recv, ctx)
   checkCap(recv, name, ctx)
   want = methodArgs(name)
@@ -2775,6 +2880,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
     r = "Str"
   }
   if fld == "not" {
+    r = "Bool"
+  }
+  if fld == "isInt" {
     r = "Bool"
   }
   if isMathField(fld) {
