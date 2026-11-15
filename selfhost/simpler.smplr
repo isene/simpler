@@ -232,6 +232,10 @@ main(sys) {
   sys.screen.print("#include <unistd.h>")
   sys.screen.print("#include <sys/wait.h>")
   sys.screen.print("#include <time.h>")
+  sys.screen.print("#include <termios.h>")
+  sys.screen.print("#include <sys/ioctl.h>")
+  sys.screen.print("#include <signal.h>")
+  sys.screen.print("#include <poll.h>")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
   sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
@@ -315,6 +319,18 @@ main(sys) {
   sys.screen.print("long simpler_curl(long url, long body, long post, long* st) { char* av[16]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
   sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"input.smplr:%ld: could not fetch \\\"%s\\\" (status %ld)\\n\", line, (const char*)(intptr_t)url, st); exit(1); } return out; }")
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
+  sys.screen.print("static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;")
+  sys.screen.print("static void simpler_term_end(void) { if (!simpler_tty) return; simpler_tty = 0; fputs(\"\\033[0m\\033[?25h\\033[?1049l\", stdout); fflush(stdout); tcsetattr(0, TCSAFLUSH, &simpler_tio); if (simpler_err >= 0) { fflush(stderr); dup2(simpler_err, 2); close(simpler_err); simpler_err = -1; if (simpler_errf) { char b[512]; size_t n; rewind(simpler_errf); while ((n = fread(b, 1, sizeof b, simpler_errf)) > 0) fwrite(b, 1, n, stderr); fclose(simpler_errf); simpler_errf = 0; } } }")
+  sys.screen.print("static void simpler_winch(int g) { (void)g; }")
+  sys.screen.print("static void simpler_quit(int g) { exit(128 + g); }")
+  sys.screen.print("static void simpler_term_on(void) { if (simpler_tty) return; if (tcgetattr(0, &simpler_tio) != 0) { fprintf(stderr, \"sys.term needs a terminal on standard input\\n\"); exit(1); } struct termios r = simpler_tio; cfmakeraw(&r); r.c_lflag |= ISIG; tcsetattr(0, TCSADRAIN, &r); static int once = 0; if (!once) { once = 1; atexit(simpler_term_end); struct sigaction sa; memset(&sa, 0, sizeof sa); sa.sa_handler = simpler_winch; sigaction(SIGWINCH, &sa, 0); sa.sa_handler = simpler_quit; sigaction(SIGINT, &sa, 0); sigaction(SIGTERM, &sa, 0); } simpler_errf = tmpfile(); if (simpler_errf) { fflush(stderr); simpler_err = dup(2); dup2(fileno(simpler_errf), 2); } simpler_tty = 1; fputs(\"\\033[?1049h\\033[?25l\\033[2J\", stdout); }")
+  sys.screen.print("long simpler_term_stop(void) { simpler_term_end(); return 0; }")
+  sys.screen.print("long simpler_term_size(long cols) { struct winsize w; if (ioctl(1, TIOCGWINSZ, &w) != 0 || w.ws_row == 0) return cols ? 80 : 24; return cols ? w.ws_col : w.ws_row; }")
+  sys.screen.print("long simpler_term_clear(void) { simpler_term_on(); fputs(\"\\033[0m\\033[2J\", stdout); return 0; }")
+  sys.screen.print("static const char* simpler_style(const char* w, long n) { static const char* k[] = {\"bold\",\"1\",\"dim\",\"2\",\"underline\",\"4\",\"reverse\",\"7\",\"black\",\"30\",\"red\",\"31\",\"green\",\"32\",\"yellow\",\"33\",\"blue\",\"34\",\"magenta\",\"35\",\"cyan\",\"36\",\"white\",\"37\",\"gray\",\"90\",0}; for (int i = 0; k[i]; i += 2) if ((long)strlen(k[i]) == n && strncmp(k[i], w, n) == 0) return k[i + 1]; return 0; }")
+  sys.screen.print("long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_term_size(1) - col; if (row < 0 || col < 0 || row >= simpler_term_size(0) || room <= 0) return 0; printf(\"\\033[%ld;%ldH\\033[0m\", row + 1, col + 1); while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"input.smplr:%ld: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray\\n\", line, (int)n, y); exit(1); } printf(\"\\033[%sm\", c); y += n; } for (; *t; t++) { unsigned char c = (unsigned char)*t; if ((c & 0xC0) != 0x80) { if (room == 0) break; room--; } putchar(c < 32 || c == 127 ? '?' : c); } fputs(\"\\033[0m\", stdout); return 0; }")
+  sys.screen.print("static long simpler_keyname(const char* k) { return (long)(intptr_t)k; }")
+  sys.screen.print("long simpler_term_key(void) { simpler_term_on(); fflush(stdout); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) return simpler_keyname(errno == EINTR ? \"resize\" : \"eof\"); if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)malloc(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_now() { return (long)time(0); }")
   sys.screen.print("long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)malloc(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }")
@@ -565,7 +581,7 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
     whatBody(f.body, f.name, w, sigs)
   }
   out = ""
-  ["screen", "files", "program", "net", "clock", "env", "mail", "stdin", "args"].each { kind in
+  ["screen", "files", "program", "net", "clock", "env", "term", "mail", "stdin", "args"].each { kind in
     out = out.concat(whatKind(w, kind))
   }
   muts = ""
@@ -697,6 +713,9 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   }
   if fld == "now" {
     whatAdd(w, "clock", "reads the time", fn)
+  }
+  if fld == "term" {
+    whatAdd(w, "term", "takes the whole terminal and reads keys", fn)
   }
   whatExpr(recv, fn, w, sigs)
 }
@@ -2342,7 +2361,7 @@ failAt(msg : Str, ctx : Ctx) : Int {
 // Text and numbers cannot be changed, so they are never handed.
 
 plainType(t : Str) : Bool {
-  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Programs").or(t == "Net").or(t == "Clock").or(t == "Env").or(t == "Sys")
+  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Programs").or(t == "Net").or(t == "Clock").or(t == "Env").or(t == "Term").or(t == "Sys")
 }
 
 isHanded(s : Str, ctx : Ctx) : Bool {
@@ -3492,9 +3511,36 @@ isVariant(t : Str, ctx : Ctx) : Bool {
   found
 }
 
+// The full-screen terminal: sizes, one key, clear and stop.
+emitTermField(fld : Str, ctx : Ctx) : Str {
+  r = ""
+  if fld == "key" {
+    r = "simpler_term_key()"
+  }
+  if fld == "rows" {
+    r = "simpler_term_size(0)"
+  }
+  if fld == "cols" {
+    r = "simpler_term_size(1)"
+  }
+  if fld == "clear" {
+    r = "simpler_term_clear()"
+  }
+  if fld == "stop" {
+    r = "simpler_term_stop()"
+  }
+  if r == "" {
+    failAt("a Term has key, rows, cols, clear, stop and put(row, col, text, style); it has no ".concat(fld), ctx)
+  }
+  r
+}
+
 // A `.field` is a record field read, or a no-argument method on a builtin.
 emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
+  if t == "Term" {
+    return emitTermField(fld, ctx)
+  }
   checkSysField(t, fld, ctx)
   checkField(t, fld, ctx)
   recvC = emitExpr(recv, ctx)
@@ -3603,7 +3649,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
 
 // The capability accessors on `sys`: erased at runtime, so they emit as 0.
 isCapField(fld : Str) : Bool {
-  (fld == "screen").or(fld == "files").or(fld == "mail").or(fld == "programs").or(fld == "net").or(fld == "clock").or(fld == "env")
+  (fld == "screen").or(fld == "files").or(fld == "mail").or(fld == "programs").or(fld == "net").or(fld == "clock").or(fld == "env").or(fld == "term")
 }
 
 // The no-argument builtin fields, so UFCS never shadows one.
@@ -3825,6 +3871,16 @@ methodArgs(name : Str) : Int {
 
 emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
+  if t == "Term" {
+    if (name != "put") || (args.length != 4) {
+      failAt("a Term has key, rows, cols, clear, stop and put(row, col, text, style)", ctx)
+    }
+    wantType(args.at(0), "Int", "put", ctx)
+    wantType(args.at(1), "Int", "put", ctx)
+    wantType(args.at(2), "Str", "put", ctx)
+    wantType(args.at(3), "Str", "put", ctx)
+    return "simpler_term_put(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(emitExpr(args.at(2), ctx)).concat(", ").concat(emitExpr(args.at(3), ctx)).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
+  }
   checkCap(recv, name, ctx)
   want = methodArgs(name)
   if want < 0 {
@@ -4171,6 +4227,15 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   }
   if fld == "clock" {
     r = "Clock"
+  }
+  if fld == "term" {
+    r = "Term"
+  }
+  if t == "Term" {
+    r = "Int"
+    if fld == "key" {
+      r = "Str"
+    }
   }
   if fld == "env" {
     r = "Env"

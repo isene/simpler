@@ -336,7 +336,7 @@ doubled(xs : List[Int]) : List[Int] {
 **Capabilities replace imports.** There are no globals and no `import`. `main`
 receives the world as `sys` and passes subsets down. A parameter list is a
 permission set: a function can touch only what it was handed. The capability
-types are `Screen`, `Files`, `Programs`, `Net`, `Clock`, `Env`, `Mail`; they are erased at compile time and cost
+types are `Screen`, `Files`, `Programs`, `Net`, `Clock`, `Env`, `Term`, `Mail`; they are erased at compile time and cost
 nothing at runtime.
 
 `sys` provides:
@@ -359,6 +359,10 @@ nothing at runtime.
 | `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
 | `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
+| `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray; text past the right edge is cut, and control characters in it are shown as `?` |
+| `sys.term.key` | `Str` | — | wait for one key: a character, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`, `ctrl-x`, `resize`, `eof`, `other` |
+| `sys.term.rows`, `sys.term.cols` | `Int` | — | the size of the terminal |
+| `sys.term.clear`, `sys.term.stop` | `Int` | — | empty the terminal; give it back (also done when the program ends, and an error message is shown after that) |
 | `sys.env.var(name)` | `Str` | — | an environment variable (`""` if not set) |
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |

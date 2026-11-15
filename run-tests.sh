@@ -771,6 +771,7 @@ program not used
 net     not used
 clock   not used
 env     not used
+term    not used
 mail    not used
 stdin   not used
 args    not used
@@ -992,6 +993,24 @@ main(sys) {
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > qm.c 2>/dev/null && cc -w -o qm qm.c 2>/dev/null )
 if [ "$( cd "$TMP" && ./qm 2>&1 )" = 'reads "./"' ]; then ok; else nope "a method after the question mark"; fi
+printf '%s' 'show(t : Term, k : Str) {
+  t.put(0, 0, "key " + k, "bold red")
+}
+main(sys) {
+  t = sys.term
+  show(t, "none")
+  k = t.key
+  t.stop
+  sys.screen.print("got " + k + " " + t.cols.toStr)
+  t.put(0, 0, "x", "pink")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > term.c 2>/dev/null && cc -w -o term term.c 2>/dev/null )
+if command -v script >/dev/null; then
+    got="$( cd "$TMP" && printf '\033[A' | script -qec ./term /dev/null 2>&1 | tr -d '\r' )"
+    case "$got" in *"got up 80"*'no style named "pink"'*) ok ;; *) nope "the terminal: a key, a stop, and an error shown after it closes" ;; esac
+fi
+check_err "a Term has no other method" \
+    'main(sys) { sys.term.print("x") }' 'a Term has key, rows, cols, clear, stop and put(row, col, text, style)'
 check_err "join on a list of numbers" \
     'main(sys) { sys.screen.print([1, 2].join(",")) }' 'join puts a list of texts together; List[Int] has no method join'
 check_err "running a program with no runs line" \

@@ -159,6 +159,12 @@ main(sys) {
   miss is expected. The top names each
   host: `fetches "api.github.com"`. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text).
   Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
+- A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
+  (both from 0; the style is "" or words such as "bold red" or "reverse"; text past the right edge is
+  cut). `t.key` waits for one key and gives its name: a letter, " ", "enter", "esc", "tab",
+  "backspace", "delete", "up", "down", "left", "right", "home", "end", "pgup", "pgdn", "ctrl-x",
+  "resize" (the window changed size) or "eof". `t.rows`, `t.cols`, `t.clear`. `t.stop` gives the
+  terminal back; do it before `sys.screen.print`. The loop is: draw, `k = t.key`, act on `k`.
 - No function of yours may be named `run`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
