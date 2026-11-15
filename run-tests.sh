@@ -1641,7 +1641,14 @@ bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" 
 if [ "$bytesout" = 'bytes2.smplr:3: a byte is a number from 0 to 255, but place 1 has 300' ]; then ok; else nope "a byte out of range (got: $bytesout)"; fi
 printf 'reads "./"\nmain(sys) {\n  sys.screen.print(sys.files.readBytes("in.bin").intAt(30, 4))\n}\n' > "$TMP/mod/bytes3.smplr"
 bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes3.smplr 2>&1 )"
-if [ "$bytesout" = 'bytes3.smplr:3: intAt wants 4 bytes from place 30, but the list has 31' ]; then ok; else nope "bytes past the end (got: $bytesout)"; fi
+if [ "$bytesout" = 'bytes3.smplr:3: intAt wants 4 bytes from place 30, but there are 31' ]; then ok; else nope "bytes past the end (got: $bytesout)"; fi
+printf 'reads "./"\nlast(b : Bytes) : Int {\n  b.at(b.length - 1)\n}\nmain(sys) {\n  b = sys.files.readBytes("in.bin")\n  sys.screen.print(last(b))\n  l = [104, 105, 0, 1]\n  sys.screen.print(l.textAt(0, 2) + l.intAt(2, 2).toStr)\n  sys.screen.print(b)\n}\n' > "$TMP/mod/bytes4.smplr"
+bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes4.smplr 2>&1 )"
+if [ "$bytesout" = 'bytes4.smplr:10: Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)' ]; then
+    sed -i '10d' "$TMP/mod/bytes4.smplr"
+    bytesout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run bytes4.smplr 2>&1 | tr '\n' '~' )"
+    if [ "$bytesout" = '122~hi256~' ]; then ok; else nope "the Bytes type and a list of bytes (got: $bytesout)"; fi
+else nope "printing Bytes (got: $bytesout)"; fi
 
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"

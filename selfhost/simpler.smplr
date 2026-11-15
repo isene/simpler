@@ -331,7 +331,14 @@ main(sys) {
   sys.screen.print("static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }")
   sys.screen.print("long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }")
   sys.screen.print("long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }")
-  sys.screen.print("long simpler_readbytes(const char* path) { long l = l_new(); FILE* f = fopen(path, \"rb\"); if (!f) return l; int c; while ((c = fgetc(f)) != EOF) l_push(l, c); fclose(f); return l; }")
+  sys.screen.print("typedef struct { long len; unsigned char* data; } SBytes;")
+  sys.screen.print("long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)malloc(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }")
+  sys.screen.print("long y_len(long yp) { return ((SBytes*)(intptr_t)yp)->len; }")
+  sys.screen.print("long y_atc(long yp, long i, long line) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || i >= y->len) { fprintf(stderr, \"%s: byte %ld, but there are %ld bytes\\n\", simpler_at(line), i, y->len); exit(1); } return y->data[i]; }")
+  sys.screen.print("static SBytes* y_need(long yp, long i, long n, long line, const char* what) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || n < 0 || i + n > y->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but there are %ld\\n\", simpler_at(line), what, n, i, y->len); exit(1); } return y; }")
+  sys.screen.print("long y_text(long yp, long i, long n, long line) { SBytes* y = y_need(yp, i, n, line, \"textAt\"); char* r = (char*)malloc(n + 1); long o = 0; for (long k = 0; k < n; k++) { unsigned char v = y->data[i + k]; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long y_int(long yp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SBytes* y = y_need(yp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }")
+  sys.screen.print("long y_float(long yp, long i, long line) { SBytes* y = y_need(yp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }")
   sys.screen.print("long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, \"%s: a byte is a number from 0 to 255, but place %ld has %ld\\n\", simpler_at(line), k, l->data[k]); exit(1); } FILE* f = fopen((const char*)(intptr_t)path, \"wb\"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }")
   sys.screen.print("static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but the list has %ld\\n\", simpler_at(line), what, n, i, l->len); exit(1); } return l; }")
   sys.screen.print("long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)malloc(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
@@ -2691,7 +2698,7 @@ failAt(msg : Str, ctx : Ctx) : Int {
 // Text and numbers cannot be changed, so they are never handed.
 
 plainType(t : Str) : Bool {
-  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Programs").or(t == "Net").or(t == "Clock").or(t == "Env").or(t == "Term").or(t == "Sys")
+  (t == "Int").or(t == "Str").or(t == "Bool").or(t == "Float").or(t == "Screen").or(t == "Files").or(t == "Mail").or(t == "Programs").or(t == "Net").or(t == "Clock").or(t == "Env").or(t == "Term").or(t == "Bytes").or(t == "Sys")
 }
 
 isHanded(s : Str, ctx : Ctx) : Bool {
@@ -3879,6 +3886,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if isRec(t, ctx).not {
     if fld == "length" {
       r = "s_len(".concat(recvC).concat(")")
+      if t == "Bytes" {
+        r = "y_len(".concat(recvC).concat(")")
+      }
       if isListType(t) {
         r = "l_len(".concat(recvC).concat(")")
       }
@@ -4108,6 +4118,9 @@ checkField(t : Str, fld : Str, ctx : Ctx) : Int {
     if isNumType(t) && isTextField(fld) {
       failAt(t.concat(" has no method ").concat(fld), ctx)
     }
+    if (t == "Bytes") && (fld != "length") {
+      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i) and textAt(i, n); no ".concat(fld), ctx)
+    }
     if isRec(t, ctx).not && isBuiltinField(fld).not {
       failAt("no field or function named ".concat(fld), ctx)
     }
@@ -4132,6 +4145,9 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
   if hasName(ctx.sigs.fnNames, name).not {
     if isNumType(t) && isTextMethod(name) {
       failAt(t.concat(" has no method ").concat(name), ctx)
+    }
+    if (t == "Bytes") && (name != "at") && (name != "intAt") && (name != "floatAt") && (name != "textAt") {
+      failAt("Bytes has length, at(i), intAt(i, n), floatAt(i) and textAt(i, n); no ".concat(name), ctx)
     }
     if (name == "at") && (args.length == 1) {
       at = exprType(args.at(0), ctx)
@@ -4163,8 +4179,8 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
       }
     }
     if (name == "textAt") || (name == "intAt") || (name == "floatAt") {
-      if t != "List[Int]" {
-        failAt(name.concat(" reads from a list of bytes, a List[Int]; got ").concat(t), ctx)
+      if (t != "List[Int]") && (t != "Bytes") {
+        failAt(name.concat(" reads from Bytes or a List[Int]; got ").concat(t), ctx)
       }
       for a in args {
         if exprType(a, ctx) != "Int" {
@@ -4175,6 +4191,11 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
     if (name == "writeBytes") && (args.length == 2) {
       if exprType(args.at(1), ctx) != "List[Int]" {
         failAt("writeBytes takes a path and a List[Int] of bytes, got ".concat(exprType(args.at(1), ctx)), ctx)
+      }
+    }
+    if ((name == "print") || (name == "part")) && (args.length == 1) {
+      if exprType(args.at(0), ctx) == "Bytes" {
+        failAt("Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx)
       }
     }
     if (name == "json") && (args.length == 1) {
@@ -4250,6 +4271,9 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     failAt(name.concat(" takes ").concat(want.toStr).concat(" values, got ").concat(args.length.toStr), ctx)
   }
   if name == "print" && hasName(ctx.sigs.fnNames, name).not {
+    if exprType(args.at(0), ctx) == "Bytes" {
+      failAt("Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx)
+    }
     emitExpr(recv, ctx)
     return "(".concat(emitPrint(args.at(0), ctx)).concat(", 0L)")
   }
@@ -4265,6 +4289,9 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "at" {
     r = "s_atc(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+    if t == "Bytes" {
+      r = "y_atc(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+    }
     if isListType(t) {
       r = "l_atc(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
     }
@@ -4353,12 +4380,21 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "textAt" {
     r = "b_text(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    if t == "Bytes" {
+      r = "y_text(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    }
   }
   if name == "intAt" {
     r = "b_int(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    if t == "Bytes" {
+      r = "y_int(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    }
   }
   if name == "floatAt" {
     r = "b_float(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+    if t == "Bytes" {
+      r = "y_float(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+    }
   }
   if name == "write" {
     mayCheck(args.at(0), ctx.sigs.writes, "write", "writes", ctx)
@@ -4713,7 +4749,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
     r = "Str"
   }
   if name == "readBytes" {
-    r = "List[Int]"
+    r = "Bytes"
   }
   if name == "intAt" {
     r = "Int"
@@ -4763,6 +4799,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "at" {
     r = "Str"
     rt = exprType(recv, ctx)
+    if rt == "Bytes" {
+      r = "Int"
+    }
     if isListType(rt) {
       r = elemOf(rt)
     }

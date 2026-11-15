@@ -152,10 +152,11 @@ main(sys) {
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line, `"~/"` the home folder. Any other file is refused.
 - `sys.screen.part(text)` prints with no line end.
-- A file that is no text: `b = sys.files.readBytes(path)` is a `List[Int]`, one number 0 to 255 per byte;
-  `b.intAt(i, n)` is the whole number in the `n` bytes (1 to 8) from place `i`, lowest byte first;
-  `b.floatAt(i)` the Float in 8 bytes; `b.textAt(i, n)` those `n` bytes as text. `s.bytes` is a text as
-  bytes, and `sys.files.writeBytes(path, b)` writes them.
+- A file that is no text: `b = sys.files.readBytes(path)` is of type `Bytes`: `b.length`, `b.at(i)` (a number
+  0 to 255), `b.intAt(i, n)` (the whole number in the `n` bytes, 1 to 8, from place `i`, lowest byte first),
+  `b.floatAt(i)` (the Float in 8 bytes), `b.textAt(i, n)` (those `n` bytes as text). Bytes cannot be changed,
+  looped over or printed. To write, fill a `List[Int]`: `sys.files.writeBytes(path, [80, 75, 3, 4])`;
+  `s.bytes` is a text as such a list.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
