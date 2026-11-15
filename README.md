@@ -182,28 +182,18 @@ the mean of the numbers on its input:
 printf '1.5\n2.5\n3\n4.0\n' | average    # 2.75
 ```
 
-The original **Rust bootstrap** still lives in [`bootstrap/`](bootstrap/) as the
-fuller reference (it also checks effects and exhaustiveness, and provides `fmt`
-and `test`), but the language no longer depends on it:
-
-```bash
-cd bootstrap
-cargo build --release
-./target/release/simpler run examples/m3.smplr      # build and run
-./target/release/simpler emit examples/m3.smplr     # show the generated C
-```
-
-Commands: `run`, `build`, `emit`, `fmt` (format in place, canonical and
-comment-preserving), and `test` (run the file's `test_*` functions).
+The original Rust bootstrap is retired. It is in the git history up to
+commit a3834a2; its checks and its `test` runner now live in the self-hosted
+compiler. `./simpler test` runs the `test_*` functions of `input.smplr`.
+There is no formatter.
 
 ## Development
 
 The compiler has its own regression harness: golden output for every example,
-expected error messages for known-bad programs, `fmt` idempotence, and the
-`test` runner. One command, green or red:
+expected error messages for known-bad programs, and the `test` runner. One
+command, green or red:
 
 ```bash
-cd bootstrap
 ./run-tests.sh
 ```
 

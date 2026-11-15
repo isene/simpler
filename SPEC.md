@@ -79,6 +79,8 @@ main(sys) {
   and effects are optional; the return type defaults to `Int`.
 - The **value of a function is its last bare expression**. `return expr`
   leaves the function early with that value, from inside an `if` or a loop.
+  A bare `return` as the last line of a block leaves `main`, or a function
+  with no value.
   `main` returns nothing.
 
 ```
@@ -303,7 +305,7 @@ nothing at runtime.
 
 | Send | Type | Effect | Meaning |
 |------|------|--------|---------|
-| `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool`, with a newline |
+| `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool` (as `true` / `false`), with a newline |
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
 | `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` (truncates) |
 | `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
@@ -332,6 +334,21 @@ main(sys) {
   }
   text = sys.files.read(args.at(0))?
   sys.screen.print(text)
+}
+```
+
+### Tests
+
+A function named `test_...` with no parameters is a test. `assert(cond)` takes
+a `Bool` and marks the test failed when it is false. `simpler test` leaves
+`main` out, runs every test, prints `PASS name` or `FAIL name` for each and a
+final count, and exits non-zero if any failed.
+
+```
+twice(n : Int) : Int { n + n }
+
+test_twice() {
+  assert(twice(21) == 42)
 }
 ```
 
@@ -409,9 +426,7 @@ cp wordfreq.smplr input.smplr
 cc out.c -o wordfreq
 ```
 
-The frozen [`bootstrap/`](bootstrap/) Rust compiler is the original reference;
-it adds a `fmt` formatter and a `test` runner but the language no longer depends
-on it.
+`./simpler test > tests.c` writes the test runner in place of the program.
 
 ---
 

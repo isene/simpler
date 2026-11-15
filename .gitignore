@@ -1,14 +1,11 @@
-# Rust build output for the bootstrap compiler
-/bootstrap/target/
-
-# Transpiler artifacts written next to example sources (.c files + binaries);
+# Compiler output written next to example sources (.c files + binaries);
 # keep only the .smplr sources under version control.
-/bootstrap/examples/*
-!/bootstrap/examples/*.smplr
+/examples/*
+!/examples/*.smplr
 
 # Claude Code session/harness state
 /.claude/
-!/bootstrap/examples/*.txt
+!/examples/*.txt
 
 # Self-hosted compiler build artifacts (keep simpler.c, the C seed, and *.smplr)
 /selfhost/simpler

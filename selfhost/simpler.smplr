@@ -232,6 +232,8 @@ main(sys) {
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
   sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
+  sys.screen.print("long simpler_failed = 0;")
+  sys.screen.print("long s_assert(long c) { if (!c) simpler_failed = 1; return 0; }")
   prog.types.each { t in
     sys.screen.print(emitType(t))
   }
@@ -243,9 +245,35 @@ main(sys) {
       sys.screen.print(emitProto(f))
     }
   }
-  prog.fns.each { f in
-    sys.screen.print(emitFn(f, sigs))
+  // `simpler test` leaves main out and runs every test_* function instead.
+  testing = sys.args.length > 0 && sys.args.at(0) == "test"
+  if testing.not && hasName(sigs.fnNames, "main").not {
+    fail("input.smplr: no main function found")
   }
+  prog.fns.each { f in
+    if (testing && isMain(f.name)).not {
+      sys.screen.print(emitFn(f, sigs))
+    }
+  }
+  if testing {
+    sys.screen.print(emitTests(prog.fns))
+  }
+}
+
+isTest(name : Str) : Bool {
+  name.length > 5 && name.slice(0, 5) == "test_"
+}
+
+emitTests(fns : List[Fn]) : Str {
+  out = "int main(void) {\n  long failures = 0;\n  long total = 0;"
+  fns.each { f in
+    if isTest(f.name) {
+      c = mangle(f.name)
+      out = out.concat("\n  simpler_failed = 0; total = total + 1; ").concat(c).concat("();")
+      out = out.concat("\n  if (simpler_failed) { printf(\"FAIL ").concat(f.name).concat("\\n\"); failures = failures + 1; } else { printf(\"PASS ").concat(f.name).concat("\\n\"); }")
+    }
+  }
+  out.concat("\n  printf(\"\\n%ld/%ld passed\\n\", total - failures, total);\n  return failures ? 1 : 0;\n}")
 }
 
 buildSigs(prog : Prog) : Sigs {
@@ -458,8 +486,13 @@ parseStmt(toks : List[Tok], i : Int) : PStmt {
     r = parseWhile(toks, i)
   }
   if isWord(toks, i, "return") {
-    re = parseExpr(toks, i + 1)
-    r = PStmt(node = Ret(re.node), next = re.next)
+    // a bare `return` just before `}` leaves a function that has no value
+    if isPunct(toks, i + 1, "}") {
+      r = PStmt(node = Ret(Num(0)), next = i + 1)
+    } else {
+      re = parseExpr(toks, i + 1)
+      r = PStmt(node = Ret(re.node), next = re.next)
+    }
   }
   r
 }
@@ -711,6 +744,9 @@ parseArm(toks : List[Tok], j : Int) : PArm {
     }
     k = k + 1
   }
+  if isPunct(toks, k + 1, "{") {
+    fail("input.smplr: match case ".concat(tag).concat(": an arm is one expression, not a { } block; call a function for more"))
+  }
   ae = parseExpr(toks, k + 1)
   PArm(arm = Arm(tag = tag, binds = binds, body = ae.node), next = ae.next)
 }
@@ -906,10 +942,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     out = out.concat("\n").concat(emitStmt(f.body.at(k), last, ctx))
     k = k + 1
   }
-  if isMain(f.name) {
-    out = out.concat("\n  return 0;")
-  }
-  out.concat("\n}")
+  out.concat("\n  return 0;\n}")
 }
 
 paramDecls(f : Fn) : Str {
@@ -979,6 +1012,9 @@ seedStmt(s : Stmt, ctx : Ctx) : Int {
 // A name keeps one type through a function. Binding it again with another
 // type is refused here, since every later use would be read with the wrong one.
 seedLet(name : Str, ty : Str, ctx : Ctx) : Int {
+  if ty == "List" {
+    failAt("an empty [] needs a type, as in ".concat(name).concat(" : List[Int] = []"), ctx)
+  }
   if hasName(ctx.env.names, name) {
     old = envGet(ctx.env, name)
     if compatible(old, ty, ctx).not {
@@ -1208,10 +1244,28 @@ emitBlock(body : List[Stmt], ctx : Ctx) : Str {
 
 emitBare(e : Expr, asReturn : Bool, ctx : Ctx) : Str {
   r = stmtExpr(e, ctx)
-  if asReturn {
+  if asReturn && stmtOnly(e).not {
     r = emitReturn(e, ctx)
   }
   r
+}
+
+// A print or an `.each` loop has no value. As the last line of a function it
+// must still run; the function then returns 0 (emitFn adds that).
+stmtOnly(e : Expr) : Bool {
+  e.match {
+    Each(recv, param, body) -> true
+    Method(recv, name, args) -> name == "print"
+    Match(scrut, arms) -> false
+    Num(v) -> false
+    FloatLit(s) -> false
+    Var(s) -> false
+    StrLit(s) -> false
+    ListLit(es) -> false
+    Bin(op, a, b) -> false
+    Call(name, args) -> false
+    Field(recv, fld) -> false
+  }
 }
 
 // A bare statement: an `each` loop, a `print`, or a plain expression.
@@ -1240,7 +1294,7 @@ exprStmt(e : Expr, ctx : Ctx) : Str {
 emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
   if name == "print" {
-    r = emitPrint(args.at(0), ctx)
+    r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
   }
   r
 }
@@ -1250,7 +1304,7 @@ emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
 emitMethodStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
   if name == "print" {
-    r = emitPrint(args.at(0), ctx)
+    r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
   }
   r
 }
@@ -1269,7 +1323,11 @@ emitPrint(arg : Expr, ctx : Ctx) : Str {
     cast = "(const char*)(intptr_t)"
     val = "f_tostr(".concat(val).concat(")")
   }
-  "  printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(val).concat(");")
+  if t == "Bool" {
+    fmt = "%s"
+    val = "(".concat(val).concat(" ? \"true\" : \"false\")")
+  }
+  "printf(\"".concat(fmt).concat("\\n\", ").concat(cast).concat(val).concat(")")
 }
 
 // `recv.each { x in body }` lowers to a counted C loop over the list. The
@@ -1450,6 +1508,9 @@ checkArities(t : TyDef, arms : List[Arm], ctx : Ctx) : Int {
   while k < m {
     a = arms.at(k)
     ar = caseArityIn(t, a.tag)
+    if ar < 0 {
+      failAt(t.name.concat(" has no case ").concat(a.tag), ctx)
+    }
     if (ar < 0).not {
       if (a.binds.length == ar).not {
         failAt("match case ".concat(a.tag).concat(" binds ").concat(a.binds.length.toStr).concat(", expected ").concat(ar.toStr), ctx)
@@ -1782,9 +1843,34 @@ isArithOp(op : Str) : Bool {
   (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "<").or(op == ">").or(op == "<=").or(op == ">=").or(op == "%")
 }
 
+// A call must name something that exists: a function of this program, a
+// record, a variant case, or one of the three built-ins.
+knownCall(name : Str, ctx : Ctx) : Bool {
+  r = hasName(ctx.sigs.fnNames, name).or(hasName(ctx.sigs.recNames, name))
+  if (variantOf(name, ctx) == "").not {
+    r = true
+  }
+  if (name == "Map").or(name == "fail").or(name == "assert") {
+    r = true
+  }
+  r
+}
+
 emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str {
+  if knownCall(name, ctx).not {
+    failAt("no function named ".concat(name), ctx)
+  }
   checkCall(name, args, ctx)
   cn = name
+  if name == "assert" {
+    cn = "s_assert"
+    if (args.length == 1).not {
+      failAt("assert takes one Bool", ctx)
+    }
+    if (exprType(args.at(0), ctx) == "Bool").not {
+      failAt("assert needs a Bool, got ".concat(exprType(args.at(0), ctx)), ctx)
+    }
+  }
   if hasName(ctx.sigs.fnNames, name) {
     cn = mangle(name)
   }
@@ -1861,7 +1947,20 @@ checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
   while k < m {
     rec = recs.at(k)
     if rec.name == name {
+      if (args.length == rec.ftypes.length).not {
+        failAt(name.concat(" has ").concat(rec.ftypes.length.toStr).concat(" fields, got ").concat(args.length.toStr).concat(": a missing field or one too many"), ctx)
+      }
       checkArgTypes(name, rec.ftypes, args, ctx)
+    }
+    k = k + 1
+  }
+  types = ctx.sigs.types
+  k = 0
+  m = types.length
+  while k < m {
+    ar = caseArityIn(types.at(k), name)
+    if (ar < 0).not && (args.length == ar).not {
+      failAt("case ".concat(name).concat(" takes ").concat(ar.toStr).concat(" values, got ").concat(args.length.toStr), ctx)
     }
     k = k + 1
   }
@@ -1934,6 +2033,9 @@ notInt(t : Str, ctx : Ctx) : Bool {
 // the variant's type, e.g. `Neg` is a `Sign`).
 varType(s : Str, ctx : Ctx) : Str {
   r = envGet(ctx.env, s)
+  if (s == "true") || (s == "false") {
+    r = "Bool"
+  }
   vt = variantOf(s, ctx)
   if (vt == "").not {
     r = vt
@@ -1959,6 +2061,7 @@ isVariant(t : Str, ctx : Ctx) : Bool {
 emitField(recv : Expr, fld : Str, ctx : Ctx) : Str {
   t = exprType(recv, ctx)
   checkSysField(t, fld, ctx)
+  checkField(t, fld, ctx)
   recvC = emitExpr(recv, ctx)
   r = "((".concat(t).concat("T*)(intptr_t)").concat(recvC).concat(")->").concat(fld)
   if isRec(t, ctx).not {
@@ -2137,6 +2240,56 @@ capShow(t : Str) : Str {
   r
 }
 
+// A field or a no-argument method must exist on the type it is read from.
+checkField(t : Str, fld : Str, ctx : Ctx) : Int {
+  if useUFCS(t, fld, ctx).not {
+    if isRec(t, ctx) && recHasField(t, fld, ctx).not {
+      failAt(t.concat(" has no field ").concat(fld), ctx)
+    }
+    if isVariant(t, ctx) {
+      failAt(t.concat(" is a variant and has no field ").concat(fld).concat("; read it with match"), ctx)
+    }
+    if isNumType(t) && isTextField(fld) {
+      failAt(t.concat(" has no method ").concat(fld), ctx)
+    }
+  }
+  0
+}
+
+isNumType(t : Str) : Bool {
+  (t == "Int") || (t == "Float") || (t == "Bool")
+}
+
+isTextField(fld : Str) : Bool {
+  (fld == "length") || (fld == "trim") || (fld == "code") || (fld == "keys") || (fld == "byValue") || (fld == "sort")
+}
+
+isTextMethod(name : Str) : Bool {
+  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
+}
+
+// A method must exist on its receiver, and `at` / `push` take the right type.
+checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int {
+  if hasName(ctx.sigs.fnNames, name).not {
+    if isNumType(t) && isTextMethod(name) {
+      failAt(t.concat(" has no method ").concat(name), ctx)
+    }
+    if (name == "at") && (args.length == 1) {
+      at = exprType(args.at(0), ctx)
+      if (at == "Str") || (at == "Float") {
+        failAt("at expects Int, got ".concat(at), ctx)
+      }
+    }
+    if (name == "push") && isListType(t) && (args.length == 1) {
+      pt = exprType(args.at(0), ctx)
+      if compatible(elemOf(t), pt, ctx).not {
+        failAt("push expects ".concat(elemOf(t)).concat(", got ").concat(pt), ctx)
+      }
+    }
+  }
+  0
+}
+
 isSysField(fld : Str) : Bool {
   isCapField(fld).or(fld == "args").or(fld == "stdin")
 }
@@ -2155,6 +2308,11 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   t = exprType(recv, ctx)
   checkCap(recv, name, ctx)
+  if name == "print" && hasName(ctx.sigs.fnNames, name).not {
+    emitExpr(recv, ctx)
+    return "(".concat(emitPrint(args.at(0), ctx)).concat(", 0L)")
+  }
+  checkMethod(t, name, args, ctx)
   recvC = emitExpr(recv, ctx)
   r = "0"
   if name == "concat" {
@@ -2288,6 +2446,9 @@ emitArgs(args : List[Expr], ctx : Ctx) : Str {
 // always a Bool (Int), whatever the operands.
 binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str {
   r = "Int"
+  if (op == "==") || (op == "<") || (op == ">") || (op == "<=") || (op == ">=") || (op == "&&") || (op == "||") {
+    r = "Bool"
+  }
   if op == "u-" {
     r = exprType(b, ctx)
   }
@@ -2329,6 +2490,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str {
   }
   if fld == "trim" {
     r = "Str"
+  }
+  if fld == "not" {
+    r = "Bool"
   }
   if isMathField(fld) {
     r = "Float"
@@ -2423,7 +2587,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str {
   if name == "atan2" {
     r = "Float"
   }
-  if name == "has" {
+  if (name == "has") || (name == "and") || (name == "or") || (name == "ge") || (name == "le") {
     r = "Bool"
   }
   if name == "get" {

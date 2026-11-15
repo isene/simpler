@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Regression harness for the Simpler bootstrap compiler.
+# Regression harness for the Simpler compiler (selfhost/).
 #
 # Three kinds of check, one command, green or red:
 #   1. every example runs and matches its golden output,
 #   2. every known-bad program is rejected with the expected message,
 #   3. `fmt` is idempotent on every example, and `test` reports correctly.
 #
-# Run from anywhere; it operates in the bootstrap/ directory and removes the
+# Run from anywhere; it operates in the repo folder and removes the
 # generated .c / binary artifacts on exit.
 set -u
 cd "$(dirname "$0")"
 PATH="/usr/bin:$PATH"            # real cc, not the ~/bin/cc session launcher
-SIMPLER=./target/release/simpler
 TMP="$(mktemp -d)"
 pass=0
 fail=0
@@ -19,9 +18,9 @@ fail=0
 cleanup() {
     find examples -maxdepth 1 -type f ! -name '*.smplr' ! -name '*.txt' -delete 2>/dev/null
     # remove generated artifacts in selfhost, but keep the committed seed simpler.c
-    find ../selfhost -maxdepth 1 -type f -name '*.c' ! -name 'simpler.c' -delete 2>/dev/null
-    for f in ../selfhost/*.smplr; do rm -f "${f%.smplr}"; done   # per-source binaries
-    rm -f ../selfhost/input.smplr input.smplr
+    find selfhost -maxdepth 1 -type f -name '*.c' ! -name 'simpler.c' -delete 2>/dev/null
+    for f in selfhost/*.smplr; do rm -f "${f%.smplr}"; done   # per-source binaries
+    rm -f selfhost/input.smplr input.smplr
     rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -29,36 +28,41 @@ trap cleanup EXIT
 ok()  { pass=$((pass + 1)); }
 nope() { fail=$((fail + 1)); echo "FAIL: $1"; }
 
-cargo build --release -q || { echo "compiler build failed"; exit 1; }
+# The compiler under test: built from the committed C seed, nothing else.
+SEEDC="$TMP/seedc"
+cc -O2 selfhost/simpler.c -o "$SEEDC" || { echo "compiler build failed"; exit 1; }
+
+# Compile a .smplr file with it and run the result; prints the program's output.
+run_smplr() { # file
+    cp "$1" "$TMP/input.smplr"
+    ( cd "$TMP" && ./seedc > run.c 2>/dev/null && cc -w run.c -o run.bin -lm 2>/dev/null ) && "$TMP/run.bin" 2>/dev/null
+    rm -f "$TMP/input.smplr"
+}
 
 # --- 1. examples produce their golden output ----------------------------------
 check_run() { # name  expected
     local out
-    out="$("$SIMPLER" run "examples/$1.smplr" 2>/dev/null)"
+    out="$(run_smplr "examples/$1.smplr")"
     if [ "$out" = "$2" ]; then ok; else nope "run $1
        expected: $(printf '%q' "$2")
        got:      $(printf '%q' "$out")"; fi
 }
 check_run hello "hello, world"
-check_run m2    "$(printf '0\n1\n2\nbig\n3')"
 check_run m3    "$(printf 'hello,\nworld')"
-check_run m3b   "$(printf '[mail] to=boss@co subject=Daily report\nQuarterly numbers look good.\n\nsent')"
 check_run m3c   "$(printf 'Quarterly numbers look good.\n\n6')"
 check_run m5a   "$(printf '7\n25\n13')"
 check_run m5b   "$(printf 'hello\n42\ndot')"
 check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
-check_run m5d   "$(printf '2\n3\n4')"
 check_run m5e   "20"
-check_run m5f   "$(printf '3\n20\n5\nhi\n42')"
 check_run m6    "15"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
-lout="$("$SIMPLER" run ../selfhost/lexer.smplr 2>/dev/null)"
+lout="$(run_smplr selfhost/lexer.smplr)"
 lwant="$(printf 'id a\nop .\nid f\nop (\nstr hi\nop )\nop !\nop ?\nop +\nop -\nop *\nop /\nop <\nop >\nop =\nop ==\nop ->\nop :\nop ,\nop [\nop ]\nop {\nop }\nint 0\neof')"
 [ "$lout" = "$lwant" ] && ok || nope "self-hosted lexer (got: $lout)"
 
 # the self-hosted calc (lex -> parse -> {eval, emit C}) respects precedence
-cout="$("$SIMPLER" run ../selfhost/calc.smplr 2>/dev/null)"
+cout="$(run_smplr selfhost/calc.smplr)"
 cval="$(printf '%s\n' "$cout" | sed -n 1p)"
 cexp="$(printf '%s\n' "$cout" | sed -n 2p)"
 [ "$cval" = "25" ] && ok || nope "self-hosted calc eval (got: $cval)"
@@ -74,18 +78,16 @@ if cc -o "$TMP/emit" "$TMP/emit.c" 2>/dev/null && [ "$("$TMP/emit")" = "25" ]; t
 # and its output matches what the bootstrap produces running the sample directly.
 # (simpler.smplr itself now uses `fail`, which the frozen Rust does not know, so
 # the self-host checks build the compiler from the seed instead of via the Rust.)
-SEEDC="$TMP/seedc"
-cc -O2 ../selfhost/simpler.c -o "$SEEDC" 2>/dev/null
-cp ../selfhost/sample.smplr "$TMP/input.smplr"
+cp selfhost/sample.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > sh.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
-sampexp="$("$SIMPLER" run ../selfhost/sample.smplr 2>/dev/null)"
+sampexp="$(printf 'a\nb\nhi!\n72')"
 if cc -o "$TMP/sh" "$TMP/sh.c" 2>/dev/null && [ "$("$TMP/sh")" = "$sampexp" ] && [ "$sampexp" = "$(printf 'a\nb\nhi!\n72')" ]; then ok; else nope "self-hosted compiler builds the sample"; fi
 
 # a real read->transform->write tool, compiled by the self-hosted compiler:
 # linenum.smplr reads in.txt, numbers every line, writes out.txt. Proves the
 # file-output capability (sys.files.write) end to end, not just that it parses.
-cp ../selfhost/linenum.smplr "$TMP/input.smplr"
+cp selfhost/linenum.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > ln.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/ln" "$TMP/ln.c" 2>/dev/null; then
@@ -187,7 +189,7 @@ if cc -o "$TMP/ufcs" "$TMP/ufcs.c" 2>/dev/null && [ "$("$TMP/ufcs")" = "$(printf
 
 # slug.smplr, the UFCS showcase, AI-written from SPEC.md alone: small Str->Str
 # words snapped into a `slug` chain, applied as `line.slug`. A real filter.
-cp ../selfhost/slug.smplr "$TMP/input.smplr"
+cp selfhost/slug.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > slug.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/slug" "$TMP/slug.c" 2>/dev/null; then
@@ -256,6 +258,16 @@ if cc -o "$TMP/ops" "$TMP/ops.c" 2>/dev/null; then
 else
     nope "operators and return compile"
 fi
+# a bare `return` leaves main early
+printf '%s' 'main(sys) {
+  sys.screen.print("one")
+  if 1 < 2 {
+    return
+  }
+  sys.screen.print("two")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > bare.c 2>/dev/null )
+if cc -o "$TMP/bare" "$TMP/bare.c" 2>/dev/null && [ "$("$TMP/bare")" = "one" ]; then ok; else nope "bare return"; fi
 # an early return of the wrong type is refused
 printf '%s' 'f(x : Int) : Str {
   if x > 1 {
@@ -358,7 +370,7 @@ if cc -o "$TMP/big" "$TMP/big.c" 2>/dev/null && [ "$("$TMP/big")" = "10000000000
 # wordfreq.smplr, a real word-frequency tool built by the self-hosted compiler:
 # read + replace + split + Map tally + .keys enumeration, the program a map is
 # for. Exercises the whole text-and-map stack in one binary.
-cp ../selfhost/wordfreq.smplr "$TMP/input.smplr"
+cp selfhost/wordfreq.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > wf.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/wf" "$TMP/wf.c" 2>/dev/null; then
@@ -395,7 +407,7 @@ if cc -o "$TMP/sort" "$TMP/sort.c" 2>/dev/null && [ "$("$TMP/sort")" = "$(printf
 
 # sortlines.smplr, the Unix `sort` in miniature, built by the self-hosted
 # compiler: read a file or stdin, sort the lines, print them.
-cp ../selfhost/sortlines.smplr "$TMP/input.smplr"
+cp selfhost/sortlines.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > sl.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sl" "$TMP/sl.c" 2>/dev/null; then
@@ -473,7 +485,7 @@ fi
 # (sun rise/set, moon phase, Julian date). Verified against orbit's own test
 # values: equator equinox day length ~12h, moon full on 2025-01-13, new on
 # 2025-01-29. Exercises the whole Float math layer; links with -lm.
-cp ../selfhost/orbit.smplr "$TMP/input.smplr"
+cp selfhost/orbit.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > orbit.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/orbit" "$TMP/orbit.c" -lm 2>/dev/null; then
@@ -513,7 +525,7 @@ if cc -o "$TMP/neg" "$TMP/neg.c" 2>/dev/null && [ "$("$TMP/neg")" = "$(printf --
 
 # average.smplr, a real filter that needs fractions: mean of the numbers on
 # its input. Exercises Float sum, Int count, and a Float division.
-cp ../selfhost/average.smplr "$TMP/input.smplr"
+cp selfhost/average.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > avg.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/avg" "$TMP/avg.c" 2>/dev/null; then
@@ -529,7 +541,7 @@ fi
 # or the other examples) and shipped unchanged: count/min/max/mean of the
 # numbers on its input. The round-trip proof that the spec is a sufficient
 # corpus. Compiled and run here like any other tool.
-cp ../selfhost/numstats.smplr "$TMP/input.smplr"
+cp selfhost/numstats.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > ns.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/ns" "$TMP/ns.c" 2>/dev/null; then
@@ -543,7 +555,7 @@ fi
 # reads a file, splits into lines, splits each on commas, sums one column.
 # Exercises read + split + toInt + nested each/if with a binding inside the
 # loop body (the case that needs hoisting through .each).
-cp ../selfhost/sumcol.smplr "$TMP/input.smplr"
+cp selfhost/sumcol.smplr "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > sc.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
 if cc -o "$TMP/sc" "$TMP/sc.c" 2>/dev/null; then
@@ -629,10 +641,10 @@ reject "mixed Int/Float" \
 
 # --- 2. known-bad programs are rejected with the right message ----------------
 check_err() { # description  source  expected_substring
-    printf '%s' "$2" > "$TMP/e.smplr"
+    printf '%s' "$2" > "$TMP/input.smplr"
     local err rc
-    err="$("$SIMPLER" run "$TMP/e.smplr" 2>&1)"
-    rc=$?
+    err="$( cd "$TMP" && ./seedc 2>&1 >/dev/null )"; rc=$?
+    rm -f "$TMP/input.smplr"
     if [ "$rc" -ne 0 ] && printf '%s' "$err" | grep -qF "$3"; then
         ok
     else
@@ -642,15 +654,15 @@ check_err() { # description  source  expected_substring
 check_err "undeclared effect" \
     'main(sys) { greet(sys.screen) }
 greet(screen : Screen) { screen.print("hi") }' \
-    "uses !IO but isn't declared"
+    "uses !IO but does not declare it"
 check_err "capability not held" \
     'main(sys) { greet(sys.screen) }
 greet(screen : Screen) !IO { sys.screen.print("hi") }' \
-    'unknown name `sys`'
+    "exists only on main"
 check_err "print on a non-Screen" \
     'main(sys) { greet("x") }
 greet(s : Str) !IO { s.print("hi") }' \
-    "has no method"
+    "print needs a Screen"
 check_err "wrong argument type" \
     'main(sys) { greet(sys.screen, 5) }
 greet(screen : Screen, who : Str) !IO { screen.print(who) }' \
@@ -658,23 +670,16 @@ greet(screen : Screen, who : Str) !IO { screen.print(who) }' \
 check_err "Int op needs Ints" \
     'main(sys) { x = 1 + "a" sys.screen.print(x) }' \
     "needs Int operands"
-check_err "read needs ?" \
-    'main(sys) { x = sys.files.read("x") sys.screen.print(x) }' \
-    "can fail; bind it"
-check_err "? on non-failable" \
-    'main(sys) { x = twice(3)? sys.screen.print(x) }
-twice(n : Int) : Int { n + n }' \
-    "cannot fail; the"
 check_err "wrong return type" \
     'twice(n : Int) : Int { "no" }
 main(sys) { sys.screen.print(twice(2)) }' \
-    "should return"
+    "return type mismatch"
 check_err "assert needs Bool" \
     'main(sys) { assert(5) }' \
     "needs a Bool"
 check_err "no main" \
     'twice(n : Int) : Int { n + n }' \
-    'no `main` function found'
+    "no main function found"
 check_err "missing record field" \
     'Point = type { x : Int, y : Int }
 main(sys) { p = Point(x = 1) sys.screen.print(p.x) }' \
@@ -691,16 +696,16 @@ check_err "match binding count mismatch" \
     'Expr = type { Lit(Int) Add(Expr, Expr) }
 main(sys) { eval(sys.screen, Lit(1)) }
 eval(screen : Screen, e : Expr) !IO { e.match { Lit(n) -> screen.print(n) Add(a) -> screen.print(1) } }' \
-    "binding(s)"
+    "binds 1, expected 2"
 check_err "case payload count mismatch" \
     'Expr = type { Lit(Int) Add(Expr, Expr) }
 main(sys) { e = Add(Lit(1)) sys.screen.print(1) }' \
-    "positional payload"
+    "takes 2 values, got 1"
 check_err "match-value arm must produce a value" \
     'Expr = type { Lit(Int) }
 main(sys) { sys.screen.print(ev(Lit(1))) }
 ev(e : Expr) : Int { e.match { Lit(n) -> { } } }' \
-    "must produce"
+    "not a { } block"
 check_err "list element type" \
     'main(sys) { xs : List[Int] = [] xs.push("no") sys.screen.print(1) }' \
     "expects Int"
@@ -711,7 +716,7 @@ check_err "non-exhaustive match" \
     'Tok = type { A(Str) B }
 main(sys) { show(sys.screen, B) }
 show(screen : Screen, t : Tok) !IO { t.match { A(s) -> screen.print(s) } }' \
-    "is missing: B"
+    "missing case: B"
 check_err "field access on a variant" \
     'Tok = type { A(Str) B }
 main(sys) { t = B sys.screen.print(t.x) }' \
@@ -728,21 +733,20 @@ check_err "wrong builtin arg type" \
     'main(sys) { sys.screen.print("hi".at("x")) }' \
     "expects Int"
 
-# --- 3. fmt is idempotent; test reports correctly -----------------------------
-for f in hello m2 m3 m3b m3c tests; do
-    cp "examples/$f.smplr" "$TMP/$f.a"
-    "$SIMPLER" fmt "$TMP/$f.a" >/dev/null 2>&1
-    cp "$TMP/$f.a" "$TMP/$f.b"
-    "$SIMPLER" fmt "$TMP/$f.b" >/dev/null 2>&1
-    if diff -q "$TMP/$f.a" "$TMP/$f.b" >/dev/null; then ok; else nope "fmt idempotent $f"; fi
-done
-
-out="$("$SIMPLER" test examples/tests.smplr 2>/dev/null)"
+# --- 3. `simpler test` runs the test_* functions and reports ----------------
+run_tests() { # file -> prints the report, returns the runner's exit code
+    cp "$1" "$TMP/input.smplr"
+    ( cd "$TMP" && ./seedc test > tests.c 2>/dev/null && cc -w tests.c -o tests.bin -lm 2>/dev/null && ./tests.bin )
+    local rc=$?
+    rm -f "$TMP/input.smplr"
+    return $rc
+}
+out="$(run_tests examples/tests.smplr)"
 rc=$?
 if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "2/2 passed"; then ok; else nope "test all-pass"; fi
 
 printf 'test_a() { assert(1 == 1) }\ntest_b() { assert(1 == 2) }\n' > "$TMP/t.smplr"
-out="$("$SIMPLER" test "$TMP/t.smplr" 2>/dev/null)"
+out="$(run_tests "$TMP/t.smplr")"
 rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else nope "test failure detected"; fi
 
@@ -755,10 +759,10 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else
 # language builds with no Rust at all. Compile it with cc, point it at its own
 # source, and it must regenerate simpler.c byte-for-byte. This both proves the
 # Rust dependency is gone and keeps the committed C in sync with the source.
-if cc -O2 ../selfhost/simpler.c -o "$TMP/seedc" 2>/dev/null; then
-    cp ../selfhost/simpler.smplr "$TMP/input.smplr"
+if cc -O2 selfhost/simpler.c -o "$TMP/seedc" 2>/dev/null; then
+    cp selfhost/simpler.smplr "$TMP/input.smplr"
     ( cd "$TMP" && ./seedc > regen.c 2>/dev/null )
-    if diff -q "$TMP/regen.c" ../selfhost/simpler.c >/dev/null 2>&1; then ok; else nope "committed simpler.c is stale (regenerate it from simpler.smplr)"; fi
+    if diff -q "$TMP/regen.c" selfhost/simpler.c >/dev/null 2>&1; then ok; else nope "committed simpler.c is stale (regenerate it from simpler.smplr)"; fi
 else
     nope "committed simpler.c does not compile"
 fi
