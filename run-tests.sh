@@ -1554,6 +1554,12 @@ printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t)
 crout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./pane' /dev/null 2>/dev/null | tr -d '\r' )"
 if printf '%s' "$crout" | grep -qF '┌──' && printf '%s' "$crout" | grep -qF ' Hi ' && printf '%s' "$crout" | grep -qF 'in 18' && printf '%s' "$crout" | grep -qF 'key x'; then ok; else nope "crust draws a frame (got: $crout)"; fi
 
+# A style may be a colour number, and on with a number for the background.
+printf 'main(sys) {\n  t = sys.term\n  t.put(0, 0, "a", "bold 208 on52")\n  t.put(1, 0, "b", sys.args.at(0))\n  k = t.key\n  t.stop\n}\n' > "$TMP/mod/col.smplr"
+( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build col.smplr -o col 2>&1 )
+colout="$( cd "$TMP/mod" && for a in 7 256 on9x; do printf 'x' | script -qec "./col $a" /dev/null 2>/dev/null | tr -d '\r'; done )"
+if printf '%s' "$colout" | grep -qF "$(printf '\033[1m\033[38;5;208m\033[48;5;52ma')" && printf '%s' "$colout" | grep -qF "$(printf '\033[38;5;7mb')" && printf '%s' "$colout" | grep -qF 'col.smplr:4: no style named "256"' && printf '%s' "$colout" | grep -qF 'no style named "on9x"'; then ok; else nope "colour numbers in a style"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

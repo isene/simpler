@@ -361,7 +361,7 @@ nothing at runtime.
 | `sys.mail.send(to, subject, body)` | `Int` | `!IO` | send one mail through the machine's `sendmail` (or the program named in the variable `SIMPLER_SENDMAIL`); `to` is one address on the `mails` line, or one that a `"*@example.com"` entry on it covers; the program stops when the address is not allowed or the mail could not be handed over |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
 | `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
-| `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray; text past the right edge is cut, and control characters in it are shown as `?` |
+| `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255 (`"208"`), and `on` with a number for the background (`"on52"`); text past the right edge is cut, and control characters in it are shown as `?` |
 | `sys.term.key` | `Str` | — | wait for one key: a character, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`, `ctrl-x`, `resize`, `eof`, `other` |
 | `sys.term.rows`, `sys.term.cols` | `Int` | — | the size of the terminal |
 | `sys.term.clear`, `sys.term.stop` | `Int` | — | empty the terminal; give it back (also done when the program ends, and an error message is shown after that) |
