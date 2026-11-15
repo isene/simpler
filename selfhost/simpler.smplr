@@ -760,6 +760,9 @@ parseRet(toks : Lexed, j : Int) : PRet {
     effs.push(eff)
     k = k + 2
   }
+  if isPunct(toks, k, ":") {
+    failLine(toks, k, "the return type comes before the effects, as in f(x : Int) : Int !IO {")
+  }
   PRet(ret = ret, effs = effs, next = k)
 }
 
@@ -1018,6 +1021,11 @@ parsePunctFactor(toks : Lexed, pos : Int) : Parsed {
   // prefix `-`: negate the following factor (`Bin("u-", ...)` carries it)
   if isPunct(toks, pos, "-").not {
     failTok(toks, pos, "expected a value")
+  }
+  // -x.n and -xs.at(0) negate the whole value; -5.toStr is the number -5
+  if isIdent(toks, pos + 1) || isPunct(toks, pos + 1, "(") {
+    g = parsePostfix(toks, pos + 1)
+    return Parsed(node = Bin("u-", Num(0), g.node), next = g.next)
   }
   f = parseFactor(toks, pos + 1)
   Parsed(node = Bin("u-", Num(0), f.node), next = f.next)
@@ -2683,6 +2691,9 @@ emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   }
   // unary minus: integer negation, or float negation through the bits
   if op == "u-" {
+    if ((exprType(b, ctx) == "Int") || (exprType(b, ctx) == "Float")).not {
+      failAt("- needs a number, got ".concat(exprType(b, ctx)), ctx)
+    }
     r = "(-".concat(cb).concat(")")
     if exprType(b, ctx) == "Float" {
       r = "d2l(-l2d(".concat(cb).concat("))")

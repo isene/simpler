@@ -482,7 +482,8 @@ compiler crashing, or writing C that does not build, is a bug in the compiler.
 
 - Everything is a message send; one grammar production.
 - `=` binds, `:` types, `{ }` blocks, `.` sends. No overlap. `=` is a statement.
-- Operator sugar is exactly `+ - * / == < >`; a leading `-` negates.
+- Operator sugar is exactly `+ - * / == < >`; a leading `-` negates the whole
+  value after it: `-p.n` is `-(p.n)`.
 - `Int` and `Float` never mix without an explicit conversion.
 - Variants need exhaustive `match`; records construct positionally.
 - Effects (`!IO`, `!Fail`, `!Mut`) and failability (`?`) live in the type, not the syntax.

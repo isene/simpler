@@ -958,6 +958,36 @@ if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF "FAIL test_b"; then ok; else
 # selfhost/simpler.c is the self-hosted compiler transpiled to C, committed so the
 # language builds with no Rust at all. Compile it with cc, point it at its own
 # source, and it must regenerate simpler.c byte-for-byte. This both proves the
+# a leading minus negates the whole value after it
+printf '%s' 'P = type {
+  n : Int
+  d : Int
+}
+main(sys) {
+  p = P(n = 3, d = 4)
+  xs = [5, 6]
+  sys.screen.print(-p.n)
+  sys.screen.print(-xs.at(1))
+  sys.screen.print(-5.toStr.concat("!"))
+  sys.screen.print(2 - -p.d)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > neg.c 2>/dev/null )
+if cc -o "$TMP/neg" "$TMP/neg.c" 2>/dev/null && [ "$("$TMP/neg" | tr '\n' ' ')" = "-3 -6 -5! 6 " ]; then ok; else nope "minus before x.n"; fi
+check_err "minus on a record" \
+    'P = type {
+  n : Int
+  d : Int
+}
+main(sys) {
+  p = P(n = 3, d = 4)
+  q = -p
+}' "needs a number, got P"
+check_err "effects written before the return type" \
+    'f(xs : List[Int]) !Mut : Int {
+  xs.push(1)
+  0
+}
+main(sys) { f([1]) }' "the return type comes before the effects"
 # a function may not change a list or map it was handed, unless it says !Mut
 check_err "!Mut: a push on a handed list" \
     'add(xs : List[Int]) {
