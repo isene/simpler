@@ -345,6 +345,7 @@ nothing at runtime.
 | Send | Type | Effect | Meaning |
 |------|------|--------|---------|
 | `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool` (as `true` / `false`), with a newline |
+| `sys.screen.part(text)` | — | `!IO` | print a text with no line end |
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
 | `sys.files.write(path, text)` | — | `!IO` | write `text` to `path` (truncates) |
 | `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
@@ -357,11 +358,14 @@ nothing at runtime.
 | `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
 | `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
 | `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
+| `sys.net.fetchWith(url, headers)` | `Str` | `!IO` | like `fetch`, with a `List[Str]` of header lines such as `"X-Key: abc"` (at most 16, one line each) |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
 | `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
 | `sys.mail.send(to, subject, body)` | `Int` | `!IO` | send one mail through the machine's `sendmail` (or the program named in the variable `SIMPLER_SENDMAIL`); `to` is one address on the `mails` line, or one that a `"*@example.com"` entry on it covers; the program stops when the address is not allowed or the mail could not be handed over |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
 | `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
+| `sys.clock.dateAs(secs, pattern)` | `Str` | — | the time as text in a `strftime` pattern, such as `"%a %d %b %H:%M"`, in local time |
+| `sys.clock.secsOf(text)` | `Int` | — | seconds from a date text: `2026-01-31`, `2026-01-31 12:00`, `2026-01-31T12:00:00Z` or with `+01:00`; local time when no zone is given; `0` when the text is no date |
 | `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255 (`"208"`), and `on` with a number for the background (`"on52"`); text past the right edge is cut, and control characters in it are shown as `?` |
 | `sys.term.key` | `Str` | — | wait for one key: a character, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`, `ctrl-x`, `resize`, `eof`, `other` |
 | `sys.term.rows`, `sys.term.cols` | `Int` | — | the size of the terminal |
@@ -403,7 +407,7 @@ A file call with no such line is refused. So is a path written out in the
 program that the line does not name. A path made while running is checked as
 it is used, and the program stops if the line does not allow it (a path with
 `..` in it never counts as under a folder). A link inside an allowed folder that leads out of it is not followed:
-the program stops with `a link leads out of "data/"`. A file named one by one at the top is opened as it is. Under `/sys` and `/proc` a link may lead elsewhere in the same tree, since the kernel makes those links. A program with no `reads` and no
+the program stops with `a link leads out of "data/"`. A path that starts with `~/` is under the home folder, in a top line and in the program alike. A file named one by one at the top is opened as it is. Under `/sys` and `/proc` a link may lead elsewhere in the same tree, since the kernel makes those links. A program with no `reads` and no
 `writes` line cannot touch any file.
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A

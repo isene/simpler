@@ -150,17 +150,21 @@ main(sys) {
 - A program that touches files says which, at the top: `reads "a.txt", "data/", "logs/*.log", args` and
   `writes "out/"` (a `*` is any run of characters without a `/`).
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
-  command line. Any other file is refused.
+  command line, `"~/"` the home folder. Any other file is refused.
+- `sys.screen.part(text)` prints with no line end.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
   and lets it print to the screen;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
-- The web: `sys.net.fetch(url)` gives the body, `sys.net.post(url, body)` sends; both stop the
+- The web: `sys.net.fetch(url)` gives the body, `sys.net.fetchWith(url, ["X-Key: abc"])` the same
+  with headers, `sys.net.post(url, body)` sends; all stop the
   program on failure, so ask first with `sys.net.reach(url)` (the status, 0 if nothing answers) when a
   miss is expected. The top names each
-  host: `fetches "api.github.com"`. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text).
+  host: `fetches "api.github.com"`. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text),
+  `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
+  (seconds from a date text, 0 if it is none).
   Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
 - A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
   (both from 0; the style is "" or words such as "bold red" or "reverse"; a number 0 to 255 is a colour
@@ -173,7 +177,7 @@ main(sys) {
   module only when you were given its page.
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
   (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
-- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
+- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
 - Decimal numbers are `Float`: `3.0`. `Int` and `Float` never mix: use `.toFloat` and `.toInt`.

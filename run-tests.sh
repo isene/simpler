@@ -1574,6 +1574,17 @@ if [ "$tryout" = 'try.smplr:6: this program may not run "ls"; add it to the runs
     if [ "$tryout" = '[hi]|[]|[]|' ]; then ok; else nope "try (got: $tryout)"; fi
 else nope "try obeys the runs line (got: $tryout)"; fi
 
+# Print with no line end, date texts, the home folder, and a fetch with headers.
+mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s," "$a"; done\nprintf "\\n200"\n' > "$TMP/fakebin/curl"; chmod +x "$TMP/fakebin/curl"
+printf 'reads "~/notes/"\nfetches "example.com"\nmain(sys) {\n  sys.screen.part("a")\n  sys.screen.part("b")\n  sys.screen.print("")\n  t = sys.clock.secsOf("2026-11-15T21:00:00Z")\n  sys.screen.print(t)\n  sys.screen.print(sys.clock.secsOf("2026-11-15T22:00:00.5+01:00") - t)\n  sys.screen.print(sys.clock.secsOf("soon"))\n  sys.screen.print(sys.clock.dateAs(sys.clock.secsOf("2026-11-15 22:30"), "%%a %%d %%b %%H:%%M"))\n  sys.screen.print(sys.files.read("~/notes/a.txt").trim)\n  sys.screen.print(sys.net.fetchWith("https://example.com/x", ["X-Key: abc"]))\n  sys.screen.print(sys.net.fetchWith("https://example.com/x", [sys.args.at(0)]))\n}\n' > "$TMP/mod/four.smplr"
+( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build four.smplr -o four 2>&1 )
+fourout="$( cd "$TMP/mod" && HOME="$TMP/home" PATH="$TMP/fakebin:$PATH" LC_ALL=C ./four '@/etc/passwd' 2>&1 | tr '\n' '|' )"
+if [ "${fourout#*ab|1794776400|0|0|Sun 15 Nov 22:30|secret|}" != "$fourout" ] && printf '%s' "$fourout" | grep -qF '%{http_code},-H,X-Key: abc,--,https://example.com/x,' && printf '%s' "$fourout" | grep -qF 'four.smplr:14: a header is one line like "Name: value", and there are at most 16; got "@/etc/passwd"'; then ok; else nope "part, dates, home and headers (got: $fourout)"; fi
+printf 'reads "~/notes/"\nmain(sys) {\n  sys.screen.print(sys.files.read(sys.args.at(0)))\n}\n' > "$TMP/mod/home.smplr"
+homeout="$( cd "$TMP/mod" && HOME="$TMP/home" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run home.smplr '~/other.txt' 2>&1 )"
+if [ "$homeout" = "home.smplr:3: this program may not read \"$TMP/home/other.txt\"" ]; then ok; else nope "the home folder rule (got: $homeout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
