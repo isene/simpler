@@ -110,6 +110,27 @@ list(t : Term, p : Pane, items : List[Str], first : Int, picked : Int) {
   }
 }
 
+// As list, with a style of its own for each item (as in t.put, or ""); the picked one is also in reverse.
+styled(t : Term, p : Pane, items : List[Str], styles : List[Str], first : Int, picked : Int) {
+  k = 0
+  while k < p.rows {
+    i = first + k
+    text = ""
+    style = ""
+    if i < items.length {
+      text = items.at(i)
+      if i < styles.length {
+        style = styles.at(i)
+      }
+      if i == picked {
+        style = style.concat(" reverse")
+      }
+    }
+    line(t, p, k, text, style)
+    k = k + 1
+  }
+}
+
 // The `first` to give list so the picked item is on the pane: pass the old first, get the new.
 scroll(first : Int, picked : Int, rows : Int) : Int {
   r = first
