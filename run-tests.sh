@@ -680,6 +680,97 @@ check_err "assert needs Bool" \
 check_err "no main" \
     'twice(n : Int) : Int { n + n }' \
     "no main function found"
+# every refusal names the line of the statement and what stood there
+check_err "error names the statement's line" \
+    'main(sys) {
+  a = 1
+  b = 2
+  sys.screen.print(c)
+}' \
+    "input.smplr:4: no variable named c"
+check_err "missing closing brace" \
+    'main(sys) {
+  sys.screen.print(1)' \
+    "input.smplr:2: expected }, found the end of the file"
+check_err "missing closing paren" \
+    'main(sys) {
+  x = (1 + 2
+  sys.screen.print(x)
+}' \
+    "input.smplr:3: expected ), found sys"
+check_err "stray mark" \
+    'main(sys) {
+  x = 1 ; y = 2
+}' \
+    "input.smplr:2: expected a value, found ;"
+check_err "open text" \
+    'main(sys) {
+  sys.screen.print("hi)
+}' \
+    "input.smplr:2: a text is missing its closing quote"
+check_err "value alone on a line" \
+    'main(sys) {
+  x = 1
+  x + 1
+  sys.screen.print(x)
+}' \
+    "input.smplr:3: this line does nothing"
+check_err "unknown method" \
+    'main(sys) {
+  s = "a"
+  sys.screen.print(s.shout(1))
+}' \
+    "input.smplr:3: no method named shout"
+check_err "wrong number of values" \
+    'twice(n : Int) : Int { n + n }
+main(sys) {
+  sys.screen.print(twice(1, 2))
+}' \
+    "input.smplr:3: twice takes 1 values, got 2"
+check_err "name given twice" \
+    'twice(n : Int) : Int { n + n }
+twice(n : Int) : Int { n }
+main(sys) { sys.screen.print(twice(1)) }' \
+    "input.smplr:2: the name twice is used twice"
+check_err "a match name ends with its arm" \
+    'Shape = type {
+  Dot
+  Box(Int)
+}
+main(sys) {
+  b = Box(7)
+  x = b.match {
+    Dot -> 1
+    Box(n) -> n
+  }
+  sys.screen.print(n)
+}' \
+    "input.smplr:11: no variable named n"
+# a match in the middle of a function, an if on the last line and else-if all give values
+printf '%s' 'Shape = type {
+  Dot
+  Box(Int)
+}
+grade(n : Int) : Str {
+  if n > 8 {
+    "high"
+  } else if n > 4 {
+    "mid"
+  } else {
+    "low"
+  }
+}
+main(sys) {
+  b = Box(7)
+  x = b.match {
+    Dot -> 1
+    Box(n) -> n
+  }
+  sys.screen.print(x)
+  sys.screen.print(grade(9).concat(grade(5)).concat(grade(1)))
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > val.c 2>/dev/null )
+if cc -o "$TMP/val" "$TMP/val.c" 2>/dev/null && [ "$("$TMP/val" | tr '\n' ' ')" = "7 highmidlow " ]; then ok; else nope "match and if as values"; fi
 check_err "missing record field" \
     'Point = type { x : Int, y : Int }
 main(sys) { p = Point(x = 1) sys.screen.print(p.x) }' \

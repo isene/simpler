@@ -239,8 +239,8 @@ first lexer to a compiler that compiles itself:
   error the Rust does, with source locations, and still compiles itself to the
   byte-stable fixpoint. (Adding a check means the compiler now needs to *report*
   errors, so its source uses a `fail` primitive the frozen Rust does not have;
-  from here it is built only from its own C seed.) The lone gap left to the C
-  compiler is using a capability that was never handed in (an undefined name).
+  from here it is built only from its own C seed.) A name that was never
+  given is now a Simpler error too.
   - [x] **error reporting** a `fail` primitive: a compile error prints to stderr and stops the compiler
   - [x] **`match` exhaustiveness** every case of the matched variant must have an arm, else a compile error
   - [x] **operand types** arithmetic and ordering (`+ - * / < >`) require Int operands; `1 + "a"` is rejected
@@ -248,7 +248,7 @@ first lexer to a compiler that compiles itself:
   - [x] **record field types** a constructor checks each field value against its declared type; `Point(x = 1, y = "a")` is rejected
   - [x] **return types** a function's value must match its declared return type; `twice(n) : Int { "no" }` is rejected (`match`-bodied functions are skipped, their type is not inferred)
   - [x] **match arity** each arm binds exactly as many payloads as its case carries; `Add(a)` where `Add` has two is rejected
-  - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the enclosing function (the lexer tracks a line per token; the Rust pinpoints the exact expression, this is one notch coarser)
+  - [x] **source locations** every error reports `input.smplr:<line>:`, the line of the statement (the lexer tracks a line per token, and each statement carries its line). The parser refuses what it does not expect and says what it found; 6,000 slightly broken programs gave no crash and no C that fails to build
   - [x] **effects** `!IO`/`!Fail` coverage: a function must declare every effect it uses, directly through a capability call (`.print`/`.read`/`.send`) or transitively by calling an effectful function; `main` is exempt. Capabilities are typed (`sys.screen` is a `Screen`, erased to `0` at runtime) so they pass to capability parameters. The one piece left to the C compiler: using a capability that was never handed in is caught as an undefined name, not yet as a Simpler-level error.
 - [x] **A language for real programs** past self-hosting, the pieces an everyday
   command-line tool needs, each grown with a working example and a regression

@@ -77,6 +77,7 @@ main(sys) {
   capability** (section 9). Only `main` holds it.
 - A **function** is `name(params) : RetType !Effects { body }`. The return type
   and effects are optional; the return type defaults to `Int`.
+- An `if` on the last line gives the value of the branch that ran.
 - The **value of a function is its last bare expression**. `return expr`
   leaves the function early with that value, from inside an `if` or a loop.
   A bare `return` as the last line of a block leaves `main`, or a function
@@ -177,6 +178,9 @@ eval(e : Expr) : Int {
 }
 ```
 
+A match also gives a value in the middle of a function: `x = e.match { ... }`.
+The names an arm binds live only in that arm.
+
 ## 5. Literals
 
 ```
@@ -213,6 +217,7 @@ then `== < >`; all binary operators are left-associative. So `2 + 3 * 4` is
 ```
 if cond { ... }                    // bare if
 if cond { ... } else { ... }       // with else
+if a { ... } else if b { ... } else { ... }
 
 while cond { ... }                 // the one general loop
 
@@ -427,6 +432,10 @@ cc out.c -o wordfreq
 ```
 
 `./simpler test > tests.c` writes the test runner in place of the program.
+
+A program the compiler refuses gets one line on stderr and exit code 1:
+`input.smplr:<line>: <what is wrong>`, with the line of the statement. The
+compiler crashing, or writing C that does not build, is a bug in the compiler.
 
 ---
 

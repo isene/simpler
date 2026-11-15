@@ -50,6 +50,7 @@ Stmt = type {
   If(Expr, List[Stmt], List[Stmt])
   While(Expr, List[Stmt])
   Ret(Expr)
+  Line(Int)
 }
 
 Fn = type {
@@ -170,6 +171,11 @@ PBody = type {
   next : Int
 }
 
+PType = type {
+  ty : Str
+  next : Int
+}
+
 PArgs = type {
   list : List[Expr]
   next : Int
@@ -178,8 +184,7 @@ PArgs = type {
 main(sys) {
   src = sys.files.read("input.smplr")?
   lexed = lex(src)
-  toks = lexed.toks
-  prog = parse(toks, lexed.lines)
+  prog = parse(lexed)
   sigs = buildSigs(prog)
   sys.screen.print("#include <stdio.h>")
   sys.screen.print("#include <stdlib.h>")
@@ -248,7 +253,7 @@ main(sys) {
   // `simpler test` leaves main out and runs every test_* function instead.
   testing = sys.args.length > 0 && sys.args.at(0) == "test"
   if testing.not && hasName(sigs.fnNames, "main").not {
-    fail("input.smplr: no main function found")
+    fail("input.smplr:1: no main function found")
   }
   prog.fns.each { f in
     if (testing && isMain(f.name)).not {
@@ -302,24 +307,35 @@ buildSigs(prog : Prog) : Sigs {
 
 // --- parse: tokens to a program -----------------------------------------
 
-parse(toks : List[Tok], lines : List[Int]) : Prog {
+parse(toks : Lexed) : Prog {
   types : List[TyDef] = []
   records : List[RecDef] = []
   fns : List[Fn] = []
+  seen : List[Str] = []
   i = 0
   while notEof(toks, i) {
+    if isIdent(toks, i) {
+      once(seen, identAt(toks, i), toks, i)
+    }
     if isTypeDef(toks, i) {
+      if isWord(toks, i + 2, "type").not {
+        failTok(toks, i + 2, "expected the word type")
+      }
+      expect(toks, i + 3, "{")
       if isRecordDef(toks, i) {
         pr = parseRecord(toks, i)
         records.push(pr.rec)
         i = pr.next
       } else {
-        pt = parseTypeDef(toks, i)
+        pt = parseTypeDef(toks, i, seen)
         types.push(pt.ty)
         i = pt.next
       }
     } else {
-      pf = parseFn(toks, lines, i)
+      if (isIdent(toks, i) && isPunct(toks, i + 1, "(")).not {
+        failTok(toks, i, "expected a function or a type")
+      }
+      pf = parseFn(toks, i)
       fns.push(pf.fn)
       i = pf.next
     }
@@ -327,217 +343,334 @@ parse(toks : List[Tok], lines : List[Int]) : Prog {
   Prog(types = types, records = records, fns = fns)
 }
 
-isTypeDef(toks : List[Tok], i : Int) : Bool {
+// --- parse errors: every one names the line and what stood there --------
+
+tokAt(toks : Lexed, i : Int) : Tok {
+  r = Eof
+  if i < toks.toks.length {
+    r = toks.toks.at(i)
+  }
+  r
+}
+
+lineOf(toks : Lexed, i : Int) : Int {
+  r = toks.lines.at(toks.lines.length - 1)
+  if i < toks.lines.length {
+    r = toks.lines.at(i)
+  }
+  r
+}
+
+show(toks : Lexed, i : Int) : Str {
+  tokAt(toks, i).match {
+    Ident(s) -> s
+    Int(v) -> v.toStr
+    Float(f) -> f
+    Str(s) -> "a text"
+    Punct(p) -> showPunct(p)
+    Eof -> "the end of the file"
+  }
+}
+
+showPunct(p : Str) : Str {
+  r = p
+  if p == "s(" {
+    r = "("
+  }
+  r
+}
+
+failLine(toks : Lexed, i : Int, msg : Str) : Int {
+  fail("input.smplr:".concat(lineOf(toks, i).toStr).concat(": ").concat(msg))
+}
+
+failTok(toks : Lexed, i : Int, msg : Str) : Int {
+  failLine(toks, i, msg.concat(", found ").concat(show(toks, i)))
+}
+
+// A name may be given once: adds it to the list, or stops if it is there.
+once(seen : List[Str], name : Str, toks : Lexed, i : Int) : Str {
+  if hasName(seen, name) {
+    failLine(toks, i, "the name ".concat(name).concat(" is used twice"))
+  }
+  seen.push(name)
+  name
+}
+
+// The token at i must be the mark p; gives the place after it.
+expect(toks : Lexed, i : Int, p : Str) : Int {
+  if isPunct(toks, i, p).not {
+    failTok(toks, i, "expected ".concat(p))
+  }
+  i + 1
+}
+
+isKeyword(toks : Lexed, i : Int) : Bool {
+  isWord(toks, i, "if") || isWord(toks, i, "else") || isWord(toks, i, "while") || isWord(toks, i, "return")
+}
+
+expectIdent(toks : Lexed, i : Int, what : Str) : Str {
+  if isIdent(toks, i).not || isKeyword(toks, i) {
+    failTok(toks, i, "expected ".concat(what))
+  }
+  identAt(toks, i)
+}
+
+// After one item of a list: a comma to step over, or the closing mark.
+sep(toks : Lexed, j : Int, close : Str) : Int {
+  r = j
+  if isPunct(toks, j, ",") {
+    r = j + 1
+  } else {
+    if isPunct(toks, j, close).not {
+      failTok(toks, j, "expected , or ".concat(close))
+    }
+  }
+  r
+}
+
+// `Name` or `Name[Inner]`. A second inner type (`Map[Str, Int]`) is read and dropped.
+parseType(toks : Lexed, i : Int) : PType {
+  ty = expectIdent(toks, i, "a type")
+  k = i + 1
+  if isPunct(toks, k, "[") {
+    inner = parseType(toks, k + 1)
+    ty = ty.concat("[").concat(inner.ty).concat("]")
+    k = inner.next
+    while isPunct(toks, k, ",") {
+      more = parseType(toks, k + 1)
+      k = more.next
+    }
+    k = expect(toks, k, "]")
+  }
+  PType(ty = ty, next = k)
+}
+
+isTypeDef(toks : Lexed, i : Int) : Bool {
   isIdent(toks, i).and(isPunct(toks, i + 1, "="))
 }
 
-isRecordDef(toks : List[Tok], i : Int) : Bool {
+isRecordDef(toks : Lexed, i : Int) : Bool {
   isPunct(toks, i + 5, ":")
 }
 
-parseRecord(toks : List[Tok], i : Int) : PRec {
+parseRecord(toks : Lexed, i : Int) : PRec {
   name = identAt(toks, i)
   fields : List[Str] = []
   ftypes : List[Str] = []
   j = i + 4
   while inBlock(toks, j) {
-    fields.push(identAt(toks, j))
+    once(fields, expectIdent(toks, j, "a field name"), toks, j)
     j = j + 1
     ty = "Int"
     if isPunct(toks, j, ":") {
-      ty = identAt(toks, j + 1)
-      j = j + 2
-      if isPunct(toks, j, "[") {
-        ty = ty.concat("[").concat(identAt(toks, j + 1)).concat("]")
-        while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
-          j = j + 1
-        }
-        j = j + 1
-      }
+      pt = parseType(toks, j + 1)
+      ty = pt.ty
+      j = pt.next
     }
     ftypes.push(ty)
     if isPunct(toks, j, ",") {
       j = j + 1
     }
   }
-  PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes), next = j + 1)
+  PRec(rec = RecDef(name = name, fields = fields, ftypes = ftypes), next = expect(toks, j, "}"))
 }
 
-parseTypeDef(toks : List[Tok], i : Int) : PTy {
+parseTypeDef(toks : Lexed, i : Int, seen : List[Str]) : PTy {
   name = identAt(toks, i)
   cases : List[Case] = []
   j = i + 4
   while inBlock(toks, j) {
-    cn = identAt(toks, j)
+    cn = once(seen, expectIdent(toks, j, "a case name"), toks, j)
     j = j + 1
-    arity = 0
     ptypes : List[Str] = []
     if isPunct(toks, j, "(") {
       j = j + 1
-      while isIdent(toks, j) {
-        pt = identAt(toks, j)
-        arity = arity + 1
-        j = j + 1
-        if isPunct(toks, j, "[") {
-          pt = pt.concat("[").concat(identAt(toks, j + 1)).concat("]")
-          while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
-            j = j + 1
-          }
-          j = j + 1
-        }
-        ptypes.push(pt)
-        if isPunct(toks, j, ",") {
-          j = j + 1
-        }
+      while inArgs(toks, j) {
+        pt = parseType(toks, j)
+        ptypes.push(pt.ty)
+        j = sep(toks, pt.next, ")")
       }
-      j = j + 1
+      j = expect(toks, j, ")")
     }
-    cases.push(Case(cname = cn, arity = arity, ptypes = ptypes))
+    cases.push(Case(cname = cn, arity = ptypes.length, ptypes = ptypes))
   }
-  PTy(ty = TyDef(name = name, cases = cases), next = j + 1)
+  PTy(ty = TyDef(name = name, cases = cases), next = expect(toks, j, "}"))
 }
 
-parseFn(toks : List[Tok], lines : List[Int], i : Int) : PFn {
+parseFn(toks : Lexed, i : Int) : PFn {
   name = identAt(toks, i)
   pp = parseParams(toks, i + 1)
   rt = parseRet(toks, pp.next)
   pb = parseBlock(toks, rt.next)
-  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, effs = rt.effs, body = pb.body, line = lines.at(i)), next = pb.next)
+  PFn(fn = Fn(name = name, params = pp.names, ptypes = pp.types, ret = rt.ret, effs = rt.effs, body = pb.body, line = lineOf(toks, i)), next = pb.next)
 }
 
 // `( name : Type , ... )` -> the parameter names and their types.
-parseParams(toks : List[Tok], i : Int) : PNames {
+parseParams(toks : Lexed, i : Int) : PNames {
   names : List[Str] = []
   types : List[Str] = []
   j = i + 1
-  while isIdent(toks, j) {
-    names.push(identAt(toks, j))
+  while inArgs(toks, j) {
+    once(names, expectIdent(toks, j, "a parameter name"), toks, j)
     j = j + 1
     ty = ""
     if isPunct(toks, j, ":") {
-      ty = identAt(toks, j + 1)
-      j = j + 2
-      if isPunct(toks, j, "[") {
-        ty = ty.concat("[").concat(identAt(toks, j + 1)).concat("]")
-        while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
-          j = j + 1
-        }
-        j = j + 1
-      }
+      pt = parseType(toks, j + 1)
+      ty = pt.ty
+      j = pt.next
     }
     types.push(ty)
-    if isPunct(toks, j, ",") {
-      j = j + 1
-    }
+    j = sep(toks, j, ")")
   }
-  PNames(names = names, types = types, next = j + 1)
+  PNames(names = names, types = types, next = expect(toks, j, ")"))
 }
 
 // An optional `: Type` return annotation, then the declared effects (`!IO`,
 // `!Fail`), up to the body.
-parseRet(toks : List[Tok], j : Int) : PRet {
+parseRet(toks : Lexed, j : Int) : PRet {
   ret = "Int"
   effs : List[Str] = []
   k = j
   if isPunct(toks, k, ":") {
-    ret = identAt(toks, k + 1)
-    k = k + 2
-    // keep the element type: `List[Str]`, not just `List`
-    if isPunct(toks, k, "[") {
-      ret = ret.concat("[").concat(identAt(toks, k + 1)).concat("]")
-      k = k + 3
-    }
+    pt = parseType(toks, k + 1)
+    ret = pt.ty
+    k = pt.next
   }
-  while isPunct(toks, k, "{").not.and(notEof(toks, k)) {
-    if isPunct(toks, k, "!") {
-      effs.push(identAt(toks, k + 1))
-    }
-    k = k + 1
+  while isPunct(toks, k, "!") {
+    effs.push(expectIdent(toks, k + 1, "an effect name"))
+    k = k + 2
   }
   PRet(ret = ret, effs = effs, next = k)
 }
 
-parseBlock(toks : List[Tok], i : Int) : PBody {
+parseBlock(toks : Lexed, i : Int) : PBody {
+  parseStmts(toks, expect(toks, i, "{"))
+}
+
+// The statements up to the closing `}`. Each one is led by a Line mark, so a
+// later error can name the statement's own line.
+parseStmts(toks : Lexed, start : Int) : PBody {
   body : List[Stmt] = []
-  j = i + 1
+  j = start
   while inBlock(toks, j) {
+    body.push(Line(lineOf(toks, j)))
     p = parseStmt(toks, j)
+    if isPunct(toks, p.next, "}").not {
+      checkUseful(p.node, toks, j)
+    }
     body.push(p.node)
     j = p.next
   }
-  PBody(body = body, next = j + 1)
+  PBody(body = body, next = expect(toks, j, "}"))
 }
 
-parseStmt(toks : List[Tok], i : Int) : PStmt {
-  e = parseExpr(toks, i)
-  r = PStmt(node = Bare(e.node), next = e.next)
-  if isAssign(toks, i) {
-    name = identAt(toks, i)
-    ae = parseExpr(toks, i + 2)
-    r = PStmt(node = Let(name, "", ae.node), next = ae.next)
+// A value alone on a line does nothing, unless it is the last line of its block.
+checkUseful(s : Stmt, toks : Lexed, i : Int) : Int {
+  s.match {
+    Bare(e) -> checkValueLine(e, toks, i)
+    Let(name, ty, e) -> 0
+    If(c, t, el) -> 0
+    While(c, b) -> 0
+    Ret(e) -> 0
+    Line(n) -> 0
   }
-  if isTypedAssign(toks, i) {
-    r = parseTypedLet(toks, i)
+}
+
+checkValueLine(e : Expr, toks : Lexed, i : Int) : Int {
+  if plainValue(e) {
+    failLine(toks, i, "this line does nothing; a value alone belongs on the last line of a block")
   }
+  0
+}
+
+plainValue(e : Expr) : Bool {
+  e.match {
+    Num(v) -> true
+    FloatLit(s) -> true
+    Var(s) -> true
+    StrLit(s) -> true
+    ListLit(es) -> true
+    Bin(op, a, b) -> true
+    Call(name, args) -> false
+    Match(scrut, arms) -> false
+    Field(recv, fld) -> false
+    Method(recv, name, args) -> false
+    Each(recv, param, body) -> false
+  }
+}
+
+parseStmt(toks : Lexed, i : Int) : PStmt {
   if isWord(toks, i, "if") {
-    r = parseIf(toks, i)
+    return parseIf(toks, i)
   }
   if isWord(toks, i, "while") {
-    r = parseWhile(toks, i)
+    return parseWhile(toks, i)
   }
   if isWord(toks, i, "return") {
-    // a bare `return` just before `}` leaves a function that has no value
-    if isPunct(toks, i + 1, "}") {
-      r = PStmt(node = Ret(Num(0)), next = i + 1)
-    } else {
-      re = parseExpr(toks, i + 1)
-      r = PStmt(node = Ret(re.node), next = re.next)
-    }
+    return parseReturn(toks, i)
   }
-  r
+  if isTypedAssign(toks, i) {
+    return parseTypedLet(toks, i)
+  }
+  if isAssign(toks, i) {
+    ae = parseExpr(toks, i + 2)
+    return PStmt(node = Let(expectIdent(toks, i, "a name"), "", ae.node), next = ae.next)
+  }
+  e = parseExpr(toks, i)
+  PStmt(node = Bare(e.node), next = e.next)
+}
+
+// A bare `return` just before `}` leaves a function that has no value.
+parseReturn(toks : Lexed, i : Int) : PStmt {
+  if isPunct(toks, i + 1, "}") {
+    return PStmt(node = Ret(Num(0)), next = i + 1)
+  }
+  re = parseExpr(toks, i + 1)
+  PStmt(node = Ret(re.node), next = re.next)
 }
 
 // `name : Type = expr`. The annotation is the binding's declared type; it
 // matters for an empty collection (`xs : List[Str] = []`), whose value
 // carries no element type to infer.
-isTypedAssign(toks : List[Tok], i : Int) : Bool {
+isTypedAssign(toks : Lexed, i : Int) : Bool {
   isIdent(toks, i).and(isPunct(toks, i + 1, ":"))
 }
 
-parseTypedLet(toks : List[Tok], i : Int) : PStmt {
-  name = identAt(toks, i)
-  ty = identAt(toks, i + 2)
-  if isPunct(toks, i + 3, "[") {
-    ty = ty.concat("[").concat(identAt(toks, i + 4)).concat("]")
-  }
-  k = i + 1
-  while isPunct(toks, k, "=").not.and(notEof(toks, k)) {
-    k = k + 1
-  }
-  ae = parseExpr(toks, k + 1)
-  PStmt(node = Let(name, ty, ae.node), next = ae.next)
+parseTypedLet(toks : Lexed, i : Int) : PStmt {
+  name = expectIdent(toks, i, "a name")
+  pt = parseType(toks, i + 2)
+  ae = parseExpr(toks, expect(toks, pt.next, "="))
+  PStmt(node = Let(name, pt.ty, ae.node), next = ae.next)
 }
 
-parseIf(toks : List[Tok], i : Int) : PStmt {
+// `else if` is an else block that holds one if.
+parseIf(toks : Lexed, i : Int) : PStmt {
   c = parseExpr(toks, i + 1)
   tb = parseBlock(toks, c.next)
   els : List[Stmt] = []
   nxt = tb.next
   if isWord(toks, tb.next, "else") {
-    eb = parseBlock(toks, tb.next + 1)
-    els = eb.body
-    nxt = eb.next
+    if isWord(toks, tb.next + 1, "if") {
+      inner = parseIf(toks, tb.next + 1)
+      els.push(inner.node)
+      nxt = inner.next
+    } else {
+      eb = parseBlock(toks, tb.next + 1)
+      els = eb.body
+      nxt = eb.next
+    }
   }
   PStmt(node = If(c.node, tb.body, els), next = nxt)
 }
 
-parseWhile(toks : List[Tok], i : Int) : PStmt {
+parseWhile(toks : Lexed, i : Int) : PStmt {
   c = parseExpr(toks, i + 1)
   b = parseBlock(toks, c.next)
   PStmt(node = While(c.node, b.body), next = b.next)
 }
 
-parseExpr(toks : List[Tok], pos : Int) : Parsed {
+parseExpr(toks : Lexed, pos : Int) : Parsed {
   p = parseAnd(toks, pos)
   node = p.node
   i = p.next
@@ -549,7 +682,7 @@ parseExpr(toks : List[Tok], pos : Int) : Parsed {
   Parsed(node = node, next = i)
 }
 
-parseAnd(toks : List[Tok], pos : Int) : Parsed {
+parseAnd(toks : Lexed, pos : Int) : Parsed {
   p = parseCmp(toks, pos)
   node = p.node
   i = p.next
@@ -561,7 +694,7 @@ parseAnd(toks : List[Tok], pos : Int) : Parsed {
   Parsed(node = node, next = i)
 }
 
-parseCmp(toks : List[Tok], pos : Int) : Parsed {
+parseCmp(toks : Lexed, pos : Int) : Parsed {
   p = parseAdd(toks, pos)
   node = p.node
   i = p.next
@@ -574,7 +707,7 @@ parseCmp(toks : List[Tok], pos : Int) : Parsed {
   Parsed(node = node, next = i)
 }
 
-parseAdd(toks : List[Tok], pos : Int) : Parsed {
+parseAdd(toks : Lexed, pos : Int) : Parsed {
   p = parseTerm(toks, pos)
   node = p.node
   i = p.next
@@ -587,7 +720,7 @@ parseAdd(toks : List[Tok], pos : Int) : Parsed {
   Parsed(node = node, next = i)
 }
 
-parseTerm(toks : List[Tok], pos : Int) : Parsed {
+parseTerm(toks : Lexed, pos : Int) : Parsed {
   p = parsePostfix(toks, pos)
   node = p.node
   i = p.next
@@ -601,7 +734,7 @@ parseTerm(toks : List[Tok], pos : Int) : Parsed {
 }
 
 // A factor, then a chain of `.match { ... }`, `.method(args)`, or `.field`.
-parsePostfix(toks : List[Tok], pos : Int) : Parsed {
+parsePostfix(toks : Lexed, pos : Int) : Parsed {
   p = parseFactor(toks, pos)
   node = p.node
   i = p.next
@@ -616,7 +749,7 @@ parsePostfix(toks : List[Tok], pos : Int) : Parsed {
         node = pe.node
         i = pe.next
       } else {
-        name = identAt(toks, i + 1)
+        name = expectIdent(toks, i + 1, "a name after the dot")
         if isPunct(toks, i + 2, "(") {
           pa = parseArgs(toks, i + 2)
           node = Method(node, name, pa.list)
@@ -635,59 +768,56 @@ parsePostfix(toks : List[Tok], pos : Int) : Parsed {
 }
 
 // `recv.each { param in stmt* }`.
-parseEach(toks : List[Tok], recv : Expr, i : Int) : Parsed {
-  param = identAt(toks, i + 3)
-  body : List[Stmt] = []
-  j = i + 5
-  while inBlock(toks, j) {
-    p = parseStmt(toks, j)
-    body.push(p.node)
-    j = p.next
+parseEach(toks : Lexed, recv : Expr, i : Int) : Parsed {
+  expect(toks, i + 2, "{")
+  param = expectIdent(toks, i + 3, "a name for each item")
+  if isWord(toks, i + 4, "in").not {
+    failTok(toks, i + 4, "expected the word in")
   }
-  Parsed(node = Each(recv, param, body), next = j + 1)
+  b = parseStmts(toks, i + 5)
+  Parsed(node = Each(recv, param, b.body), next = b.next)
 }
 
-parseFactor(toks : List[Tok], pos : Int) : Parsed {
-  toks.at(pos).match {
+parseFactor(toks : Lexed, pos : Int) : Parsed {
+  tokAt(toks, pos).match {
     Int(v) -> Parsed(node = Num(v), next = pos + 1)
     Float(s) -> Parsed(node = FloatLit(s), next = pos + 1)
     Str(s) -> Parsed(node = StrLit(s), next = pos + 1)
     Ident(s) -> parseIdentFactor(toks, pos)
     Punct(p) -> parsePunctFactor(toks, pos)
-    Eof -> Parsed(node = Num(0), next = pos)
+    Eof -> Parsed(node = Num(failTok(toks, pos, "expected a value")), next = pos)
   }
 }
 
-parsePunctFactor(toks : List[Tok], pos : Int) : Parsed {
-  r = parseParen(toks, pos)
+parsePunctFactor(toks : Lexed, pos : Int) : Parsed {
+  if isPunct(toks, pos, "(") || isPunct(toks, pos, "s(") {
+    return parseParen(toks, pos)
+  }
   if isPunct(toks, pos, "[") {
-    r = parseList(toks, pos)
+    return parseList(toks, pos)
   }
   // prefix `-`: negate the following factor (`Bin("u-", ...)` carries it)
-  if isPunct(toks, pos, "-") {
-    f = parseFactor(toks, pos + 1)
-    r = Parsed(node = Bin("u-", Num(0), f.node), next = f.next)
+  if isPunct(toks, pos, "-").not {
+    failTok(toks, pos, "expected a value")
   }
-  r
+  f = parseFactor(toks, pos + 1)
+  Parsed(node = Bin("u-", Num(0), f.node), next = f.next)
 }
 
-// `[ expr , ... ]` -> a list literal. The compiler only uses `[]`.
-parseList(toks : List[Tok], pos : Int) : Parsed {
+// `[ expr , ... ]` -> a list literal.
+parseList(toks : Lexed, pos : Int) : Parsed {
   elems : List[Expr] = []
   j = pos + 1
   while isPunct(toks, j, "]").not.and(notEof(toks, j)) {
     e = parseExpr(toks, j)
     elems.push(e.node)
-    j = e.next
-    if isPunct(toks, j, ",") {
-      j = j + 1
-    }
+    j = sep(toks, e.next, "]")
   }
-  Parsed(node = ListLit(elems), next = j + 1)
+  Parsed(node = ListLit(elems), next = expect(toks, j, "]"))
 }
 
-parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
-  name = identAt(toks, pos)
+parseIdentFactor(toks : Lexed, pos : Int) : Parsed {
+  name = expectIdent(toks, pos, "a value")
   r = Parsed(node = Var(name), next = pos + 1)
   if isPunct(toks, pos + 1, "(") {
     pa = parseArgs(toks, pos + 1)
@@ -696,12 +826,12 @@ parseIdentFactor(toks : List[Tok], pos : Int) : Parsed {
   r
 }
 
-parseParen(toks : List[Tok], pos : Int) : Parsed {
+parseParen(toks : Lexed, pos : Int) : Parsed {
   inner = parseExpr(toks, pos + 1)
-  Parsed(node = inner.node, next = inner.next + 1)
+  Parsed(node = inner.node, next = expect(toks, inner.next, ")"))
 }
 
-parseArgs(toks : List[Tok], i : Int) : PArgs {
+parseArgs(toks : Lexed, i : Int) : PArgs {
   list : List[Expr] = []
   j = i + 1
   while inArgs(toks, j) {
@@ -710,44 +840,39 @@ parseArgs(toks : List[Tok], i : Int) : PArgs {
     }
     e = parseExpr(toks, j)
     list.push(e.node)
-    j = e.next
-    if isPunct(toks, j, ",") {
-      j = j + 1
-    }
+    j = sep(toks, e.next, ")")
   }
-  PArgs(list = list, next = j + 1)
+  PArgs(list = list, next = expect(toks, j, ")"))
 }
 
-parseMatch(toks : List[Tok], scrut : Expr, i : Int) : Parsed {
+parseMatch(toks : Lexed, scrut : Expr, i : Int) : Parsed {
   arms : List[Arm] = []
-  j = i + 3
+  j = expect(toks, i + 2, "{")
   while inBlock(toks, j) {
     pa = parseArm(toks, j)
     arms.push(pa.arm)
     j = pa.next
   }
-  Parsed(node = Match(scrut, arms), next = j + 1)
+  Parsed(node = Match(scrut, arms), next = expect(toks, j, "}"))
 }
 
-parseArm(toks : List[Tok], j : Int) : PArm {
-  tag = identAt(toks, j)
+parseArm(toks : Lexed, j : Int) : PArm {
+  tag = expectIdent(toks, j, "a case name")
   binds : List[Str] = []
   k = j + 1
   if isPunct(toks, k, "(") {
     k = k + 1
-    while isIdent(toks, k) {
-      binds.push(identAt(toks, k))
-      k = k + 1
-      if isPunct(toks, k, ",") {
-        k = k + 1
-      }
+    while inArgs(toks, k) {
+      binds.push(expectIdent(toks, k, "a name"))
+      k = sep(toks, k + 1, ")")
     }
-    k = k + 1
+    k = expect(toks, k, ")")
   }
-  if isPunct(toks, k + 1, "{") {
-    fail("input.smplr: match case ".concat(tag).concat(": an arm is one expression, not a { } block; call a function for more"))
+  k = expect(toks, k, "->")
+  if isPunct(toks, k, "{") {
+    failLine(toks, k, "match case ".concat(tag).concat(": an arm is one expression, not a { } block; call a function for more"))
   }
-  ae = parseExpr(toks, k + 1)
+  ae = parseExpr(toks, k)
   PArm(arm = Arm(tag = tag, binds = binds, body = ae.node), next = ae.next)
 }
 
@@ -924,6 +1049,7 @@ emitFn(f : Fn, sigs : Sigs) : Str {
     envPut(env, "__ret__", f.ret)
   }
   seedEnv(f.body, ctx)
+  setLine(f.line, ctx)
   checkReturn(f, ctx)
   checkEffects(f, ctx)
   decls = collectLets(f.body)
@@ -973,6 +1099,33 @@ envPut(env : TyEnv, name : Str, ty : Str) : Int {
   0
 }
 
+// A name lives only inside its match arm or each loop. Before it is bound,
+// envOld keeps what the name was; envPut of that value afterwards ends it.
+envOld(env : TyEnv, name : Str) : Str {
+  r = "__gone__"
+  if hasName(env.names, name) {
+    r = envGet(env, name)
+  }
+  r
+}
+
+envOlds(env : TyEnv, names : List[Str]) : List[Str] {
+  olds : List[Str] = []
+  names.each { n in
+    olds.push(envOld(env, n))
+  }
+  olds
+}
+
+envRestore(env : TyEnv, names : List[Str], olds : List[Str]) : Int {
+  k = 0
+  while k < names.length {
+    envPut(env, names.at(k), olds.at(k))
+    k = k + 1
+  }
+  0
+}
+
 envGet(env : TyEnv, name : Str) : Str {
   r = "Int"
   k = 0
@@ -1006,6 +1159,7 @@ seedStmt(s : Stmt, ctx : Ctx) : Int {
     If(c, t, el) -> seedIf(t, el, ctx)
     While(c, b) -> seedEnv(b, ctx)
     Ret(e) -> seedExpr(e, ctx)
+    Line(n) -> setLine(n, ctx)
   }
 }
 
@@ -1047,8 +1201,10 @@ seedExpr(e : Expr, ctx : Ctx) : Int {
 }
 
 seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int {
+  old = envOld(ctx.env, param)
   envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
   seedEnv(body, ctx)
+  envPut(ctx.env, param, old)
   0
 }
 
@@ -1150,6 +1306,7 @@ collectStmt(s : Stmt, names : List[Str]) : Int {
     If(c, t, el) -> collectIf(t, el, names)
     While(c, b) -> collectBody(b, names)
     Ret(e) -> collectExpr(e, names)
+    Line(n) -> 0
   }
 }
 
@@ -1203,9 +1360,10 @@ emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str {
   s.match {
     Let(name, ty, e) -> "  ".concat(name).concat(" = ").concat(emitExpr(e, ctx)).concat(";")
     Bare(e) -> emitBare(e, asReturn, ctx)
-    If(c, t, el) -> emitIf(c, t, el, ctx)
+    If(c, t, el) -> emitIf(c, t, el, asReturn, ctx)
     While(c, b) -> emitWhile(c, b, ctx)
     Ret(e) -> emitRet(e, ctx)
+    Line(n) -> emitLine(n, ctx)
   }
 }
 
@@ -1219,24 +1377,25 @@ emitRet(e : Expr, ctx : Ctx) : Str {
   emitReturn(e, ctx)
 }
 
-emitIf(c : Expr, t : List[Stmt], el : List[Stmt], ctx : Ctx) : Str {
-  out = "  if (".concat(emitExpr(c, ctx)).concat(") {").concat(emitBlock(t, ctx)).concat("\n  }")
+emitIf(c : Expr, t : List[Stmt], el : List[Stmt], asReturn : Bool, ctx : Ctx) : Str {
+  out = "  if (".concat(emitExpr(c, ctx)).concat(") {").concat(emitBlock(t, asReturn, ctx)).concat("\n  }")
   if el.length > 0 {
-    out = out.concat(" else {").concat(emitBlock(el, ctx)).concat("\n  }")
+    out = out.concat(" else {").concat(emitBlock(el, asReturn, ctx)).concat("\n  }")
   }
   out
 }
 
 emitWhile(c : Expr, b : List[Stmt], ctx : Ctx) : Str {
-  "  while (".concat(emitExpr(c, ctx)).concat(") {").concat(emitBlock(b, ctx)).concat("\n  }")
+  "  while (".concat(emitExpr(c, ctx)).concat(") {").concat(emitBlock(b, false, ctx)).concat("\n  }")
 }
 
-emitBlock(body : List[Stmt], ctx : Ctx) : Str {
+// With asReturn the block's last statement gives the function's value.
+emitBlock(body : List[Stmt], asReturn : Bool, ctx : Ctx) : Str {
   out = ""
   k = 0
   m = body.length
   while k < m {
-    out = out.concat("\n").concat(emitStmt(body.at(k), false, ctx))
+    out = out.concat("\n").concat(emitStmt(body.at(k), asReturn && (k + 1 == m), ctx))
     k = k + 1
   }
   out
@@ -1293,7 +1452,7 @@ exprStmt(e : Expr, ctx : Ctx) : Str {
 // just a C statement.
 emitCallStmt(name : Str, args : List[Expr], e : Expr, ctx : Ctx) : Str {
   r = "  ".concat(emitExpr(e, ctx)).concat(";")
-  if name == "print" {
+  if name == "print" && args.length == 1 {
     r = "  ".concat(emitPrint(args.at(0), ctx)).concat(";")
   }
   r
@@ -1337,13 +1496,15 @@ emitPrint(arg : Expr, ctx : Ctx) : Str {
 // so nested .each loops shadow cleanly.
 emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str {
   recvC = emitExpr(recv, ctx)
+  old = envOld(ctx.env, param)
   envPut(ctx.env, param, elemOf(exprType(recv, ctx)))
   out = "  {"
   out = out.concat("\n  long _lst = ").concat(recvC).concat(";")
   out = out.concat("\n  long _n = l_len(_lst);")
   out = out.concat("\n  for (long _i = 0; _i < _n; _i = _i + 1) {")
   out = out.concat("\n  long ").concat(param).concat(" = l_at(_lst, _i);")
-  out = out.concat(emitBlock(body, ctx))
+  out = out.concat(emitBlock(body, false, ctx))
+  envPut(ctx.env, param, old)
   out = out.concat("\n  }")
   out = out.concat("\n  }")
   out
@@ -1420,7 +1581,7 @@ emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
   k = 0
   m = arms.length
   while k < m {
-    out = out.concat("\n").concat(emitArm(arms.at(k), scrutC, boxed, styp, ctx))
+    out = out.concat("\n").concat(emitArm(arms.at(k), scrutC, boxed, styp, "return ", ";", ctx))
     k = k + 1
   }
   out = out.concat("\n  }")
@@ -1429,8 +1590,30 @@ emitSwitch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
 
 // Each bound payload is given its declared type, so comparisons and method
 // dispatch inside the arm body resolve correctly.
-emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, ctx : Ctx) : Str {
+// A match used as a value, in the middle of a function: the chosen arm's
+// value lands in _m (a GNU C statement expression).
+emitMatchExpr(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
+  boxed = armHasBind(arms)
+  scrutC = emitExpr(scrut, ctx)
+  styp = exprType(scrut, ctx)
+  checkExhaustive(styp, arms, ctx)
+  head = scrutC
+  if boxed {
+    head = boxField(scrutC, "tag")
+  }
+  out = "({ long _m = 0; switch (".concat(head).concat(") {")
+  k = 0
+  m = arms.length
+  while k < m {
+    out = out.concat(emitArm(arms.at(k), scrutC, boxed, styp, "_m = ", "; break;", ctx))
+    k = k + 1
+  }
+  out.concat(" } _m; })")
+}
+
+emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, pre : Str, post : Str, ctx : Ctx) : Str {
   r = ""
+  olds = envOlds(ctx.env, a.binds)
   if boxed {
     // type the payload bindings before emitting the body, so checks in it see
     // the right types
@@ -1441,10 +1624,11 @@ emitArm(a : Arm, scrutC : Str, boxed : Bool, styp : Str, ctx : Ctx) : Str {
       decls = decls.concat(" long ").concat(a.binds.at(bi)).concat(" = ").concat(boxField(scrutC, slotName(bi))).concat(";")
       bi = bi + 1
     }
-    r = "  case T_".concat(a.tag).concat(": {").concat(decls).concat(" return ").concat(emitExpr(a.body, ctx)).concat("; }")
+    r = "  case T_".concat(a.tag).concat(": {").concat(decls).concat(" ").concat(pre).concat(emitExpr(a.body, ctx)).concat(post).concat(" }")
   } else {
-    r = "  case ".concat(a.tag).concat(": return ").concat(emitExpr(a.body, ctx)).concat(";")
+    r = "  case ".concat(a.tag).concat(": ").concat(pre).concat(emitExpr(a.body, ctx)).concat(post)
   }
+  envRestore(ctx.env, a.binds, olds)
   r
 }
 
@@ -1521,7 +1705,17 @@ checkArities(t : TyDef, arms : List[Arm], ctx : Ctx) : Int {
   0
 }
 
-// Report a compile error located at the function currently being emitted.
+// Each statement sets the line that an error in it will name.
+setLine(n : Int, ctx : Ctx) : Int {
+  envPut(ctx.env, "__line__", n.toStr)
+}
+
+emitLine(n : Int, ctx : Ctx) : Str {
+  setLine(n, ctx)
+  ""
+}
+
+// Report a compile error at the statement being read.
 failAt(msg : Str, ctx : Ctx) : Int {
   fail("input.smplr:".concat(envGet(ctx.env, "__line__")).concat(": ").concat(msg))
 }
@@ -1565,6 +1759,7 @@ effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int {
     If(c, t, el) -> effIf(c, t, el, used, ctx)
     While(c, b) -> effWhile(c, b, used, ctx)
     Ret(e) -> effExpr(e, used, ctx)
+    Line(n) -> 0
   }
 }
 
@@ -1741,10 +1936,10 @@ emitExpr(e : Expr, ctx : Ctx) : Str {
     ListLit(es) -> emitList(es, ctx)
     Bin(op, a, b) -> emitBin(op, a, b, ctx)
     Call(name, args) -> emitCall(name, args, ctx)
-    Match(scrut, arms) -> "0"
+    Match(scrut, arms) -> emitMatchExpr(scrut, arms, ctx)
     Field(recv, fld) -> emitField(recv, fld, ctx)
     Method(recv, name, args) -> emitMethod(recv, name, args, ctx)
-    Each(recv, param, body) -> "0"
+    Each(recv, param, body) -> "0".concat(failAt("an each loop has no value", ctx).toStr)
   }
 }
 
@@ -1897,6 +2092,7 @@ checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int {
     If(c, t, el) -> 0
     While(c, b) -> 0
     Ret(e) -> checkRetExpr(e, ret, ctx)
+    Line(n) -> 0
   }
 }
 
@@ -1937,6 +2133,9 @@ checkCall(name : Str, args : List[Expr], ctx : Ctx) : Int {
   while k < m {
     f = fns.at(k)
     if f.name == name {
+      if (args.length == f.params.length).not {
+        failAt(name.concat(" takes ").concat(f.params.length.toStr).concat(" values, got ").concat(args.length.toStr), ctx)
+      }
       checkArgTypes(name, f.ptypes, args, ctx)
     }
     k = k + 1
@@ -2252,6 +2451,9 @@ checkField(t : Str, fld : Str, ctx : Ctx) : Int {
     if isNumType(t) && isTextField(fld) {
       failAt(t.concat(" has no method ").concat(fld), ctx)
     }
+    if isRec(t, ctx).not && isBuiltinField(fld).not {
+      failAt("no field or function named ".concat(fld), ctx)
+    }
   }
   0
 }
@@ -2305,9 +2507,28 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
   0
 }
 
+// How many values a built-in method takes; -1 for a name that is no method.
+methodArgs(name : Str) : Int {
+  r = 0 - 1
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+    r = 1
+  }
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "set") {
+    r = 2
+  }
+  r
+}
+
 emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str {
   t = exprType(recv, ctx)
   checkCap(recv, name, ctx)
+  want = methodArgs(name)
+  if want < 0 {
+    failAt("no method named ".concat(name), ctx)
+  }
+  if (args.length == want).not {
+    failAt(name.concat(" takes ").concat(want.toStr).concat(" values, got ").concat(args.length.toStr), ctx)
+  }
   if name == "print" && hasName(ctx.sigs.fnNames, name).not {
     emitExpr(recv, ctx)
     return "(".concat(emitPrint(args.at(0), ctx)).concat(", 0L)")
@@ -2420,7 +2641,29 @@ cEscape(s : Str) : Str {
 
 // A bare name is a local or enum constant, unless it is a payload-less
 // constructor of a boxed variant, which needs a constructor call.
+caseArity(name : Str, ctx : Ctx) : Int {
+  r = 0 - 1
+  ctx.sigs.types.each { t in
+    a = caseArityIn(t, name)
+    if a > r {
+      r = a
+    }
+  }
+  r
+}
+
 emitVar(s : Str, ctx : Ctx) : Str {
+  vt = variantOf(s, ctx)
+  if vt == "" {
+    if (envOld(ctx.env, s) == "__gone__") && (s == "true").not && (s == "false").not {
+      failAt("no variable named ".concat(s), ctx)
+    }
+  } else {
+    ar = caseArity(s, ctx)
+    if ar > 0 {
+      failAt("case ".concat(s).concat(" takes ").concat(ar.toStr).concat(" values, got 0"), ctx)
+    }
+  }
   r = s
   if hasName(ctx.sigs.boxedNullary, s) {
     r = s.concat("()")
@@ -2470,11 +2713,29 @@ exprType(e : Expr, ctx : Ctx) : Str {
     ListLit(es) -> listType(es, ctx)
     Bin(op, a, b) -> binType(op, a, b, ctx)
     Call(name, args) -> callRet(name, ctx)
-    Match(scrut, arms) -> "Int"
+    Match(scrut, arms) -> matchType(scrut, arms, ctx)
     Field(recv, fld) -> fieldType(recv, fld, ctx)
     Method(recv, name, args) -> methodRet(recv, name, ctx)
     Each(recv, param, body) -> "Int"
   }
+}
+
+// A match has the type of its first arm, read with that arm's names typed.
+matchType(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str {
+  r = "Int"
+  if arms.length > 0 {
+    a = arms.at(0)
+    styp = exprType(scrut, ctx)
+    olds = envOlds(ctx.env, a.binds)
+    bi = 0
+    while bi < a.binds.length {
+      envPut(ctx.env, a.binds.at(bi), payloadType(styp, a.tag, bi, ctx))
+      bi = bi + 1
+    }
+    r = exprType(a.body, ctx)
+    envRestore(ctx.env, a.binds, olds)
+  }
+  r
 }
 
 // A `.field`: the declared type of a record field, or the result type of a
@@ -2609,8 +2870,8 @@ isMain(name : Str) : Bool {
   name == "main"
 }
 
-notEof(toks : List[Tok], i : Int) : Bool {
-  toks.at(i).match {
+notEof(toks : Lexed, i : Int) : Bool {
+  tokAt(toks, i).match {
     Eof -> false
     Ident(s) -> true
     Int(v) -> true
@@ -2620,16 +2881,16 @@ notEof(toks : List[Tok], i : Int) : Bool {
   }
 }
 
-inBlock(toks : List[Tok], j : Int) : Bool {
+inBlock(toks : Lexed, j : Int) : Bool {
   isPunct(toks, j, "}").not.and(notEof(toks, j))
 }
 
-inArgs(toks : List[Tok], j : Int) : Bool {
+inArgs(toks : Lexed, j : Int) : Bool {
   isPunct(toks, j, ")").not.and(notEof(toks, j))
 }
 
-isIdent(toks : List[Tok], i : Int) : Bool {
-  toks.at(i).match {
+isIdent(toks : Lexed, i : Int) : Bool {
+  tokAt(toks, i).match {
     Ident(s) -> true
     Int(v) -> false
     Float(f) -> false
@@ -2639,8 +2900,8 @@ isIdent(toks : List[Tok], i : Int) : Bool {
   }
 }
 
-isWord(toks : List[Tok], i : Int, w : Str) : Bool {
-  toks.at(i).match {
+isWord(toks : Lexed, i : Int, w : Str) : Bool {
+  tokAt(toks, i).match {
     Ident(s) -> s == w
     Int(v) -> false
     Float(f) -> false
@@ -2650,12 +2911,12 @@ isWord(toks : List[Tok], i : Int, w : Str) : Bool {
   }
 }
 
-isAssign(toks : List[Tok], i : Int) : Bool {
+isAssign(toks : Lexed, i : Int) : Bool {
   isIdent(toks, i).and(isPunct(toks, i + 1, "="))
 }
 
-identAt(toks : List[Tok], i : Int) : Str {
-  toks.at(i).match {
+identAt(toks : Lexed, i : Int) : Str {
+  tokAt(toks, i).match {
     Ident(s) -> s
     Int(v) -> "?"
     Float(f) -> "?"
@@ -2665,8 +2926,8 @@ identAt(toks : List[Tok], i : Int) : Str {
   }
 }
 
-punctAt(toks : List[Tok], i : Int) : Str {
-  toks.at(i).match {
+punctAt(toks : Lexed, i : Int) : Str {
+  tokAt(toks, i).match {
     Punct(p) -> p
     Ident(s) -> "?"
     Int(v) -> "?"
@@ -2676,8 +2937,8 @@ punctAt(toks : List[Tok], i : Int) : Str {
   }
 }
 
-isPunct(toks : List[Tok], i : Int, op : Str) : Bool {
-  toks.at(i).match {
+isPunct(toks : Lexed, i : Int, op : Str) : Bool {
+  tokAt(toks, i).match {
     Punct(p) -> p == op
     Ident(s) -> false
     Int(v) -> false
@@ -2687,15 +2948,15 @@ isPunct(toks : List[Tok], i : Int, op : Str) : Bool {
   }
 }
 
-isCmpOp(toks : List[Tok], i : Int) : Bool {
+isCmpOp(toks : Lexed, i : Int) : Bool {
   isPunct(toks, i, "==").or(isPunct(toks, i, "<")).or(isPunct(toks, i, ">")).or(isPunct(toks, i, "<=")).or(isPunct(toks, i, ">="))
 }
 
-isAddOp(toks : List[Tok], i : Int) : Bool {
+isAddOp(toks : Lexed, i : Int) : Bool {
   isPunct(toks, i, "+").or(isPunct(toks, i, "-"))
 }
 
-isMulOp(toks : List[Tok], i : Int) : Bool {
+isMulOp(toks : Lexed, i : Int) : Bool {
   isPunct(toks, i, "*").or(isPunct(toks, i, "/")).or(isPunct(toks, i, "%"))
 }
 
@@ -2724,6 +2985,9 @@ lex(src : Str) : Lexed {
           j = i + 1
           s = ""
           while (j < n).and((src.at(j).code == 34).not) {
+            if src.at(j).code == 10 {
+              fail("input.smplr:".concat(line.toStr).concat(": a text is missing its closing quote"))
+            }
             if src.at(j).code == 92 {
               j = j + 1
               s = s.concat(esc(src, j))
@@ -2731,6 +2995,9 @@ lex(src : Str) : Lexed {
               s = s.concat(src.at(j))
             }
             j = j + 1
+          }
+          if j == n {
+            fail("input.smplr:".concat(line.toStr).concat(": a text is missing its closing quote"))
           }
           toks.push(Str(s))
           lines.push(line)

@@ -63,12 +63,13 @@ long Match(long v0, long v1) { return mk(T_Match, v0, v1, 0); }
 long Field(long v0, long v1) { return mk(T_Field, v0, v1, 0); }
 long Method(long v0, long v1, long v2) { return mk(T_Method, v0, v1, v2); }
 long Each(long v0, long v1, long v2) { return mk(T_Each, v0, v1, v2); }
-enum { T_Let, T_Bare, T_If, T_While, T_Ret };
+enum { T_Let, T_Bare, T_If, T_While, T_Ret, T_Line };
 long Let(long v0, long v1, long v2) { return mk(T_Let, v0, v1, v2); }
 long Bare(long v0) { return mk(T_Bare, v0, 0, 0); }
 long If(long v0, long v1, long v2) { return mk(T_If, v0, v1, v2); }
 long While(long v0, long v1) { return mk(T_While, v0, v1, 0); }
 long Ret(long v0) { return mk(T_Ret, v0, 0, 0); }
+long Line(long v0) { return mk(T_Line, v0, 0, 0); }
 enum { T_Ident, T_Str, T_Int, T_Float, T_Punct, T_Eof };
 long Ident(long v0) { return mk(T_Ident, v0, 0, 0); }
 long Str(long v0) { return mk(T_Str, v0, 0, 0); }
@@ -114,21 +115,40 @@ typedef struct { long ret; long effs; long next; } PRetT;
 long PRet(long ret, long effs, long next) { PRetT* o = malloc(sizeof(PRetT)); o->ret = ret; o->effs = effs; o->next = next; return (long)(intptr_t)o; }
 typedef struct { long body; long next; } PBodyT;
 long PBody(long body, long next) { PBodyT* o = malloc(sizeof(PBodyT)); o->body = body; o->next = next; return (long)(intptr_t)o; }
+typedef struct { long ty; long next; } PTypeT;
+long PType(long ty, long next) { PTypeT* o = malloc(sizeof(PTypeT)); o->ty = ty; o->next = next; return (long)(intptr_t)o; }
 typedef struct { long list; long next; } PArgsT;
 long PArgs(long list, long next) { PArgsT* o = malloc(sizeof(PArgsT)); o->list = list; o->next = next; return (long)(intptr_t)o; }
 long u_isTest(long name);
 long u_emitTests(long fns);
 long u_buildSigs(long prog);
-long u_parse(long toks, long lines);
+long u_parse(long toks);
+long u_tokAt(long toks, long i);
+long u_lineOf(long toks, long i);
+long u_show(long toks, long i);
+long u_showPunct(long p);
+long u_failLine(long toks, long i, long msg);
+long u_failTok(long toks, long i, long msg);
+long u_once(long seen, long name, long toks, long i);
+long u_expect(long toks, long i, long p);
+long u_isKeyword(long toks, long i);
+long u_expectIdent(long toks, long i, long what);
+long u_sep(long toks, long j, long close);
+long u_parseType(long toks, long i);
 long u_isTypeDef(long toks, long i);
 long u_isRecordDef(long toks, long i);
 long u_parseRecord(long toks, long i);
-long u_parseTypeDef(long toks, long i);
-long u_parseFn(long toks, long lines, long i);
+long u_parseTypeDef(long toks, long i, long seen);
+long u_parseFn(long toks, long i);
 long u_parseParams(long toks, long i);
 long u_parseRet(long toks, long j);
 long u_parseBlock(long toks, long i);
+long u_parseStmts(long toks, long start);
+long u_checkUseful(long s, long toks, long i);
+long u_checkValueLine(long e, long toks, long i);
+long u_plainValue(long e);
 long u_parseStmt(long toks, long i);
+long u_parseReturn(long toks, long i);
 long u_isTypedAssign(long toks, long i);
 long u_parseTypedLet(long toks, long i);
 long u_parseIf(long toks, long i);
@@ -163,6 +183,9 @@ long u_emitFn(long f, long sigs);
 long u_paramDecls(long f);
 long u_newEnv();
 long u_envPut(long env, long name, long ty);
+long u_envOld(long env, long name);
+long u_envOlds(long env, long names);
+long u_envRestore(long env, long names, long olds);
 long u_envGet(long env, long name);
 long u_seedEnv(long body, long ctx);
 long u_seedStmt(long s, long ctx);
@@ -185,9 +208,9 @@ long u_pushUnique(long names, long name);
 long u_hasName(long names, long name);
 long u_emitStmt(long s, long asReturn, long ctx);
 long u_emitRet(long e, long ctx);
-long u_emitIf(long c, long t, long el, long ctx);
+long u_emitIf(long c, long t, long el, long asReturn, long ctx);
 long u_emitWhile(long c, long b, long ctx);
-long u_emitBlock(long body, long ctx);
+long u_emitBlock(long body, long asReturn, long ctx);
 long u_emitBare(long e, long asReturn, long ctx);
 long u_stmtOnly(long e);
 long u_stmtExpr(long e, long ctx);
@@ -203,12 +226,15 @@ long u_mapValueOf(long t);
 long u_emitReturn(long e, long ctx);
 long u_retVal(long e, long ctx);
 long u_emitSwitch(long scrut, long arms, long ctx);
-long u_emitArm(long a, long scrutC, long boxed, long styp, long ctx);
+long u_emitMatchExpr(long scrut, long arms, long ctx);
+long u_emitArm(long a, long scrutC, long boxed, long styp, long pre, long post, long ctx);
 long u_payloadType(long tyName, long caseTag, long idx, long ctx);
 long u_casePayloadType(long t, long caseTag, long idx);
 long u_boxField(long scrutC, long field);
 long u_checkExhaustive(long styp, long arms, long ctx);
 long u_checkArities(long t, long arms, long ctx);
+long u_setLine(long n, long ctx);
+long u_emitLine(long n, long ctx);
 long u_failAt(long msg, long ctx);
 long u_checkEffects(long f, long ctx);
 long u_effBody(long body, long used, long ctx);
@@ -264,12 +290,15 @@ long u_isTextMethod(long name);
 long u_checkMethod(long t, long name, long args, long ctx);
 long u_isSysField(long fld);
 long u_checkSysField(long t, long fld, long ctx);
+long u_methodArgs(long name);
 long u_emitMethod(long recv, long name, long args, long ctx);
 long u_cEscape(long s);
+long u_caseArity(long name, long ctx);
 long u_emitVar(long s, long ctx);
 long u_emitArgs(long args, long ctx);
 long u_binType(long op, long a, long b, long ctx);
 long u_exprType(long e, long ctx);
+long u_matchType(long scrut, long arms, long ctx);
 long u_fieldType(long recv, long fld, long ctx);
 long u_recFieldType(long tyName, long fld, long ctx);
 long u_fieldTypeIn(long rec, long fld);
@@ -299,133 +328,211 @@ long u_isSpace(long c);
 int main(int argc, char** argv) {
   long src = 0;
   long lexed = 0;
-  long toks = 0;
   long prog = 0;
   long sigs = 0;
   long testing = 0;
+
   src = (long)(intptr_t)simpler_read((const char*)(intptr_t)(long)(intptr_t)"input.smplr");
+
   lexed = u_lex(src);
-  toks = ((LexedT*)(intptr_t)lexed)->toks;
-  prog = u_parse(toks, ((LexedT*)(intptr_t)lexed)->lines);
+
+  prog = u_parse(lexed);
+
   sigs = u_buildSigs(prog);
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdio.h>");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdlib.h>");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdint.h>");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <math.h>");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <string.h>");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { int tag; long v0; long v1; long v2; } Obj;");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* data; long len; long cap; } SList;");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_with(long lp, long x) { l_push(lp, x); return lp; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_len(long s) { return (long)strlen((const char*)(intptr_t)s); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_code(long s) { return (long)(unsigned char)((const char*)(intptr_t)s)[0]; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tof(long n) { return d2l((double)n); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_toi(long x) { return (long)l2d(x); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_toint(long s) { return atol((const char*)(intptr_t)s); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; char dc = ((const char*)(intptr_t)d)[0]; long l = l_new(); long start = 0; long i = 0; while (1) { char c = p[i]; if (c == 0 || c == dc) { long n = i - start; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[start + k]; r[n] = 0; l_push(l, (long)(intptr_t)r); if (c == 0) break; start = i + 1; } i++; } return l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); long pad = n - len; for (long i = 0; i < pad; i++) r[i] = 32; for (long i = 0; i < len; i++) r[pad + i] = p[i]; r[n] = 0; return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); for (long i = 0; i < len; i++) r[i] = p[i]; for (long i = len; i < n; i++) r[i] = 32; r[n] = 0; return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* keys; long* vals; long len; long cap; } SMap;");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); char* buf = (char*)malloc(n + 1); long got = fread(buf, 1, n, f); buf[got] = 0; fclose(f); return buf; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_append(long path, long content) { FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; return (long)(intptr_t)buf; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_failed = 0;");
+
   printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_assert(long c) { if (!c) simpler_failed = 1; return 0; }");
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->types;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long t = l_at(_lst, _i);
+
   printf("%s\n", (const char*)(intptr_t)u_emitType(t));
   }
   }
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->records;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long r = l_at(_lst, _i);
+
   printf("%s\n", (const char*)(intptr_t)u_emitRecord(r));
   }
   }
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->fns;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long f = l_at(_lst, _i);
+
   if ((!u_isMain(((FnT*)(intptr_t)f)->name))) {
+
   printf("%s\n", (const char*)(intptr_t)u_emitProto(f));
   }
   }
   }
+
   testing = ((l_len(simpler_args(argc, argv)) > 0L) && s_eq(l_at(simpler_args(argc, argv), 0L), (long)(intptr_t)"test"));
+
   if (((!testing) && (!u_hasName(((SigsT*)(intptr_t)sigs)->fnNames, (long)(intptr_t)"main")))) {
-  fail((long)(intptr_t)"input.smplr: no main function found");
+
+  fail((long)(intptr_t)"input.smplr:1: no main function found");
   }
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->fns;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long f = l_at(_lst, _i);
+
   if ((!(testing && u_isMain(((FnT*)(intptr_t)f)->name)))) {
+
   printf("%s\n", (const char*)(intptr_t)u_emitFn(f, sigs));
   }
   }
   }
+
   if (testing) {
+
   printf("%s\n", (const char*)(intptr_t)u_emitTests(((ProgT*)(intptr_t)prog)->fns));
   }
   return 0;
 }
 long u_isTest(long name) {
+
   return ((s_len(name) > 5L) && s_eq(s_slice(name, 0L, 5L), (long)(intptr_t)"test_"));
   return 0;
 }
 long u_emitTests(long fns) {
   long out = 0;
   long c = 0;
+
   out = (long)(intptr_t)"int main(void) {\n  long failures = 0;\n  long total = 0;";
+
   {
   long _lst = fns;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long f = l_at(_lst, _i);
+
   if (u_isTest(((FnT*)(intptr_t)f)->name)) {
+
   c = u_mangle(((FnT*)(intptr_t)f)->name);
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  simpler_failed = 0; total = total + 1; "), c), (long)(intptr_t)"();");
+
   out = s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  if (simpler_failed) { printf(\"FAIL "), ((FnT*)(intptr_t)f)->name), (long)(intptr_t)"\\n\"); failures = failures + 1; } else { printf(\"PASS "), ((FnT*)(intptr_t)f)->name), (long)(intptr_t)"\\n\"); }");
   }
   }
   }
+
   return s_concat(out, (long)(intptr_t)"\n  printf(\"\\n%ld/%ld passed\\n\", total - failures, total);\n  return failures ? 1 : 0;\n}");
   return 0;
 }
@@ -434,39 +541,53 @@ long u_buildSigs(long prog) {
   long fnNames = 0;
   long fnRets = 0;
   long boxedNullary = 0;
+
   recNames = l_new();
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->records;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long r = l_at(_lst, _i);
+
   l_push(recNames, ((RecDefT*)(intptr_t)r)->name);
   }
   }
+
   fnNames = l_new();
+
   fnRets = l_new();
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->fns;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long f = l_at(_lst, _i);
+
   l_push(fnNames, ((FnT*)(intptr_t)f)->name);
+
   l_push(fnRets, ((FnT*)(intptr_t)f)->ret);
   }
   }
+
   boxedNullary = l_new();
+
   {
   long _lst = ((ProgT*)(intptr_t)prog)->types;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long t = l_at(_lst, _i);
+
   if (u_hasPayload(t)) {
+
   {
   long _lst = ((TyDefT*)(intptr_t)t)->cases;
   long _n = l_len(_lst);
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long c = l_at(_lst, _i);
+
   if ((((CaseT*)(intptr_t)c)->arity == 0L)) {
+
   l_push(boxedNullary, ((CaseT*)(intptr_t)c)->cname);
   }
   }
@@ -474,46 +595,235 @@ long u_buildSigs(long prog) {
   }
   }
   }
+
   return Sigs(recNames, ((ProgT*)(intptr_t)prog)->records, ((ProgT*)(intptr_t)prog)->types, ((ProgT*)(intptr_t)prog)->fns, fnNames, fnRets, boxedNullary);
   return 0;
 }
-long u_parse(long toks, long lines) {
+long u_parse(long toks) {
   long types = 0;
   long records = 0;
   long fns = 0;
+  long seen = 0;
   long i = 0;
   long pr = 0;
   long pt = 0;
   long pf = 0;
+
   types = l_new();
+
   records = l_new();
+
   fns = l_new();
+
+  seen = l_new();
+
   i = 0L;
+
   while (u_notEof(toks, i)) {
+
+  if (u_isIdent(toks, i)) {
+
+  u_once(seen, u_identAt(toks, i), toks, i);
+  }
+
   if (u_isTypeDef(toks, i)) {
+
+  if ((!u_isWord(toks, (i + 2L), (long)(intptr_t)"type"))) {
+
+  u_failTok(toks, (i + 2L), (long)(intptr_t)"expected the word type");
+  }
+
+  u_expect(toks, (i + 3L), (long)(intptr_t)"{");
+
   if (u_isRecordDef(toks, i)) {
+
   pr = u_parseRecord(toks, i);
+
   l_push(records, ((PRecT*)(intptr_t)pr)->rec);
+
   i = ((PRecT*)(intptr_t)pr)->next;
   } else {
-  pt = u_parseTypeDef(toks, i);
+
+  pt = u_parseTypeDef(toks, i, seen);
+
   l_push(types, ((PTyT*)(intptr_t)pt)->ty);
+
   i = ((PTyT*)(intptr_t)pt)->next;
   }
   } else {
-  pf = u_parseFn(toks, lines, i);
+
+  if ((!(u_isIdent(toks, i) && u_isPunct(toks, (i + 1L), (long)(intptr_t)"(")))) {
+
+  u_failTok(toks, i, (long)(intptr_t)"expected a function or a type");
+  }
+
+  pf = u_parseFn(toks, i);
+
   l_push(fns, ((PFnT*)(intptr_t)pf)->fn);
+
   i = ((PFnT*)(intptr_t)pf)->next;
   }
   }
+
   return Prog(types, records, fns);
   return 0;
 }
+long u_tokAt(long toks, long i) {
+  long r = 0;
+
+  r = Eof();
+
+  if ((i < l_len(((LexedT*)(intptr_t)toks)->toks))) {
+
+  r = l_at(((LexedT*)(intptr_t)toks)->toks, i);
+  }
+
+  return r;
+  return 0;
+}
+long u_lineOf(long toks, long i) {
+  long r = 0;
+
+  r = l_at(((LexedT*)(intptr_t)toks)->lines, (l_len(((LexedT*)(intptr_t)toks)->lines) - 1L));
+
+  if ((i < l_len(((LexedT*)(intptr_t)toks)->lines))) {
+
+  r = l_at(((LexedT*)(intptr_t)toks)->lines, i);
+  }
+
+  return r;
+  return 0;
+}
+long u_show(long toks, long i) {
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return s; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return i_tostr(v); }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return f; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"a text"; }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return u_showPunct(p); }
+  case T_Eof: { return (long)(intptr_t)"the end of the file"; }
+  }
+  return 0;
+  return 0;
+}
+long u_showPunct(long p) {
+  long r = 0;
+
+  r = p;
+
+  if (s_eq(p, (long)(intptr_t)"s(")) {
+
+  r = (long)(intptr_t)"(";
+  }
+
+  return r;
+  return 0;
+}
+long u_failLine(long toks, long i, long msg) {
+
+  return fail(s_concat(s_concat(s_concat((long)(intptr_t)"input.smplr:", i_tostr(u_lineOf(toks, i))), (long)(intptr_t)": "), msg));
+  return 0;
+}
+long u_failTok(long toks, long i, long msg) {
+
+  return u_failLine(toks, i, s_concat(s_concat(msg, (long)(intptr_t)", found "), u_show(toks, i)));
+  return 0;
+}
+long u_once(long seen, long name, long toks, long i) {
+
+  if (u_hasName(seen, name)) {
+
+  u_failLine(toks, i, s_concat(s_concat((long)(intptr_t)"the name ", name), (long)(intptr_t)" is used twice"));
+  }
+
+  l_push(seen, name);
+
+  return name;
+  return 0;
+}
+long u_expect(long toks, long i, long p) {
+
+  if ((!u_isPunct(toks, i, p))) {
+
+  u_failTok(toks, i, s_concat((long)(intptr_t)"expected ", p));
+  }
+
+  return (i + 1L);
+  return 0;
+}
+long u_isKeyword(long toks, long i) {
+
+  return (((u_isWord(toks, i, (long)(intptr_t)"if") || u_isWord(toks, i, (long)(intptr_t)"else")) || u_isWord(toks, i, (long)(intptr_t)"while")) || u_isWord(toks, i, (long)(intptr_t)"return"));
+  return 0;
+}
+long u_expectIdent(long toks, long i, long what) {
+
+  if (((!u_isIdent(toks, i)) || u_isKeyword(toks, i))) {
+
+  u_failTok(toks, i, s_concat((long)(intptr_t)"expected ", what));
+  }
+
+  return u_identAt(toks, i);
+  return 0;
+}
+long u_sep(long toks, long j, long close) {
+  long r = 0;
+
+  r = j;
+
+  if (u_isPunct(toks, j, (long)(intptr_t)",")) {
+
+  r = (j + 1L);
+  } else {
+
+  if ((!u_isPunct(toks, j, close))) {
+
+  u_failTok(toks, j, s_concat((long)(intptr_t)"expected , or ", close));
+  }
+  }
+
+  return r;
+  return 0;
+}
+long u_parseType(long toks, long i) {
+  long ty = 0;
+  long k = 0;
+  long inner = 0;
+  long more = 0;
+
+  ty = u_expectIdent(toks, i, (long)(intptr_t)"a type");
+
+  k = (i + 1L);
+
+  if (u_isPunct(toks, k, (long)(intptr_t)"[")) {
+
+  inner = u_parseType(toks, (k + 1L));
+
+  ty = s_concat(s_concat(s_concat(ty, (long)(intptr_t)"["), ((PTypeT*)(intptr_t)inner)->ty), (long)(intptr_t)"]");
+
+  k = ((PTypeT*)(intptr_t)inner)->next;
+
+  while (u_isPunct(toks, k, (long)(intptr_t)",")) {
+
+  more = u_parseType(toks, (k + 1L));
+
+  k = ((PTypeT*)(intptr_t)more)->next;
+  }
+
+  k = u_expect(toks, k, (long)(intptr_t)"]");
+  }
+
+  return PType(ty, k);
+  return 0;
+}
 long u_isTypeDef(long toks, long i) {
+
   return (u_isIdent(toks, i) && u_isPunct(toks, (i + 1L), (long)(intptr_t)"="));
   return 0;
 }
 long u_isRecordDef(long toks, long i) {
+
   return u_isPunct(toks, (i + 5L), (long)(intptr_t)":");
   return 0;
 }
@@ -523,84 +833,103 @@ long u_parseRecord(long toks, long i) {
   long ftypes = 0;
   long j = 0;
   long ty = 0;
+  long pt = 0;
+
   name = u_identAt(toks, i);
+
   fields = l_new();
+
   ftypes = l_new();
+
   j = (i + 4L);
+
   while (u_inBlock(toks, j)) {
-  l_push(fields, u_identAt(toks, j));
+
+  u_once(fields, u_expectIdent(toks, j, (long)(intptr_t)"a field name"), toks, j);
+
   j = (j + 1L);
+
   ty = (long)(intptr_t)"Int";
+
   if (u_isPunct(toks, j, (long)(intptr_t)":")) {
-  ty = u_identAt(toks, (j + 1L));
-  j = (j + 2L);
-  if (u_isPunct(toks, j, (long)(intptr_t)"[")) {
-  ty = s_concat(s_concat(s_concat(ty, (long)(intptr_t)"["), u_identAt(toks, (j + 1L))), (long)(intptr_t)"]");
-  while (((!u_isPunct(toks, j, (long)(intptr_t)"]")) && u_notEof(toks, j))) {
-  j = (j + 1L);
+
+  pt = u_parseType(toks, (j + 1L));
+
+  ty = ((PTypeT*)(intptr_t)pt)->ty;
+
+  j = ((PTypeT*)(intptr_t)pt)->next;
   }
-  j = (j + 1L);
-  }
-  }
+
   l_push(ftypes, ty);
+
   if (u_isPunct(toks, j, (long)(intptr_t)",")) {
+
   j = (j + 1L);
   }
   }
-  return PRec(RecDef(name, fields, ftypes), (j + 1L));
+
+  return PRec(RecDef(name, fields, ftypes), u_expect(toks, j, (long)(intptr_t)"}"));
   return 0;
 }
-long u_parseTypeDef(long toks, long i) {
+long u_parseTypeDef(long toks, long i, long seen) {
   long name = 0;
   long cases = 0;
   long j = 0;
   long cn = 0;
-  long arity = 0;
   long ptypes = 0;
   long pt = 0;
+
   name = u_identAt(toks, i);
+
   cases = l_new();
+
   j = (i + 4L);
+
   while (u_inBlock(toks, j)) {
-  cn = u_identAt(toks, j);
+
+  cn = u_once(seen, u_expectIdent(toks, j, (long)(intptr_t)"a case name"), toks, j);
+
   j = (j + 1L);
-  arity = 0L;
+
   ptypes = l_new();
+
   if (u_isPunct(toks, j, (long)(intptr_t)"(")) {
+
   j = (j + 1L);
-  while (u_isIdent(toks, j)) {
-  pt = u_identAt(toks, j);
-  arity = (arity + 1L);
-  j = (j + 1L);
-  if (u_isPunct(toks, j, (long)(intptr_t)"[")) {
-  pt = s_concat(s_concat(s_concat(pt, (long)(intptr_t)"["), u_identAt(toks, (j + 1L))), (long)(intptr_t)"]");
-  while (((!u_isPunct(toks, j, (long)(intptr_t)"]")) && u_notEof(toks, j))) {
-  j = (j + 1L);
+
+  while (u_inArgs(toks, j)) {
+
+  pt = u_parseType(toks, j);
+
+  l_push(ptypes, ((PTypeT*)(intptr_t)pt)->ty);
+
+  j = u_sep(toks, ((PTypeT*)(intptr_t)pt)->next, (long)(intptr_t)")");
   }
-  j = (j + 1L);
+
+  j = u_expect(toks, j, (long)(intptr_t)")");
   }
-  l_push(ptypes, pt);
-  if (u_isPunct(toks, j, (long)(intptr_t)",")) {
-  j = (j + 1L);
+
+  l_push(cases, Case(cn, l_len(ptypes), ptypes));
   }
-  }
-  j = (j + 1L);
-  }
-  l_push(cases, Case(cn, arity, ptypes));
-  }
-  return PTy(TyDef(name, cases), (j + 1L));
+
+  return PTy(TyDef(name, cases), u_expect(toks, j, (long)(intptr_t)"}"));
   return 0;
 }
-long u_parseFn(long toks, long lines, long i) {
+long u_parseFn(long toks, long i) {
   long name = 0;
   long pp = 0;
   long rt = 0;
   long pb = 0;
+
   name = u_identAt(toks, i);
+
   pp = u_parseParams(toks, (i + 1L));
+
   rt = u_parseRet(toks, ((PNamesT*)(intptr_t)pp)->next);
+
   pb = u_parseBlock(toks, ((PRetT*)(intptr_t)rt)->next);
-  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PRetT*)(intptr_t)rt)->effs, ((PBodyT*)(intptr_t)pb)->body, l_at(lines, i)), ((PBodyT*)(intptr_t)pb)->next);
+
+  return PFn(Fn(name, ((PNamesT*)(intptr_t)pp)->names, ((PNamesT*)(intptr_t)pp)->types, ((PRetT*)(intptr_t)rt)->ret, ((PRetT*)(intptr_t)rt)->effs, ((PBodyT*)(intptr_t)pb)->body, u_lineOf(toks, i)), ((PBodyT*)(intptr_t)pb)->next);
   return 0;
 }
 long u_parseParams(long toks, long i) {
@@ -608,123 +937,210 @@ long u_parseParams(long toks, long i) {
   long types = 0;
   long j = 0;
   long ty = 0;
+  long pt = 0;
+
   names = l_new();
+
   types = l_new();
+
   j = (i + 1L);
-  while (u_isIdent(toks, j)) {
-  l_push(names, u_identAt(toks, j));
+
+  while (u_inArgs(toks, j)) {
+
+  u_once(names, u_expectIdent(toks, j, (long)(intptr_t)"a parameter name"), toks, j);
+
   j = (j + 1L);
+
   ty = (long)(intptr_t)"";
+
   if (u_isPunct(toks, j, (long)(intptr_t)":")) {
-  ty = u_identAt(toks, (j + 1L));
-  j = (j + 2L);
-  if (u_isPunct(toks, j, (long)(intptr_t)"[")) {
-  ty = s_concat(s_concat(s_concat(ty, (long)(intptr_t)"["), u_identAt(toks, (j + 1L))), (long)(intptr_t)"]");
-  while (((!u_isPunct(toks, j, (long)(intptr_t)"]")) && u_notEof(toks, j))) {
-  j = (j + 1L);
+
+  pt = u_parseType(toks, (j + 1L));
+
+  ty = ((PTypeT*)(intptr_t)pt)->ty;
+
+  j = ((PTypeT*)(intptr_t)pt)->next;
   }
-  j = (j + 1L);
-  }
-  }
+
   l_push(types, ty);
-  if (u_isPunct(toks, j, (long)(intptr_t)",")) {
-  j = (j + 1L);
+
+  j = u_sep(toks, j, (long)(intptr_t)")");
   }
-  }
-  return PNames(names, types, (j + 1L));
+
+  return PNames(names, types, u_expect(toks, j, (long)(intptr_t)")"));
   return 0;
 }
 long u_parseRet(long toks, long j) {
   long ret = 0;
   long effs = 0;
   long k = 0;
+  long pt = 0;
+
   ret = (long)(intptr_t)"Int";
+
   effs = l_new();
+
   k = j;
+
   if (u_isPunct(toks, k, (long)(intptr_t)":")) {
-  ret = u_identAt(toks, (k + 1L));
+
+  pt = u_parseType(toks, (k + 1L));
+
+  ret = ((PTypeT*)(intptr_t)pt)->ty;
+
+  k = ((PTypeT*)(intptr_t)pt)->next;
+  }
+
+  while (u_isPunct(toks, k, (long)(intptr_t)"!")) {
+
+  l_push(effs, u_expectIdent(toks, (k + 1L), (long)(intptr_t)"an effect name"));
+
   k = (k + 2L);
-  if (u_isPunct(toks, k, (long)(intptr_t)"[")) {
-  ret = s_concat(s_concat(s_concat(ret, (long)(intptr_t)"["), u_identAt(toks, (k + 1L))), (long)(intptr_t)"]");
-  k = (k + 3L);
   }
-  }
-  while (((!u_isPunct(toks, k, (long)(intptr_t)"{")) && u_notEof(toks, k))) {
-  if (u_isPunct(toks, k, (long)(intptr_t)"!")) {
-  l_push(effs, u_identAt(toks, (k + 1L)));
-  }
-  k = (k + 1L);
-  }
+
   return PRet(ret, effs, k);
   return 0;
 }
 long u_parseBlock(long toks, long i) {
+
+  return u_parseStmts(toks, u_expect(toks, i, (long)(intptr_t)"{"));
+  return 0;
+}
+long u_parseStmts(long toks, long start) {
   long body = 0;
   long j = 0;
   long p = 0;
+
   body = l_new();
-  j = (i + 1L);
+
+  j = start;
+
   while (u_inBlock(toks, j)) {
+
+  l_push(body, Line(u_lineOf(toks, j)));
+
   p = u_parseStmt(toks, j);
+
+  if ((!u_isPunct(toks, ((PStmtT*)(intptr_t)p)->next, (long)(intptr_t)"}"))) {
+
+  u_checkUseful(((PStmtT*)(intptr_t)p)->node, toks, j);
+  }
+
   l_push(body, ((PStmtT*)(intptr_t)p)->node);
+
   j = ((PStmtT*)(intptr_t)p)->next;
   }
-  return PBody(body, (j + 1L));
+
+  return PBody(body, u_expect(toks, j, (long)(intptr_t)"}"));
+  return 0;
+}
+long u_checkUseful(long s, long toks, long i) {
+
+  switch (((Obj*)(intptr_t)s)->tag) {
+  case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_checkValueLine(e, toks, i); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return 0L; }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return 0L; }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return 0L; }
+  case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return 0L; }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
+  }
+  return 0;
+  return 0;
+}
+long u_checkValueLine(long e, long toks, long i) {
+
+  if (u_plainValue(e)) {
+
+  u_failLine(toks, i, (long)(intptr_t)"this line does nothing; a value alone belongs on the last line of a block");
+  }
+
+  return 0L;
+  return 0;
+}
+long u_plainValue(long e) {
+
+  switch (((Obj*)(intptr_t)e)->tag) {
+  case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return true; }
+  case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return true; }
+  case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return true; }
+  case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return true; }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return true; }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return true; }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return false; }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return false; }
+  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return false; }
+  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return false; }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return false; }
+  }
+  return 0;
   return 0;
 }
 long u_parseStmt(long toks, long i) {
-  long e = 0;
-  long r = 0;
-  long name = 0;
   long ae = 0;
-  long re = 0;
-  e = u_parseExpr(toks, i);
-  r = PStmt(Bare(((ParsedT*)(intptr_t)e)->node), ((ParsedT*)(intptr_t)e)->next);
-  if (u_isAssign(toks, i)) {
-  name = u_identAt(toks, i);
-  ae = u_parseExpr(toks, (i + 2L));
-  r = PStmt(Let(name, (long)(intptr_t)"", ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
-  }
-  if (u_isTypedAssign(toks, i)) {
-  r = u_parseTypedLet(toks, i);
-  }
+  long e = 0;
+
   if (u_isWord(toks, i, (long)(intptr_t)"if")) {
-  r = u_parseIf(toks, i);
+
+  return u_parseIf(toks, i);
   }
+
   if (u_isWord(toks, i, (long)(intptr_t)"while")) {
-  r = u_parseWhile(toks, i);
+
+  return u_parseWhile(toks, i);
   }
+
   if (u_isWord(toks, i, (long)(intptr_t)"return")) {
+
+  return u_parseReturn(toks, i);
+  }
+
+  if (u_isTypedAssign(toks, i)) {
+
+  return u_parseTypedLet(toks, i);
+  }
+
+  if (u_isAssign(toks, i)) {
+
+  ae = u_parseExpr(toks, (i + 2L));
+
+  return PStmt(Let(u_expectIdent(toks, i, (long)(intptr_t)"a name"), (long)(intptr_t)"", ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
+  }
+
+  e = u_parseExpr(toks, i);
+
+  return PStmt(Bare(((ParsedT*)(intptr_t)e)->node), ((ParsedT*)(intptr_t)e)->next);
+  return 0;
+}
+long u_parseReturn(long toks, long i) {
+  long re = 0;
+
   if (u_isPunct(toks, (i + 1L), (long)(intptr_t)"}")) {
-  r = PStmt(Ret(Num(0L)), (i + 1L));
-  } else {
+
+  return PStmt(Ret(Num(0L)), (i + 1L));
+  }
+
   re = u_parseExpr(toks, (i + 1L));
-  r = PStmt(Ret(((ParsedT*)(intptr_t)re)->node), ((ParsedT*)(intptr_t)re)->next);
-  }
-  }
-  return r;
+
+  return PStmt(Ret(((ParsedT*)(intptr_t)re)->node), ((ParsedT*)(intptr_t)re)->next);
   return 0;
 }
 long u_isTypedAssign(long toks, long i) {
+
   return (u_isIdent(toks, i) && u_isPunct(toks, (i + 1L), (long)(intptr_t)":"));
   return 0;
 }
 long u_parseTypedLet(long toks, long i) {
   long name = 0;
-  long ty = 0;
-  long k = 0;
+  long pt = 0;
   long ae = 0;
-  name = u_identAt(toks, i);
-  ty = u_identAt(toks, (i + 2L));
-  if (u_isPunct(toks, (i + 3L), (long)(intptr_t)"[")) {
-  ty = s_concat(s_concat(s_concat(ty, (long)(intptr_t)"["), u_identAt(toks, (i + 4L))), (long)(intptr_t)"]");
-  }
-  k = (i + 1L);
-  while (((!u_isPunct(toks, k, (long)(intptr_t)"=")) && u_notEof(toks, k))) {
-  k = (k + 1L);
-  }
-  ae = u_parseExpr(toks, (k + 1L));
-  return PStmt(Let(name, ty, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
+
+  name = u_expectIdent(toks, i, (long)(intptr_t)"a name");
+
+  pt = u_parseType(toks, (i + 2L));
+
+  ae = u_parseExpr(toks, u_expect(toks, ((PTypeT*)(intptr_t)pt)->next, (long)(intptr_t)"="));
+
+  return PStmt(Let(name, ((PTypeT*)(intptr_t)pt)->ty, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
   return 0;
 }
 long u_parseIf(long toks, long i) {
@@ -732,24 +1148,47 @@ long u_parseIf(long toks, long i) {
   long tb = 0;
   long els = 0;
   long nxt = 0;
+  long inner = 0;
   long eb = 0;
+
   c = u_parseExpr(toks, (i + 1L));
+
   tb = u_parseBlock(toks, ((ParsedT*)(intptr_t)c)->next);
+
   els = l_new();
+
   nxt = ((PBodyT*)(intptr_t)tb)->next;
+
   if (u_isWord(toks, ((PBodyT*)(intptr_t)tb)->next, (long)(intptr_t)"else")) {
+
+  if (u_isWord(toks, (((PBodyT*)(intptr_t)tb)->next + 1L), (long)(intptr_t)"if")) {
+
+  inner = u_parseIf(toks, (((PBodyT*)(intptr_t)tb)->next + 1L));
+
+  l_push(els, ((PStmtT*)(intptr_t)inner)->node);
+
+  nxt = ((PStmtT*)(intptr_t)inner)->next;
+  } else {
+
   eb = u_parseBlock(toks, (((PBodyT*)(intptr_t)tb)->next + 1L));
+
   els = ((PBodyT*)(intptr_t)eb)->body;
+
   nxt = ((PBodyT*)(intptr_t)eb)->next;
   }
+  }
+
   return PStmt(If(((ParsedT*)(intptr_t)c)->node, ((PBodyT*)(intptr_t)tb)->body, els), nxt);
   return 0;
 }
 long u_parseWhile(long toks, long i) {
   long c = 0;
   long b = 0;
+
   c = u_parseExpr(toks, (i + 1L));
+
   b = u_parseBlock(toks, ((ParsedT*)(intptr_t)c)->next);
+
   return PStmt(While(((ParsedT*)(intptr_t)c)->node, ((PBodyT*)(intptr_t)b)->body), ((PBodyT*)(intptr_t)b)->next);
   return 0;
 }
@@ -758,14 +1197,22 @@ long u_parseExpr(long toks, long pos) {
   long node = 0;
   long i = 0;
   long r = 0;
+
   p = u_parseAnd(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isPunct(toks, i, (long)(intptr_t)"||")) {
+
   r = u_parseAnd(toks, (i + 1L));
+
   node = Bin((long)(intptr_t)"||", node, ((ParsedT*)(intptr_t)r)->node);
+
   i = ((ParsedT*)(intptr_t)r)->next;
   }
+
   return Parsed(node, i);
   return 0;
 }
@@ -774,14 +1221,22 @@ long u_parseAnd(long toks, long pos) {
   long node = 0;
   long i = 0;
   long r = 0;
+
   p = u_parseCmp(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isPunct(toks, i, (long)(intptr_t)"&&")) {
+
   r = u_parseCmp(toks, (i + 1L));
+
   node = Bin((long)(intptr_t)"&&", node, ((ParsedT*)(intptr_t)r)->node);
+
   i = ((ParsedT*)(intptr_t)r)->next;
   }
+
   return Parsed(node, i);
   return 0;
 }
@@ -791,15 +1246,24 @@ long u_parseCmp(long toks, long pos) {
   long i = 0;
   long op = 0;
   long r = 0;
+
   p = u_parseAdd(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isCmpOp(toks, i)) {
+
   op = u_punctAt(toks, i);
+
   r = u_parseAdd(toks, (i + 1L));
+
   node = Bin(op, node, ((ParsedT*)(intptr_t)r)->node);
+
   i = ((ParsedT*)(intptr_t)r)->next;
   }
+
   return Parsed(node, i);
   return 0;
 }
@@ -809,15 +1273,24 @@ long u_parseAdd(long toks, long pos) {
   long i = 0;
   long op = 0;
   long r = 0;
+
   p = u_parseTerm(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isAddOp(toks, i)) {
+
   op = u_punctAt(toks, i);
+
   r = u_parseTerm(toks, (i + 1L));
+
   node = Bin(op, node, ((ParsedT*)(intptr_t)r)->node);
+
   i = ((ParsedT*)(intptr_t)r)->next;
   }
+
   return Parsed(node, i);
   return 0;
 }
@@ -827,15 +1300,24 @@ long u_parseTerm(long toks, long pos) {
   long i = 0;
   long op = 0;
   long r = 0;
+
   p = u_parsePostfix(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isMulOp(toks, i)) {
+
   op = u_punctAt(toks, i);
+
   r = u_parsePostfix(toks, (i + 1L));
+
   node = Bin(op, node, ((ParsedT*)(intptr_t)r)->node);
+
   i = ((ParsedT*)(intptr_t)r)->next;
   }
+
   return Parsed(node, i);
   return 0;
 }
@@ -847,148 +1329,207 @@ long u_parsePostfix(long toks, long pos) {
   long pe = 0;
   long name = 0;
   long pa = 0;
+
   p = u_parseFactor(toks, pos);
+
   node = ((ParsedT*)(intptr_t)p)->node;
+
   i = ((ParsedT*)(intptr_t)p)->next;
+
   while (u_isPunct(toks, i, (long)(intptr_t)".")) {
+
   if (u_isWord(toks, (i + 1L), (long)(intptr_t)"match")) {
+
   pm = u_parseMatch(toks, node, i);
+
   node = ((ParsedT*)(intptr_t)pm)->node;
+
   i = ((ParsedT*)(intptr_t)pm)->next;
   } else {
+
   if (u_isWord(toks, (i + 1L), (long)(intptr_t)"each")) {
+
   pe = u_parseEach(toks, node, i);
+
   node = ((ParsedT*)(intptr_t)pe)->node;
+
   i = ((ParsedT*)(intptr_t)pe)->next;
   } else {
-  name = u_identAt(toks, (i + 1L));
+
+  name = u_expectIdent(toks, (i + 1L), (long)(intptr_t)"a name after the dot");
+
   if (u_isPunct(toks, (i + 2L), (long)(intptr_t)"(")) {
+
   pa = u_parseArgs(toks, (i + 2L));
+
   node = Method(node, name, ((PArgsT*)(intptr_t)pa)->list);
+
   i = ((PArgsT*)(intptr_t)pa)->next;
   } else {
+
   node = Field(node, name);
+
   i = (i + 2L);
   }
   }
   }
   }
+
   if (u_isPunct(toks, i, (long)(intptr_t)"?")) {
+
   i = (i + 1L);
   }
+
   return Parsed(node, i);
   return 0;
 }
 long u_parseEach(long toks, long recv, long i) {
   long param = 0;
-  long body = 0;
-  long j = 0;
-  long p = 0;
-  param = u_identAt(toks, (i + 3L));
-  body = l_new();
-  j = (i + 5L);
-  while (u_inBlock(toks, j)) {
-  p = u_parseStmt(toks, j);
-  l_push(body, ((PStmtT*)(intptr_t)p)->node);
-  j = ((PStmtT*)(intptr_t)p)->next;
+  long b = 0;
+
+  u_expect(toks, (i + 2L), (long)(intptr_t)"{");
+
+  param = u_expectIdent(toks, (i + 3L), (long)(intptr_t)"a name for each item");
+
+  if ((!u_isWord(toks, (i + 4L), (long)(intptr_t)"in"))) {
+
+  u_failTok(toks, (i + 4L), (long)(intptr_t)"expected the word in");
   }
-  return Parsed(Each(recv, param, body), (j + 1L));
+
+  b = u_parseStmts(toks, (i + 5L));
+
+  return Parsed(Each(recv, param, ((PBodyT*)(intptr_t)b)->body), ((PBodyT*)(intptr_t)b)->next);
   return 0;
 }
 long u_parseFactor(long toks, long pos) {
-  switch (((Obj*)(intptr_t)l_at(toks, pos))->tag) {
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, pos))->v0; return Parsed(Num(v), (pos + 1L)); }
-  case T_Float: { long s = ((Obj*)(intptr_t)l_at(toks, pos))->v0; return Parsed(FloatLit(s), (pos + 1L)); }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, pos))->v0; return Parsed(StrLit(s), (pos + 1L)); }
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, pos))->v0; return u_parseIdentFactor(toks, pos); }
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, pos))->v0; return u_parsePunctFactor(toks, pos); }
-  case T_Eof: { return Parsed(Num(0L), pos); }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, pos))->tag) {
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(Num(v), (pos + 1L)); }
+  case T_Float: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(FloatLit(s), (pos + 1L)); }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(StrLit(s), (pos + 1L)); }
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return u_parseIdentFactor(toks, pos); }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return u_parsePunctFactor(toks, pos); }
+  case T_Eof: { return Parsed(Num(u_failTok(toks, pos, (long)(intptr_t)"expected a value")), pos); }
   }
   return 0;
   return 0;
 }
 long u_parsePunctFactor(long toks, long pos) {
-  long r = 0;
   long f = 0;
-  r = u_parseParen(toks, pos);
+
+  if ((u_isPunct(toks, pos, (long)(intptr_t)"(") || u_isPunct(toks, pos, (long)(intptr_t)"s("))) {
+
+  return u_parseParen(toks, pos);
+  }
+
   if (u_isPunct(toks, pos, (long)(intptr_t)"[")) {
-  r = u_parseList(toks, pos);
+
+  return u_parseList(toks, pos);
   }
-  if (u_isPunct(toks, pos, (long)(intptr_t)"-")) {
+
+  if ((!u_isPunct(toks, pos, (long)(intptr_t)"-"))) {
+
+  u_failTok(toks, pos, (long)(intptr_t)"expected a value");
+  }
+
   f = u_parseFactor(toks, (pos + 1L));
-  r = Parsed(Bin((long)(intptr_t)"u-", Num(0L), ((ParsedT*)(intptr_t)f)->node), ((ParsedT*)(intptr_t)f)->next);
-  }
-  return r;
+
+  return Parsed(Bin((long)(intptr_t)"u-", Num(0L), ((ParsedT*)(intptr_t)f)->node), ((ParsedT*)(intptr_t)f)->next);
   return 0;
 }
 long u_parseList(long toks, long pos) {
   long elems = 0;
   long j = 0;
   long e = 0;
+
   elems = l_new();
+
   j = (pos + 1L);
+
   while (((!u_isPunct(toks, j, (long)(intptr_t)"]")) && u_notEof(toks, j))) {
+
   e = u_parseExpr(toks, j);
+
   l_push(elems, ((ParsedT*)(intptr_t)e)->node);
-  j = ((ParsedT*)(intptr_t)e)->next;
-  if (u_isPunct(toks, j, (long)(intptr_t)",")) {
-  j = (j + 1L);
+
+  j = u_sep(toks, ((ParsedT*)(intptr_t)e)->next, (long)(intptr_t)"]");
   }
-  }
-  return Parsed(ListLit(elems), (j + 1L));
+
+  return Parsed(ListLit(elems), u_expect(toks, j, (long)(intptr_t)"]"));
   return 0;
 }
 long u_parseIdentFactor(long toks, long pos) {
   long name = 0;
   long r = 0;
   long pa = 0;
-  name = u_identAt(toks, pos);
+
+  name = u_expectIdent(toks, pos, (long)(intptr_t)"a value");
+
   r = Parsed(Var(name), (pos + 1L));
+
   if (u_isPunct(toks, (pos + 1L), (long)(intptr_t)"(")) {
+
   pa = u_parseArgs(toks, (pos + 1L));
+
   r = Parsed(Call(name, ((PArgsT*)(intptr_t)pa)->list), ((PArgsT*)(intptr_t)pa)->next);
   }
+
   return r;
   return 0;
 }
 long u_parseParen(long toks, long pos) {
   long inner = 0;
+
   inner = u_parseExpr(toks, (pos + 1L));
-  return Parsed(((ParsedT*)(intptr_t)inner)->node, (((ParsedT*)(intptr_t)inner)->next + 1L));
+
+  return Parsed(((ParsedT*)(intptr_t)inner)->node, u_expect(toks, ((ParsedT*)(intptr_t)inner)->next, (long)(intptr_t)")"));
   return 0;
 }
 long u_parseArgs(long toks, long i) {
   long list = 0;
   long j = 0;
   long e = 0;
+
   list = l_new();
+
   j = (i + 1L);
+
   while (u_inArgs(toks, j)) {
+
   if (u_isAssign(toks, j)) {
+
   j = (j + 2L);
   }
+
   e = u_parseExpr(toks, j);
+
   l_push(list, ((ParsedT*)(intptr_t)e)->node);
-  j = ((ParsedT*)(intptr_t)e)->next;
-  if (u_isPunct(toks, j, (long)(intptr_t)",")) {
-  j = (j + 1L);
+
+  j = u_sep(toks, ((ParsedT*)(intptr_t)e)->next, (long)(intptr_t)")");
   }
-  }
-  return PArgs(list, (j + 1L));
+
+  return PArgs(list, u_expect(toks, j, (long)(intptr_t)")"));
   return 0;
 }
 long u_parseMatch(long toks, long scrut, long i) {
   long arms = 0;
   long j = 0;
   long pa = 0;
+
   arms = l_new();
-  j = (i + 3L);
+
+  j = u_expect(toks, (i + 2L), (long)(intptr_t)"{");
+
   while (u_inBlock(toks, j)) {
+
   pa = u_parseArm(toks, j);
+
   l_push(arms, ((PArmT*)(intptr_t)pa)->arm);
+
   j = ((PArmT*)(intptr_t)pa)->next;
   }
-  return Parsed(Match(scrut, arms), (j + 1L));
+
+  return Parsed(Match(scrut, arms), u_expect(toks, j, (long)(intptr_t)"}"));
   return 0;
 }
 long u_parseArm(long toks, long j) {
@@ -996,33 +1537,49 @@ long u_parseArm(long toks, long j) {
   long binds = 0;
   long k = 0;
   long ae = 0;
-  tag = u_identAt(toks, j);
+
+  tag = u_expectIdent(toks, j, (long)(intptr_t)"a case name");
+
   binds = l_new();
+
   k = (j + 1L);
+
   if (u_isPunct(toks, k, (long)(intptr_t)"(")) {
+
   k = (k + 1L);
-  while (u_isIdent(toks, k)) {
-  l_push(binds, u_identAt(toks, k));
-  k = (k + 1L);
-  if (u_isPunct(toks, k, (long)(intptr_t)",")) {
-  k = (k + 1L);
+
+  while (u_inArgs(toks, k)) {
+
+  l_push(binds, u_expectIdent(toks, k, (long)(intptr_t)"a name"));
+
+  k = u_sep(toks, (k + 1L), (long)(intptr_t)")");
   }
+
+  k = u_expect(toks, k, (long)(intptr_t)")");
   }
-  k = (k + 1L);
+
+  k = u_expect(toks, k, (long)(intptr_t)"->");
+
+  if (u_isPunct(toks, k, (long)(intptr_t)"{")) {
+
+  u_failLine(toks, k, s_concat(s_concat((long)(intptr_t)"match case ", tag), (long)(intptr_t)": an arm is one expression, not a { } block; call a function for more"));
   }
-  if (u_isPunct(toks, (k + 1L), (long)(intptr_t)"{")) {
-  fail(s_concat(s_concat((long)(intptr_t)"input.smplr: match case ", tag), (long)(intptr_t)": an arm is one expression, not a { } block; call a function for more"));
-  }
-  ae = u_parseExpr(toks, (k + 1L));
+
+  ae = u_parseExpr(toks, k);
+
   return PArm(Arm(tag, binds, ((ParsedT*)(intptr_t)ae)->node), ((ParsedT*)(intptr_t)ae)->next);
   return 0;
 }
 long u_emitType(long t) {
   long r = 0;
+
   r = u_emitEnumType(t);
+
   if (u_hasPayload(t)) {
+
   r = u_emitBoxedType(t);
   }
+
   return r;
   return 0;
 }
@@ -1030,16 +1587,25 @@ long u_emitEnumType(long t) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   out = (long)(intptr_t)"enum {";
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)",");
   }
+
   out = s_concat(s_concat(out, (long)(intptr_t)" "), ((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->cname);
+
   k = (k + 1L);
   }
+
   return s_concat(out, (long)(intptr_t)" };");
   return 0;
 }
@@ -1049,24 +1615,40 @@ long u_emitBoxedType(long t) {
   long m = 0;
   long cn = 0;
   long ar = 0;
+
   out = (long)(intptr_t)"enum {";
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)",");
   }
+
   out = s_concat(s_concat(out, (long)(intptr_t)" T_"), ((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->cname);
+
   k = (k + 1L);
   }
+
   out = s_concat(out, (long)(intptr_t)" };");
+
   k = 0L;
+
   while ((k < m)) {
+
   cn = ((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->cname;
+
   ar = ((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->arity;
+
   out = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)"\nlong "), cn), (long)(intptr_t)"("), u_ctorParams(ar)), (long)(intptr_t)") { return mk(T_"), cn), (long)(intptr_t)", "), u_ctorArgs(ar)), (long)(intptr_t)"); }");
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
@@ -1074,15 +1656,23 @@ long u_hasPayload(long t) {
   long has = 0;
   long k = 0;
   long m = 0;
+
   has = false;
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   if ((((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->arity > 0L)) {
+
   has = true;
   }
+
   k = (k + 1L);
   }
+
   return has;
   return 0;
 }
@@ -1091,21 +1681,35 @@ long u_emitRecord(long rec) {
   long k = 0;
   long m = 0;
   long fn = 0;
+
   out = (long)(intptr_t)"typedef struct {";
+
   k = 0L;
+
   m = l_len(((RecDefT*)(intptr_t)rec)->fields);
+
   while ((k < m)) {
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)" long "), l_at(((RecDefT*)(intptr_t)rec)->fields, k)), (long)(intptr_t)";");
+
   k = (k + 1L);
   }
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)" } "), ((RecDefT*)(intptr_t)rec)->name), (long)(intptr_t)"T;");
+
   out = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)"\nlong "), ((RecDefT*)(intptr_t)rec)->name), (long)(intptr_t)"("), u_recParams(rec)), (long)(intptr_t)") { "), ((RecDefT*)(intptr_t)rec)->name), (long)(intptr_t)"T* o = malloc(sizeof("), ((RecDefT*)(intptr_t)rec)->name), (long)(intptr_t)"T));");
+
   k = 0L;
+
   while ((k < m)) {
+
   fn = l_at(((RecDefT*)(intptr_t)rec)->fields, k);
+
   out = s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)" o->"), fn), (long)(intptr_t)" = "), fn), (long)(intptr_t)";");
+
   k = (k + 1L);
   }
+
   return s_concat(out, (long)(intptr_t)" return (long)(intptr_t)o; }");
   return 0;
 }
@@ -1113,35 +1717,53 @@ long u_recParams(long rec) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   m = l_len(((RecDefT*)(intptr_t)rec)->fields);
+
   while ((k < m)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)", ");
   }
+
   out = s_concat(s_concat(out, (long)(intptr_t)"long "), l_at(((RecDefT*)(intptr_t)rec)->fields, k));
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
 long u_slotName(long bi) {
+
   return s_concat((long)(intptr_t)"v", i_tostr(bi));
   return 0;
 }
 long u_ctorParams(long arity) {
   long out = 0;
   long k = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   while ((k < arity)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)", ");
   }
+
   out = s_concat(s_concat(out, (long)(intptr_t)"long "), u_slotName(k));
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
@@ -1149,27 +1771,40 @@ long u_ctorArgs(long arity) {
   long out = 0;
   long k = 0;
   long slot = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   while ((k < 3L)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)", ");
   }
+
   slot = (long)(intptr_t)"0";
+
   if ((k < arity)) {
+
   slot = u_slotName(k);
   }
+
   out = s_concat(out, slot);
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
 long u_mangle(long name) {
+
   return s_concat((long)(intptr_t)"u_", name);
   return 0;
 }
 long u_emitProto(long f) {
+
   return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"long ", u_mangle(((FnT*)(intptr_t)f)->name)), (long)(intptr_t)"("), u_paramDecls(f)), (long)(intptr_t)");");
   return 0;
 }
@@ -1188,56 +1823,99 @@ long u_emitFn(long f, long sigs) {
   long k = 0;
   long m = 0;
   long last = 0;
+
   rt = (long)(intptr_t)"long";
+
   sig = u_paramDecls(f);
+
   if (u_isMain(((FnT*)(intptr_t)f)->name)) {
+
   rt = (long)(intptr_t)"int";
+
   sig = (long)(intptr_t)"int argc, char** argv";
   }
+
   nm = ((FnT*)(intptr_t)f)->name;
+
   if ((!u_isMain(((FnT*)(intptr_t)f)->name))) {
+
   nm = u_mangle(((FnT*)(intptr_t)f)->name);
   }
+
   out = s_concat(s_concat(s_concat(s_concat(s_concat(rt, (long)(intptr_t)" "), nm), (long)(intptr_t)"("), sig), (long)(intptr_t)") {");
+
   env = u_newEnv();
+
   pk = 0L;
+
   pn = l_len(((FnT*)(intptr_t)f)->params);
+
   while ((pk < pn)) {
+
   u_envPut(env, l_at(((FnT*)(intptr_t)f)->params, pk), l_at(((FnT*)(intptr_t)f)->ptypes, pk));
+
   pk = (pk + 1L);
   }
+
   ctx = Ctx(env, sigs);
+
   u_envPut(env, (long)(intptr_t)"__line__", i_tostr(((FnT*)(intptr_t)f)->line));
+
   if (u_isMain(((FnT*)(intptr_t)f)->name)) {
+
   u_envPut(env, (long)(intptr_t)"__ret__", (long)(intptr_t)"__main__");
+
   if ((l_len(((FnT*)(intptr_t)f)->params) > 0L)) {
+
   u_envPut(env, l_at(((FnT*)(intptr_t)f)->params, 0L), (long)(intptr_t)"Sys");
   }
   } else {
+
   if (u_hasName(((FnT*)(intptr_t)f)->ptypes, (long)(intptr_t)"Sys")) {
+
   u_failAt((long)(intptr_t)"only main holds the world; hand down sys.screen or sys.files", ctx);
   }
+
   u_envPut(env, (long)(intptr_t)"__ret__", ((FnT*)(intptr_t)f)->ret);
   }
+
   u_seedEnv(((FnT*)(intptr_t)f)->body, ctx);
+
+  u_setLine(((FnT*)(intptr_t)f)->line, ctx);
+
   u_checkReturn(f, ctx);
+
   u_checkEffects(f, ctx);
+
   decls = u_collectLets(((FnT*)(intptr_t)f)->body);
+
   d = 0L;
+
   dn = l_len(decls);
+
   while ((d < dn)) {
+
   if ((!u_hasName(((FnT*)(intptr_t)f)->params, l_at(decls, d)))) {
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), l_at(decls, d)), (long)(intptr_t)" = 0;");
   }
+
   d = (d + 1L);
   }
+
   k = 0L;
+
   m = l_len(((FnT*)(intptr_t)f)->body);
+
   while ((k < m)) {
+
   last = (((k + 1L) == m) && (!u_isMain(((FnT*)(intptr_t)f)->name)));
+
   out = s_concat(s_concat(out, (long)(intptr_t)"\n"), u_emitStmt(l_at(((FnT*)(intptr_t)f)->body, k), last, ctx));
+
   k = (k + 1L);
   }
+
   return s_concat(out, (long)(intptr_t)"\n  return 0;\n}");
   return 0;
 }
@@ -1245,30 +1923,91 @@ long u_paramDecls(long f) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   m = l_len(((FnT*)(intptr_t)f)->params);
+
   while ((k < m)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)", ");
   }
+
   out = s_concat(s_concat(out, (long)(intptr_t)"long "), l_at(((FnT*)(intptr_t)f)->params, k));
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
 long u_newEnv() {
   long ns = 0;
   long ts = 0;
+
   ns = l_new();
+
   ts = l_new();
+
   return TyEnv(ns, ts);
   return 0;
 }
 long u_envPut(long env, long name, long ty) {
+
   l_push(((TyEnvT*)(intptr_t)env)->names, name);
+
   l_push(((TyEnvT*)(intptr_t)env)->tys, ty);
+
+  return 0L;
+  return 0;
+}
+long u_envOld(long env, long name) {
+  long r = 0;
+
+  r = (long)(intptr_t)"__gone__";
+
+  if (u_hasName(((TyEnvT*)(intptr_t)env)->names, name)) {
+
+  r = u_envGet(env, name);
+  }
+
+  return r;
+  return 0;
+}
+long u_envOlds(long env, long names) {
+  long olds = 0;
+
+  olds = l_new();
+
+  {
+  long _lst = names;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long n = l_at(_lst, _i);
+
+  l_push(olds, u_envOld(env, n));
+  }
+  }
+
+  return olds;
+  return 0;
+}
+long u_envRestore(long env, long names, long olds) {
+  long k = 0;
+
+  k = 0L;
+
+  while ((k < l_len(names))) {
+
+  u_envPut(env, l_at(names, k), l_at(olds, k));
+
+  k = (k + 1L);
+  }
+
   return 0L;
   return 0;
 }
@@ -1276,62 +2015,89 @@ long u_envGet(long env, long name) {
   long r = 0;
   long k = 0;
   long m = 0;
+
   r = (long)(intptr_t)"Int";
+
   k = 0L;
+
   m = l_len(((TyEnvT*)(intptr_t)env)->names);
+
   while ((k < m)) {
+
   if (s_eq(l_at(((TyEnvT*)(intptr_t)env)->names, k), name)) {
+
   r = l_at(((TyEnvT*)(intptr_t)env)->tys, k);
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
 long u_seedEnv(long body, long ctx) {
   long k = 0;
   long m = 0;
+
   k = 0L;
+
   m = l_len(body);
+
   while ((k < m)) {
+
   u_seedStmt(l_at(body, k), ctx);
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
 long u_seedStmt(long s, long ctx) {
+
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_seedLet(name, u_letType(ty, e, ctx), ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_seedIf(t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_seedEnv(b, ctx); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return u_setLine(n, ctx); }
   }
   return 0;
   return 0;
 }
 long u_seedLet(long name, long ty, long ctx) {
   long old = 0;
+
   if (s_eq(ty, (long)(intptr_t)"List")) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)"an empty [] needs a type, as in ", name), (long)(intptr_t)" : List[Int] = []"), ctx);
   }
+
   if (u_hasName(((TyEnvT*)(intptr_t)((CtxT*)(intptr_t)ctx)->env)->names, name)) {
+
   old = u_envGet(((CtxT*)(intptr_t)ctx)->env, name);
+
   if ((!u_compatible(old, ty, ctx))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(name, (long)(intptr_t)" is "), old), (long)(intptr_t)" and cannot become "), ty), (long)(intptr_t)"; use a new name"), ctx);
   }
   }
+
   return u_envPut(((CtxT*)(intptr_t)ctx)->env, name, ty);
   return 0;
 }
 long u_seedIf(long t, long el, long ctx) {
+
   u_seedEnv(t, ctx);
+
   u_seedEnv(el, ctx);
+
   return 0L;
   return 0;
 }
 long u_seedExpr(long e, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return u_seedEach(recv, param, body, ctx); }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0L; }
@@ -1349,21 +2115,34 @@ long u_seedExpr(long e, long ctx) {
   return 0;
 }
 long u_seedEach(long recv, long param, long body, long ctx) {
+  long old = 0;
+
+  old = u_envOld(((CtxT*)(intptr_t)ctx)->env, param);
+
   u_envPut(((CtxT*)(intptr_t)ctx)->env, param, u_elemOf(u_exprType(recv, ctx)));
+
   u_seedEnv(body, ctx);
+
+  u_envPut(((CtxT*)(intptr_t)ctx)->env, param, old);
+
   return 0L;
   return 0;
 }
 long u_inferType(long e, long ctx) {
+
   return u_exprType(e, ctx);
   return 0;
 }
 long u_letType(long ty, long e, long ctx) {
   long r = 0;
+
   r = u_inferType(e, ctx);
+
   if ((!s_eq(ty, (long)(intptr_t)""))) {
+
   r = ty;
   }
+
   return r;
   return 0;
 }
@@ -1372,25 +2151,40 @@ long u_callRet(long name, long ctx) {
   long vt = 0;
   long k = 0;
   long m = 0;
+
   r = (long)(intptr_t)"Int";
+
   if (s_eq(name, (long)(intptr_t)"Map")) {
+
   r = (long)(intptr_t)"Map";
   }
+
   if (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, name)) {
+
   r = name;
   }
+
   vt = u_variantOf(name, ctx);
+
   if ((!s_eq(vt, (long)(intptr_t)""))) {
+
   r = vt;
   }
+
   k = 0L;
+
   m = l_len(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames);
+
   while ((k < m)) {
+
   if (s_eq(l_at(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, k), name)) {
+
   r = l_at(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnRets, k);
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
@@ -1400,17 +2194,27 @@ long u_variantOf(long name, long ctx) {
   long k = 0;
   long m = 0;
   long t = 0;
+
   r = (long)(intptr_t)"";
+
   types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+
   k = 0L;
+
   m = l_len(types);
+
   while ((k < m)) {
+
   t = l_at(types, k);
+
   if (u_hasCase(t, name)) {
+
   r = ((TyDefT*)(intptr_t)t)->name;
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
@@ -1418,53 +2222,74 @@ long u_hasCase(long t, long name) {
   long found = 0;
   long k = 0;
   long m = 0;
+
   found = false;
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   if (s_eq(((CaseT*)(intptr_t)l_at(((TyDefT*)(intptr_t)t)->cases, k))->cname, name)) {
+
   found = true;
   }
+
   k = (k + 1L);
   }
+
   return found;
   return 0;
 }
 long u_isRec(long ty, long ctx) {
+
   return u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, ty);
   return 0;
 }
 long u_collectLets(long body) {
   long names = 0;
+
   names = l_new();
+
   u_collectBody(body, names);
+
   return names;
   return 0;
 }
 long u_collectBody(long body, long names) {
   long k = 0;
   long m = 0;
+
   k = 0L;
+
   m = l_len(body);
+
   while ((k < m)) {
+
   u_collectStmt(l_at(body, k), names);
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
 long u_collectStmt(long s, long names) {
+
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_pushUnique(names, name); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_collectExpr(e, names); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_collectIf(t, el, names); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_collectBody(b, names); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_collectExpr(e, names); }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   }
   return 0;
   return 0;
 }
 long u_collectExpr(long e, long names) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return u_collectBody(body, names); }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0L; }
@@ -1482,15 +2307,21 @@ long u_collectExpr(long e, long names) {
   return 0;
 }
 long u_collectIf(long t, long el, long names) {
+
   u_collectBody(t, names);
+
   u_collectBody(el, names);
+
   return 0L;
   return 0;
 }
 long u_pushUnique(long names, long name) {
+
   if ((!u_hasName(names, name))) {
+
   l_push(names, name);
   }
+
   return 0L;
   return 0;
 }
@@ -1498,75 +2329,106 @@ long u_hasName(long names, long name) {
   long found = 0;
   long k = 0;
   long m = 0;
+
   found = false;
+
   k = 0L;
+
   m = l_len(names);
+
   while ((k < m)) {
+
   if (s_eq(l_at(names, k), name)) {
+
   found = true;
   }
+
   k = (k + 1L);
   }
+
   return found;
   return 0;
 }
 long u_emitStmt(long s, long asReturn, long ctx) {
+
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  ", name), (long)(intptr_t)" = "), u_emitExpr(e, ctx)), (long)(intptr_t)";"); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_emitBare(e, asReturn, ctx); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_emitIf(c, t, el, ctx); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_emitIf(c, t, el, asReturn, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_emitWhile(c, b, ctx); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_emitRet(e, ctx); }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return u_emitLine(n, ctx); }
   }
   return 0;
   return 0;
 }
 long u_emitRet(long e, long ctx) {
   long ret = 0;
+
   ret = u_envGet(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__ret__");
+
   if ((!s_eq(ret, (long)(intptr_t)"__main__"))) {
+
   u_checkRetExpr(e, ret, ctx);
   }
+
   return u_emitReturn(e, ctx);
   return 0;
 }
-long u_emitIf(long c, long t, long el, long ctx) {
+long u_emitIf(long c, long t, long el, long asReturn, long ctx) {
   long out = 0;
-  out = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  if (", u_emitExpr(c, ctx)), (long)(intptr_t)") {"), u_emitBlock(t, ctx)), (long)(intptr_t)"\n  }");
+
+  out = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  if (", u_emitExpr(c, ctx)), (long)(intptr_t)") {"), u_emitBlock(t, asReturn, ctx)), (long)(intptr_t)"\n  }");
+
   if ((l_len(el) > 0L)) {
-  out = s_concat(s_concat(s_concat(out, (long)(intptr_t)" else {"), u_emitBlock(el, ctx)), (long)(intptr_t)"\n  }");
+
+  out = s_concat(s_concat(s_concat(out, (long)(intptr_t)" else {"), u_emitBlock(el, asReturn, ctx)), (long)(intptr_t)"\n  }");
   }
+
   return out;
   return 0;
 }
 long u_emitWhile(long c, long b, long ctx) {
-  return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  while (", u_emitExpr(c, ctx)), (long)(intptr_t)") {"), u_emitBlock(b, ctx)), (long)(intptr_t)"\n  }");
+
+  return s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  while (", u_emitExpr(c, ctx)), (long)(intptr_t)") {"), u_emitBlock(b, false, ctx)), (long)(intptr_t)"\n  }");
   return 0;
 }
-long u_emitBlock(long body, long ctx) {
+long u_emitBlock(long body, long asReturn, long ctx) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   m = l_len(body);
+
   while ((k < m)) {
-  out = s_concat(s_concat(out, (long)(intptr_t)"\n"), u_emitStmt(l_at(body, k), false, ctx));
+
+  out = s_concat(s_concat(out, (long)(intptr_t)"\n"), u_emitStmt(l_at(body, k), (asReturn && ((k + 1L) == m)), ctx));
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
 long u_emitBare(long e, long asReturn, long ctx) {
   long r = 0;
+
   r = u_stmtExpr(e, ctx);
+
   if ((asReturn && (!u_stmtOnly(e)))) {
+
   r = u_emitReturn(e, ctx);
   }
+
   return r;
   return 0;
 }
 long u_stmtOnly(long e) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return true; }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return s_eq(name, (long)(intptr_t)"print"); }
@@ -1584,6 +2446,7 @@ long u_stmtOnly(long e) {
   return 0;
 }
 long u_stmtExpr(long e, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return u_emitEach(recv, param, body, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_emitCallStmt(name, args, e, ctx); }
@@ -1601,24 +2464,33 @@ long u_stmtExpr(long e, long ctx) {
   return 0;
 }
 long u_exprStmt(long e, long ctx) {
+
   return s_concat(s_concat((long)(intptr_t)"  ", u_emitExpr(e, ctx)), (long)(intptr_t)";");
   return 0;
 }
 long u_emitCallStmt(long name, long args, long e, long ctx) {
   long r = 0;
+
   r = s_concat(s_concat((long)(intptr_t)"  ", u_emitExpr(e, ctx)), (long)(intptr_t)";");
-  if (s_eq(name, (long)(intptr_t)"print")) {
+
+  if ((s_eq(name, (long)(intptr_t)"print") && (l_len(args) == 1L))) {
+
   r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_at(args, 0L), ctx)), (long)(intptr_t)";");
   }
+
   return r;
   return 0;
 }
 long u_emitMethodStmt(long name, long args, long e, long ctx) {
   long r = 0;
+
   r = s_concat(s_concat((long)(intptr_t)"  ", u_emitExpr(e, ctx)), (long)(intptr_t)";");
+
   if (s_eq(name, (long)(intptr_t)"print")) {
+
   r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_at(args, 0L), ctx)), (long)(intptr_t)";");
   }
+
   return r;
   return 0;
 }
@@ -1627,83 +2499,133 @@ long u_emitPrint(long arg, long ctx) {
   long cast = 0;
   long val = 0;
   long t = 0;
+
   fmt = (long)(intptr_t)"%ld";
+
   cast = (long)(intptr_t)"";
+
   val = u_emitExpr(arg, ctx);
+
   t = u_exprType(arg, ctx);
+
   if (s_eq(t, (long)(intptr_t)"Str")) {
+
   fmt = (long)(intptr_t)"%s";
+
   cast = (long)(intptr_t)"(const char*)(intptr_t)";
   }
+
   if (s_eq(t, (long)(intptr_t)"Float")) {
+
   fmt = (long)(intptr_t)"%s";
+
   cast = (long)(intptr_t)"(const char*)(intptr_t)";
+
   val = s_concat(s_concat((long)(intptr_t)"f_tostr(", val), (long)(intptr_t)")");
   }
+
   if (s_eq(t, (long)(intptr_t)"Bool")) {
+
   fmt = (long)(intptr_t)"%s";
+
   val = s_concat(s_concat((long)(intptr_t)"(", val), (long)(intptr_t)" ? \"true\" : \"false\")");
   }
+
   return s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"printf(\"", fmt), (long)(intptr_t)"\\n\", "), cast), val), (long)(intptr_t)")");
   return 0;
 }
 long u_emitEach(long recv, long param, long body, long ctx) {
   long recvC = 0;
+  long old = 0;
   long out = 0;
+
   recvC = u_emitExpr(recv, ctx);
+
+  old = u_envOld(((CtxT*)(intptr_t)ctx)->env, param);
+
   u_envPut(((CtxT*)(intptr_t)ctx)->env, param, u_elemOf(u_exprType(recv, ctx)));
+
   out = (long)(intptr_t)"  {";
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long _lst = "), recvC), (long)(intptr_t)";");
+
   out = s_concat(out, (long)(intptr_t)"\n  long _n = l_len(_lst);");
+
   out = s_concat(out, (long)(intptr_t)"\n  for (long _i = 0; _i < _n; _i = _i + 1) {");
+
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), param), (long)(intptr_t)" = l_at(_lst, _i);");
-  out = s_concat(out, u_emitBlock(body, ctx));
+
+  out = s_concat(out, u_emitBlock(body, false, ctx));
+
+  u_envPut(((CtxT*)(intptr_t)ctx)->env, param, old);
+
   out = s_concat(out, (long)(intptr_t)"\n  }");
+
   out = s_concat(out, (long)(intptr_t)"\n  }");
+
   return out;
   return 0;
 }
 long u_isListType(long t) {
   long r = 0;
+
   r = false;
+
   if ((s_len(t) > 3L)) {
+
   if (s_eq(s_slice(t, 0L, 4L), (long)(intptr_t)"List")) {
+
   r = true;
   }
   }
+
   return r;
   return 0;
 }
 long u_elemOf(long t) {
   long r = 0;
+
   r = (long)(intptr_t)"Int";
+
   if (u_isListType(t)) {
+
   r = s_slice(t, 5L, (s_len(t) - 1L));
   }
+
   return r;
   return 0;
 }
 long u_isMapType(long t) {
   long r = 0;
+
   r = false;
+
   if ((s_len(t) > 4L)) {
+
   if (s_eq(s_slice(t, 0L, 4L), (long)(intptr_t)"Map[")) {
+
   r = true;
   }
   }
+
   return r;
   return 0;
 }
 long u_mapValueOf(long t) {
   long r = 0;
+
   r = (long)(intptr_t)"Int";
+
   if (u_isMapType(t)) {
+
   r = s_slice(t, 4L, (s_len(t) - 1L));
   }
+
   return r;
   return 0;
 }
 long u_emitReturn(long e, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return u_emitSwitch(scrut, arms, ctx); }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return u_retVal(e, ctx); }
@@ -1721,6 +2643,7 @@ long u_emitReturn(long e, long ctx) {
   return 0;
 }
 long u_retVal(long e, long ctx) {
+
   return s_concat(s_concat((long)(intptr_t)"  return ", u_emitExpr(e, ctx)), (long)(intptr_t)";");
   return 0;
 }
@@ -1732,42 +2655,113 @@ long u_emitSwitch(long scrut, long arms, long ctx) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   boxed = u_armHasBind(arms);
+
   scrutC = u_emitExpr(scrut, ctx);
+
   styp = u_exprType(scrut, ctx);
+
   u_checkExhaustive(styp, arms, ctx);
+
   head = scrutC;
+
   if (boxed) {
+
   head = u_boxField(scrutC, (long)(intptr_t)"tag");
   }
+
   out = s_concat(s_concat((long)(intptr_t)"  switch (", head), (long)(intptr_t)") {");
+
   k = 0L;
+
   m = l_len(arms);
+
   while ((k < m)) {
-  out = s_concat(s_concat(out, (long)(intptr_t)"\n"), u_emitArm(l_at(arms, k), scrutC, boxed, styp, ctx));
+
+  out = s_concat(s_concat(out, (long)(intptr_t)"\n"), u_emitArm(l_at(arms, k), scrutC, boxed, styp, (long)(intptr_t)"return ", (long)(intptr_t)";", ctx));
+
   k = (k + 1L);
   }
+
   out = s_concat(out, (long)(intptr_t)"\n  }");
+
   return s_concat(out, (long)(intptr_t)"\n  return 0;");
   return 0;
 }
-long u_emitArm(long a, long scrutC, long boxed, long styp, long ctx) {
+long u_emitMatchExpr(long scrut, long arms, long ctx) {
+  long boxed = 0;
+  long scrutC = 0;
+  long styp = 0;
+  long head = 0;
+  long out = 0;
+  long k = 0;
+  long m = 0;
+
+  boxed = u_armHasBind(arms);
+
+  scrutC = u_emitExpr(scrut, ctx);
+
+  styp = u_exprType(scrut, ctx);
+
+  u_checkExhaustive(styp, arms, ctx);
+
+  head = scrutC;
+
+  if (boxed) {
+
+  head = u_boxField(scrutC, (long)(intptr_t)"tag");
+  }
+
+  out = s_concat(s_concat((long)(intptr_t)"({ long _m = 0; switch (", head), (long)(intptr_t)") {");
+
+  k = 0L;
+
+  m = l_len(arms);
+
+  while ((k < m)) {
+
+  out = s_concat(out, u_emitArm(l_at(arms, k), scrutC, boxed, styp, (long)(intptr_t)"_m = ", (long)(intptr_t)"; break;", ctx));
+
+  k = (k + 1L);
+  }
+
+  return s_concat(out, (long)(intptr_t)" } _m; })");
+  return 0;
+}
+long u_emitArm(long a, long scrutC, long boxed, long styp, long pre, long post, long ctx) {
   long r = 0;
+  long olds = 0;
   long decls = 0;
   long bi = 0;
+
   r = (long)(intptr_t)"";
+
+  olds = u_envOlds(((CtxT*)(intptr_t)ctx)->env, ((ArmT*)(intptr_t)a)->binds);
+
   if (boxed) {
+
   decls = (long)(intptr_t)"";
+
   bi = 0L;
+
   while ((bi < l_len(((ArmT*)(intptr_t)a)->binds))) {
+
   u_envPut(((CtxT*)(intptr_t)ctx)->env, l_at(((ArmT*)(intptr_t)a)->binds, bi), u_payloadType(styp, ((ArmT*)(intptr_t)a)->tag, bi, ctx));
+
   decls = s_concat(s_concat(s_concat(s_concat(s_concat(decls, (long)(intptr_t)" long "), l_at(((ArmT*)(intptr_t)a)->binds, bi)), (long)(intptr_t)" = "), u_boxField(scrutC, u_slotName(bi))), (long)(intptr_t)";");
+
   bi = (bi + 1L);
   }
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case T_", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": {"), decls), (long)(intptr_t)" return "), u_emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), (long)(intptr_t)"; }");
+
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case T_", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": {"), decls), (long)(intptr_t)" "), pre), u_emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), post), (long)(intptr_t)" }");
   } else {
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": return "), u_emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), (long)(intptr_t)";");
+
+  r = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)": "), pre), u_emitExpr(((ArmT*)(intptr_t)a)->body, ctx)), post);
   }
+
+  u_envRestore(((CtxT*)(intptr_t)ctx)->env, ((ArmT*)(intptr_t)a)->binds, olds);
+
   return r;
   return 0;
 }
@@ -1777,17 +2771,27 @@ long u_payloadType(long tyName, long caseTag, long idx, long ctx) {
   long k = 0;
   long m = 0;
   long t = 0;
+
   r = (long)(intptr_t)"Int";
+
   types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+
   k = 0L;
+
   m = l_len(types);
+
   while ((k < m)) {
+
   t = l_at(types, k);
+
   if (s_eq(((TyDefT*)(intptr_t)t)->name, tyName)) {
+
   r = u_casePayloadType(t, caseTag, idx);
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
@@ -1796,22 +2800,33 @@ long u_casePayloadType(long t, long caseTag, long idx) {
   long k = 0;
   long m = 0;
   long c = 0;
+
   r = (long)(intptr_t)"Int";
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
+
   if (s_eq(((CaseT*)(intptr_t)c)->cname, caseTag)) {
+
   if ((idx < l_len(((CaseT*)(intptr_t)c)->ptypes))) {
+
   r = l_at(((CaseT*)(intptr_t)c)->ptypes, idx);
   }
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
 long u_boxField(long scrutC, long field) {
+
   return s_concat(s_concat(s_concat((long)(intptr_t)"((Obj*)(intptr_t)", scrutC), (long)(intptr_t)")->"), field);
   return 0;
 }
@@ -1820,17 +2835,27 @@ long u_checkExhaustive(long styp, long arms, long ctx) {
   long k = 0;
   long m = 0;
   long t = 0;
+
   types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+
   k = 0L;
+
   m = l_len(types);
+
   while ((k < m)) {
+
   t = l_at(types, k);
+
   if (s_eq(((TyDefT*)(intptr_t)t)->name, styp)) {
+
   u_checkCases(t, arms, ctx);
+
   u_checkArities(t, arms, ctx);
   }
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
@@ -1839,25 +2864,50 @@ long u_checkArities(long t, long arms, long ctx) {
   long m = 0;
   long a = 0;
   long ar = 0;
+
   k = 0L;
+
   m = l_len(arms);
+
   while ((k < m)) {
+
   a = l_at(arms, k);
+
   ar = u_caseArityIn(t, ((ArmT*)(intptr_t)a)->tag);
+
   if ((ar < 0L)) {
+
   u_failAt(s_concat(s_concat(((TyDefT*)(intptr_t)t)->name, (long)(intptr_t)" has no case "), ((ArmT*)(intptr_t)a)->tag), ctx);
   }
+
   if ((!(ar < 0L))) {
+
   if ((!(l_len(((ArmT*)(intptr_t)a)->binds) == ar))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"match case ", ((ArmT*)(intptr_t)a)->tag), (long)(intptr_t)" binds "), i_tostr(l_len(((ArmT*)(intptr_t)a)->binds))), (long)(intptr_t)", expected "), i_tostr(ar)), ctx);
   }
   }
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
+long u_setLine(long n, long ctx) {
+
+  return u_envPut(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__", i_tostr(n));
+  return 0;
+}
+long u_emitLine(long n, long ctx) {
+
+  u_setLine(n, ctx);
+
+  return (long)(intptr_t)"";
+  return 0;
+}
 long u_failAt(long msg, long ctx) {
+
   return fail(s_concat(s_concat(s_concat((long)(intptr_t)"input.smplr:", u_envGet(((CtxT*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__")), (long)(intptr_t)": "), msg));
   return 0;
 }
@@ -1866,59 +2916,86 @@ long u_checkEffects(long f, long ctx) {
   long k = 0;
   long m = 0;
   long e = 0;
+
   if ((!u_isMain(((FnT*)(intptr_t)f)->name))) {
+
   used = l_new();
+
   u_effBody(((FnT*)(intptr_t)f)->body, used, ctx);
+
   k = 0L;
+
   m = l_len(used);
+
   while ((k < m)) {
+
   e = l_at(used, k);
+
   if ((!u_hasName(((FnT*)(intptr_t)f)->effs, e))) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)"uses !", e), (long)(intptr_t)" but does not declare it"), ctx);
   }
+
   k = (k + 1L);
   }
   }
+
   return 0L;
   return 0;
 }
 long u_effBody(long body, long used, long ctx) {
   long k = 0;
   long m = 0;
+
   k = 0L;
+
   m = l_len(body);
+
   while ((k < m)) {
+
   u_effStmt(l_at(body, k), used, ctx);
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
 long u_effStmt(long s, long used, long ctx) {
+
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_effExpr(e, used, ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_effExpr(e, used, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_effIf(c, t, el, used, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_effWhile(c, b, used, ctx); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_effExpr(e, used, ctx); }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   }
   return 0;
   return 0;
 }
 long u_effIf(long c, long t, long el, long used, long ctx) {
+
   u_effExpr(c, used, ctx);
+
   u_effBody(t, used, ctx);
+
   u_effBody(el, used, ctx);
+
   return 0L;
   return 0;
 }
 long u_effWhile(long c, long b, long used, long ctx) {
+
   u_effExpr(c, used, ctx);
+
   u_effBody(b, used, ctx);
+
   return 0L;
   return 0;
 }
 long u_effExpr(long e, long used, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return u_effMethodE(recv, name, args, used, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_effCallE(name, args, used, ctx); }
@@ -1936,24 +3013,38 @@ long u_effExpr(long e, long used, long ctx) {
   return 0;
 }
 long u_effMethodE(long recv, long name, long args, long used, long ctx) {
+
   if (s_eq(name, (long)(intptr_t)"print")) {
+
   l_push(used, (long)(intptr_t)"IO");
   }
+
   if (s_eq(name, (long)(intptr_t)"send")) {
+
   l_push(used, (long)(intptr_t)"IO");
   }
+
   if (s_eq(name, (long)(intptr_t)"read")) {
+
   l_push(used, (long)(intptr_t)"IO");
+
   l_push(used, (long)(intptr_t)"Fail");
   }
+
   if (s_eq(name, (long)(intptr_t)"write")) {
+
   l_push(used, (long)(intptr_t)"IO");
   }
+
   if (s_eq(name, (long)(intptr_t)"append")) {
+
   l_push(used, (long)(intptr_t)"IO");
   }
+
   u_effExpr(recv, used, ctx);
+
   u_effArgs(args, used, ctx);
+
   return 0L;
   return 0;
 }
@@ -1962,66 +3053,101 @@ long u_effCallE(long name, long args, long used, long ctx) {
   long k = 0;
   long m = 0;
   long g = 0;
+
   fns = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fns;
+
   k = 0L;
+
   m = l_len(fns);
+
   while ((k < m)) {
+
   g = l_at(fns, k);
+
   if (s_eq(((FnT*)(intptr_t)g)->name, name)) {
+
   u_addAll(((FnT*)(intptr_t)g)->effs, used);
   }
+
   k = (k + 1L);
   }
+
   u_effArgs(args, used, ctx);
+
   return 0L;
   return 0;
 }
 long u_effBin(long a, long b, long used, long ctx) {
+
   u_effExpr(a, used, ctx);
+
   u_effExpr(b, used, ctx);
+
   return 0L;
   return 0;
 }
 long u_effMatchE(long scrut, long arms, long used, long ctx) {
   long k = 0;
   long m = 0;
+
   u_effExpr(scrut, used, ctx);
+
   k = 0L;
+
   m = l_len(arms);
+
   while ((k < m)) {
+
   u_effExpr(((ArmT*)(intptr_t)l_at(arms, k))->body, used, ctx);
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
 long u_effEachE(long recv, long body, long used, long ctx) {
+
   u_effExpr(recv, used, ctx);
+
   u_effBody(body, used, ctx);
+
   return 0L;
   return 0;
 }
 long u_effArgs(long args, long used, long ctx) {
   long k = 0;
   long m = 0;
+
   k = 0L;
+
   m = l_len(args);
+
   while ((k < m)) {
+
   u_effExpr(l_at(args, k), used, ctx);
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
 long u_addAll(long src, long dst) {
   long k = 0;
   long m = 0;
+
   k = 0L;
+
   m = l_len(src);
+
   while ((k < m)) {
+
   l_push(dst, l_at(src, k));
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
@@ -2030,16 +3156,25 @@ long u_caseArityIn(long t, long tag) {
   long k = 0;
   long m = 0;
   long c = 0;
+
   r = (0L - 1L);
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
+
   if (s_eq(((CaseT*)(intptr_t)c)->cname, tag)) {
+
   r = ((CaseT*)(intptr_t)c)->arity;
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
@@ -2047,15 +3182,23 @@ long u_checkCases(long t, long arms, long ctx) {
   long k = 0;
   long m = 0;
   long c = 0;
+
   k = 0L;
+
   m = l_len(((TyDefT*)(intptr_t)t)->cases);
+
   while ((k < m)) {
+
   c = l_at(((TyDefT*)(intptr_t)t)->cases, k);
+
   if ((!u_armCovers(arms, ((CaseT*)(intptr_t)c)->cname))) {
+
   u_failAt(s_concat(s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((TyDefT*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "), ((CaseT*)(intptr_t)c)->cname), ctx);
   }
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
@@ -2063,15 +3206,23 @@ long u_armCovers(long arms, long cname) {
   long found = 0;
   long k = 0;
   long m = 0;
+
   found = false;
+
   k = 0L;
+
   m = l_len(arms);
+
   while ((k < m)) {
+
   if (s_eq(((ArmT*)(intptr_t)l_at(arms, k))->tag, cname)) {
+
   found = true;
   }
+
   k = (k + 1L);
   }
+
   return found;
   return 0;
 }
@@ -2079,19 +3230,28 @@ long u_armHasBind(long arms) {
   long has = 0;
   long k = 0;
   long m = 0;
+
   has = false;
+
   k = 0L;
+
   m = l_len(arms);
+
   while ((k < m)) {
+
   if ((l_len(((ArmT*)(intptr_t)l_at(arms, k))->binds) > 0L)) {
+
   has = true;
   }
+
   k = (k + 1L);
   }
+
   return has;
   return 0;
 }
 long u_emitExpr(long e, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return s_concat(i_tostr(v), (long)(intptr_t)"L"); }
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return s_concat(s_concat((long)(intptr_t)"d2l(", s), (long)(intptr_t)")"); }
@@ -2100,10 +3260,10 @@ long u_emitExpr(long e, long ctx) {
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_emitList(es, ctx); }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return u_emitBin(op, a, b, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_emitCall(name, args, ctx); }
-  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return (long)(intptr_t)"0"; }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return u_emitMatchExpr(scrut, arms, ctx); }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_emitField(recv, fld, ctx); }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return u_emitMethod(recv, name, args, ctx); }
-  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return (long)(intptr_t)"0"; }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return s_concat((long)(intptr_t)"0", i_tostr(u_failAt((long)(intptr_t)"an each loop has no value", ctx))); }
   }
   return 0;
   return 0;
@@ -2112,22 +3272,33 @@ long u_emitList(long es, long ctx) {
   long r = 0;
   long k = 0;
   long m = 0;
+
   r = (long)(intptr_t)"l_new()";
+
   k = 0L;
+
   m = l_len(es);
+
   while ((k < m)) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "), u_emitExpr(l_at(es, k), ctx)), (long)(intptr_t)")");
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
 long u_listType(long es, long ctx) {
   long r = 0;
+
   r = (long)(intptr_t)"List";
+
   if ((l_len(es) > 0L)) {
+
   r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_at(es, 0L), ctx)), (long)(intptr_t)"]");
   }
+
   return r;
   return 0;
 }
@@ -2136,141 +3307,210 @@ long u_emitBin(long op, long a, long b, long ctx) {
   long cb = 0;
   long r = 0;
   long inner = 0;
+
   u_checkBinOp(op, a, b, ctx);
+
   ca = u_emitExpr(a, ctx);
+
   cb = u_emitExpr(b, ctx);
+
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", ca), (long)(intptr_t)" "), op), (long)(intptr_t)" "), cb), (long)(intptr_t)")");
+
   if (s_eq(op, (long)(intptr_t)"==")) {
+
   if (s_eq(u_exprType(a, ctx), (long)(intptr_t)"Str")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_eq(", ca), (long)(intptr_t)", "), cb), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(u_exprType(a, ctx), (long)(intptr_t)"Float")) {
+
   inner = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(l2d(", ca), (long)(intptr_t)") "), op), (long)(intptr_t)" l2d("), cb), (long)(intptr_t)")) ");
+
   r = inner;
+
   if (u_isFloatArith(op)) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(", inner), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(op, (long)(intptr_t)"u-")) {
+
   r = s_concat(s_concat((long)(intptr_t)"(-", cb), (long)(intptr_t)")");
+
   if (s_eq(u_exprType(b, ctx), (long)(intptr_t)"Float")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(-l2d(", cb), (long)(intptr_t)"))");
   }
   }
+
   return r;
   return 0;
 }
 long u_isFloatArith(long op) {
+
   return (((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/"));
   return 0;
 }
 long u_checkBinOp(long op, long a, long b, long ctx) {
   long ta = 0;
   long tb = 0;
+
   if (u_isArithOp(op)) {
+
   ta = u_exprType(a, ctx);
+
   tb = u_exprType(b, ctx);
+
   if (u_notInt(ta, ctx)) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"), ctx);
   }
+
   if (u_notInt(tb, ctx)) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" needs Int operands"), ctx);
   }
+
   if ((s_eq(op, (long)(intptr_t)"%") && s_eq(ta, (long)(intptr_t)"Float"))) {
+
   u_failAt((long)(intptr_t)"operator % needs Int operands", ctx);
   }
+
   if (u_mixedFloat(ta, tb)) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)"operator ", op), (long)(intptr_t)" mixes Int and Float; convert with .toFloat or .toInt"), ctx);
   }
   }
+
   return 0L;
   return 0;
 }
 long u_mixedFloat(long a, long b) {
   long r = 0;
+
   r = false;
+
   if ((s_eq(a, (long)(intptr_t)"Float") && (!s_eq(b, (long)(intptr_t)"Float")))) {
+
   r = true;
   }
+
   if ((s_eq(b, (long)(intptr_t)"Float") && (!s_eq(a, (long)(intptr_t)"Float")))) {
+
   r = true;
   }
+
   return r;
   return 0;
 }
 long u_isArithOp(long op) {
+
   return ((((((((s_eq(op, (long)(intptr_t)"+") || s_eq(op, (long)(intptr_t)"-")) || s_eq(op, (long)(intptr_t)"*")) || s_eq(op, (long)(intptr_t)"/")) || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">")) || s_eq(op, (long)(intptr_t)"<=")) || s_eq(op, (long)(intptr_t)">=")) || s_eq(op, (long)(intptr_t)"%"));
   return 0;
 }
 long u_knownCall(long name, long ctx) {
   long r = 0;
+
   r = (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name) || u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->recNames, name));
+
   if ((!s_eq(u_variantOf(name, ctx), (long)(intptr_t)""))) {
+
   r = true;
   }
+
   if (((s_eq(name, (long)(intptr_t)"Map") || s_eq(name, (long)(intptr_t)"fail")) || s_eq(name, (long)(intptr_t)"assert"))) {
+
   r = true;
   }
+
   return r;
   return 0;
 }
 long u_emitCall(long name, long args, long ctx) {
   long cn = 0;
+
   if ((!u_knownCall(name, ctx))) {
+
   u_failAt(s_concat((long)(intptr_t)"no function named ", name), ctx);
   }
+
   u_checkCall(name, args, ctx);
+
   cn = name;
+
   if (s_eq(name, (long)(intptr_t)"assert")) {
+
   cn = (long)(intptr_t)"s_assert";
+
   if ((!(l_len(args) == 1L))) {
+
   u_failAt((long)(intptr_t)"assert takes one Bool", ctx);
   }
+
   if ((!s_eq(u_exprType(l_at(args, 0L), ctx), (long)(intptr_t)"Bool"))) {
+
   u_failAt(s_concat((long)(intptr_t)"assert needs a Bool, got ", u_exprType(l_at(args, 0L), ctx)), ctx);
   }
   }
+
   if (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name)) {
+
   cn = u_mangle(name);
   }
+
   return s_concat(s_concat(s_concat(cn, (long)(intptr_t)"("), u_emitArgs(args, ctx)), (long)(intptr_t)")");
   return 0;
 }
 long u_checkReturn(long f, long ctx) {
   long n = 0;
+
   if ((!u_isMain(((FnT*)(intptr_t)f)->name))) {
+
   n = l_len(((FnT*)(intptr_t)f)->body);
+
   if ((n > 0L)) {
+
   u_checkReturnStmt(l_at(((FnT*)(intptr_t)f)->body, (n - 1L)), ((FnT*)(intptr_t)f)->ret, ctx);
   }
   }
+
   return 0L;
   return 0;
 }
 long u_checkReturnStmt(long s, long ret, long ctx) {
+
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_checkRetExpr(e, ret, ctx); }
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long v = ((Obj*)(intptr_t)s)->v2; return 0L; }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return 0L; }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return 0L; }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_checkRetExpr(e, ret, ctx); }
+  case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   }
   return 0;
   return 0;
 }
 long u_checkRetExpr(long e, long ret, long ctx) {
   long at = 0;
+
   if ((!u_isMatchExpr(e))) {
+
   at = u_exprType(e, ctx);
+
   if ((!u_compatible(ret, at, ctx))) {
+
   u_failAt(s_concat(s_concat(s_concat((long)(intptr_t)"return type mismatch: declared ", ret), (long)(intptr_t)", got "), at), ctx);
   }
   }
+
   return 0L;
   return 0;
 }
 long u_isMatchExpr(long e) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return true; }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return false; }
@@ -2296,39 +3536,71 @@ long u_checkCall(long name, long args, long ctx) {
   long rec = 0;
   long types = 0;
   long ar = 0;
+
   fns = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fns;
+
   k = 0L;
+
   m = l_len(fns);
+
   while ((k < m)) {
+
   f = l_at(fns, k);
+
   if (s_eq(((FnT*)(intptr_t)f)->name, name)) {
+
+  if ((!(l_len(args) == l_len(((FnT*)(intptr_t)f)->params)))) {
+
+  u_failAt(s_concat(s_concat(s_concat(s_concat(name, (long)(intptr_t)" takes "), i_tostr(l_len(((FnT*)(intptr_t)f)->params))), (long)(intptr_t)" values, got "), i_tostr(l_len(args))), ctx);
+  }
+
   u_checkArgTypes(name, ((FnT*)(intptr_t)f)->ptypes, args, ctx);
   }
+
   k = (k + 1L);
   }
+
   recs = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->records;
+
   k = 0L;
+
   m = l_len(recs);
+
   while ((k < m)) {
+
   rec = l_at(recs, k);
+
   if (s_eq(((RecDefT*)(intptr_t)rec)->name, name)) {
+
   if ((!(l_len(args) == l_len(((RecDefT*)(intptr_t)rec)->ftypes)))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(name, (long)(intptr_t)" has "), i_tostr(l_len(((RecDefT*)(intptr_t)rec)->ftypes))), (long)(intptr_t)" fields, got "), i_tostr(l_len(args))), (long)(intptr_t)": a missing field or one too many"), ctx);
   }
+
   u_checkArgTypes(name, ((RecDefT*)(intptr_t)rec)->ftypes, args, ctx);
   }
+
   k = (k + 1L);
   }
+
   types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+
   k = 0L;
+
   m = l_len(types);
+
   while ((k < m)) {
+
   ar = u_caseArityIn(l_at(types, k), name);
+
   if (((!(ar < 0L)) && (!(l_len(args) == ar)))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"case ", name), (long)(intptr_t)" takes "), i_tostr(ar)), (long)(intptr_t)" values, got "), i_tostr(l_len(args))), ctx);
   }
+
   k = (k + 1L);
   }
+
   return 0L;
   return 0;
 }
@@ -2337,75 +3609,115 @@ long u_checkArgTypes(long name, long ptypes, long args, long ctx) {
   long k = 0;
   long pt = 0;
   long at = 0;
+
   n = l_len(args);
+
   if ((n == l_len(ptypes))) {
+
   k = 0L;
+
   while ((k < n)) {
+
   pt = l_at(ptypes, k);
+
   at = u_exprType(l_at(args, k), ctx);
+
   if ((!u_compatible(pt, at, ctx))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr((k + 1L))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
   }
+
   k = (k + 1L);
   }
   }
+
   return 0L;
   return 0;
 }
 long u_compatible(long want, long got, long ctx) {
   long r = 0;
+
   r = false;
+
   if (s_eq(want, got)) {
+
   r = true;
   }
+
   if (s_eq(want, (long)(intptr_t)"")) {
+
   r = true;
   }
+
   if (s_eq(got, (long)(intptr_t)"")) {
+
   r = true;
   }
+
   if ((u_intLike(want) && u_intLike(got))) {
+
   r = true;
   }
+
   if ((u_isListType(want) && u_isListType(got))) {
+
   r = true;
   }
+
   return r;
   return 0;
 }
 long u_intLike(long t) {
+
   return (s_eq(t, (long)(intptr_t)"Int") || s_eq(t, (long)(intptr_t)"Bool"));
   return 0;
 }
 long u_notInt(long t, long ctx) {
   long r = 0;
+
   r = false;
+
   if (s_eq(t, (long)(intptr_t)"Str")) {
+
   r = true;
   }
+
   if (u_isListType(t)) {
+
   r = true;
   }
+
   if (u_isRec(t, ctx)) {
+
   r = true;
   }
+
   if (u_isVariant(t, ctx)) {
+
   r = true;
   }
+
   return r;
   return 0;
 }
 long u_varType(long s, long ctx) {
   long r = 0;
   long vt = 0;
+
   r = u_envGet(((CtxT*)(intptr_t)ctx)->env, s);
+
   if ((s_eq(s, (long)(intptr_t)"true") || s_eq(s, (long)(intptr_t)"false"))) {
+
   r = (long)(intptr_t)"Bool";
   }
+
   vt = u_variantOf(s, ctx);
+
   if ((!s_eq(vt, (long)(intptr_t)""))) {
+
   r = vt;
   }
+
   return r;
   return 0;
 }
@@ -2414,16 +3726,25 @@ long u_isVariant(long t, long ctx) {
   long types = 0;
   long k = 0;
   long m = 0;
+
   found = false;
+
   types = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+
   k = 0L;
+
   m = l_len(types);
+
   while ((k < m)) {
+
   if (s_eq(((TyDefT*)(intptr_t)l_at(types, k))->name, t)) {
+
   found = true;
   }
+
   k = (k + 1L);
   }
+
   return found;
   return 0;
 }
@@ -2432,107 +3753,172 @@ long u_emitField(long recv, long fld, long ctx) {
   long recvC = 0;
   long r = 0;
   long flag = 0;
+
   t = u_exprType(recv, ctx);
+
   u_checkSysField(t, fld, ctx);
+
   u_checkField(t, fld, ctx);
+
   recvC = u_emitExpr(recv, ctx);
+
   r = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"((", t), (long)(intptr_t)"T*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld);
+
   if ((!u_isRec(t, ctx))) {
+
   if (s_eq(fld, (long)(intptr_t)"length")) {
+
   r = s_concat(s_concat((long)(intptr_t)"s_len(", recvC), (long)(intptr_t)")");
+
   if (u_isListType(t)) {
+
   r = s_concat(s_concat((long)(intptr_t)"l_len(", recvC), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(fld, (long)(intptr_t)"code")) {
+
   r = s_concat(s_concat((long)(intptr_t)"s_code(", recvC), (long)(intptr_t)")");
   }
+
   if (s_eq(fld, (long)(intptr_t)"toStr")) {
+
   r = s_concat(s_concat((long)(intptr_t)"i_tostr(", recvC), (long)(intptr_t)")");
+
   if (s_eq(t, (long)(intptr_t)"Float")) {
+
   r = s_concat(s_concat((long)(intptr_t)"f_tostr(", recvC), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(fld, (long)(intptr_t)"toInt")) {
+
   r = s_concat(s_concat((long)(intptr_t)"s_toint(", recvC), (long)(intptr_t)")");
+
   if (s_eq(t, (long)(intptr_t)"Float")) {
+
   r = s_concat(s_concat((long)(intptr_t)"f_toi(", recvC), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(fld, (long)(intptr_t)"toFloat")) {
+
   r = s_concat(s_concat((long)(intptr_t)"i_tof(", recvC), (long)(intptr_t)")");
+
   if (s_eq(t, (long)(intptr_t)"Str")) {
+
   r = s_concat(s_concat((long)(intptr_t)"s_tofloat(", recvC), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(fld, (long)(intptr_t)"trim")) {
+
   r = s_concat(s_concat((long)(intptr_t)"s_trim(", recvC), (long)(intptr_t)")");
   }
+
   if (s_eq(fld, (long)(intptr_t)"sin")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(sin(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"cos")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(cos(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"tan")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(tan(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"asin")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(asin(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"acos")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(acos(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"sqrt")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(sqrt(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"floor")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(floor(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"abs")) {
+
   r = s_concat(s_concat((long)(intptr_t)"d2l(fabs(l2d(", recvC), (long)(intptr_t)")))");
   }
+
   if (s_eq(fld, (long)(intptr_t)"not")) {
+
   r = s_concat(s_concat((long)(intptr_t)"(!", recvC), (long)(intptr_t)")");
   }
+
   if (u_isCapField(fld)) {
+
   r = (long)(intptr_t)"0";
   }
+
   if (s_eq(fld, (long)(intptr_t)"args")) {
+
   r = (long)(intptr_t)"simpler_args(argc, argv)";
   }
+
   if (s_eq(fld, (long)(intptr_t)"stdin")) {
+
   r = (long)(intptr_t)"simpler_stdin()";
   }
+
   if (s_eq(fld, (long)(intptr_t)"keys")) {
+
   r = s_concat(s_concat((long)(intptr_t)"m_keys(", recvC), (long)(intptr_t)")");
   }
+
   if (s_eq(fld, (long)(intptr_t)"byValue")) {
+
   r = s_concat(s_concat((long)(intptr_t)"m_byvalue(", recvC), (long)(intptr_t)")");
   }
+
   if (s_eq(fld, (long)(intptr_t)"sort")) {
+
   flag = (long)(intptr_t)"0";
+
   if (s_eq(u_elemOf(t), (long)(intptr_t)"Str")) {
+
   flag = (long)(intptr_t)"1";
   }
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_sort(", recvC), (long)(intptr_t)", "), flag), (long)(intptr_t)")");
   }
   }
+
   if (u_useUFCS(t, fld, ctx)) {
+
   r = s_concat(s_concat(s_concat(u_mangle(fld), (long)(intptr_t)"("), recvC), (long)(intptr_t)")");
   }
+
   return r;
   return 0;
 }
 long u_isCapField(long fld) {
+
   return ((s_eq(fld, (long)(intptr_t)"screen") || s_eq(fld, (long)(intptr_t)"files")) || s_eq(fld, (long)(intptr_t)"mail"));
   return 0;
 }
 long u_isBuiltinField(long fld) {
+
   return (((((((((((((s_eq(fld, (long)(intptr_t)"length") || s_eq(fld, (long)(intptr_t)"code")) || s_eq(fld, (long)(intptr_t)"toStr")) || s_eq(fld, (long)(intptr_t)"toInt")) || s_eq(fld, (long)(intptr_t)"toFloat")) || s_eq(fld, (long)(intptr_t)"trim")) || s_eq(fld, (long)(intptr_t)"not")) || s_eq(fld, (long)(intptr_t)"keys")) || s_eq(fld, (long)(intptr_t)"byValue")) || s_eq(fld, (long)(intptr_t)"sort")) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin")) || u_isMathField(fld)) || u_isCapField(fld));
   return 0;
 }
 long u_isMathField(long fld) {
+
   return (((((((s_eq(fld, (long)(intptr_t)"sin") || s_eq(fld, (long)(intptr_t)"cos")) || s_eq(fld, (long)(intptr_t)"tan")) || s_eq(fld, (long)(intptr_t)"asin")) || s_eq(fld, (long)(intptr_t)"acos")) || s_eq(fld, (long)(intptr_t)"sqrt")) || s_eq(fld, (long)(intptr_t)"floor")) || s_eq(fld, (long)(intptr_t)"abs"));
   return 0;
 }
@@ -2542,221 +3928,377 @@ long u_recHasField(long t, long fld, long ctx) {
   long k = 0;
   long m = 0;
   long rec = 0;
+
   found = false;
+
   recs = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->records;
+
   k = 0L;
+
   m = l_len(recs);
+
   while ((k < m)) {
+
   rec = l_at(recs, k);
+
   if (s_eq(((RecDefT*)(intptr_t)rec)->name, t)) {
+
   if (u_hasName(((RecDefT*)(intptr_t)rec)->fields, fld)) {
+
   found = true;
   }
   }
+
   k = (k + 1L);
   }
+
   return found;
   return 0;
 }
 long u_useUFCS(long t, long fld, long ctx) {
   long r = 0;
+
   r = false;
+
   if (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, fld)) {
+
   if ((!u_isBuiltinField(fld))) {
+
   if ((!u_recHasField(t, fld, ctx))) {
+
   r = true;
   }
   }
   }
+
   return r;
   return 0;
 }
 long u_capNeed(long name) {
   long r = 0;
+
   r = (long)(intptr_t)"";
+
   if (s_eq(name, (long)(intptr_t)"print")) {
+
   r = (long)(intptr_t)"Screen";
   }
+
   if (((s_eq(name, (long)(intptr_t)"read") || s_eq(name, (long)(intptr_t)"write")) || s_eq(name, (long)(intptr_t)"append"))) {
+
   r = (long)(intptr_t)"Files";
   }
+
   if (s_eq(name, (long)(intptr_t)"send")) {
+
   r = (long)(intptr_t)"Mail";
   }
+
   return r;
   return 0;
 }
 long u_checkCap(long recv, long name, long ctx) {
   long need = 0;
   long t = 0;
+
   need = u_capNeed(name);
+
   if ((!s_eq(need, (long)(intptr_t)""))) {
+
   if ((!u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name))) {
+
   t = u_exprType(recv, ctx);
+
   if ((!s_eq(t, need))) {
+
   u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)".", name), (long)(intptr_t)" needs a "), need), (long)(intptr_t)" handed down from main, got "), u_capShow(t)), ctx);
   }
   }
   }
+
   return 0L;
   return 0;
 }
 long u_capShow(long t) {
   long r = 0;
+
   r = t;
+
   if (s_eq(t, (long)(intptr_t)"")) {
+
   r = (long)(intptr_t)"a value with no type";
   }
+
   return r;
   return 0;
 }
 long u_checkField(long t, long fld, long ctx) {
+
   if ((!u_useUFCS(t, fld, ctx))) {
+
   if ((u_isRec(t, ctx) && (!u_recHasField(t, fld, ctx)))) {
+
   u_failAt(s_concat(s_concat(t, (long)(intptr_t)" has no field "), fld), ctx);
   }
+
   if (u_isVariant(t, ctx)) {
+
   u_failAt(s_concat(s_concat(s_concat(t, (long)(intptr_t)" is a variant and has no field "), fld), (long)(intptr_t)"; read it with match"), ctx);
   }
+
   if ((u_isNumType(t) && u_isTextField(fld))) {
+
   u_failAt(s_concat(s_concat(t, (long)(intptr_t)" has no method "), fld), ctx);
   }
+
+  if (((!u_isRec(t, ctx)) && (!u_isBuiltinField(fld)))) {
+
+  u_failAt(s_concat((long)(intptr_t)"no field or function named ", fld), ctx);
   }
+  }
+
   return 0L;
   return 0;
 }
 long u_isNumType(long t) {
+
   return ((s_eq(t, (long)(intptr_t)"Int") || s_eq(t, (long)(intptr_t)"Float")) || s_eq(t, (long)(intptr_t)"Bool"));
   return 0;
 }
 long u_isTextField(long fld) {
+
   return (((((s_eq(fld, (long)(intptr_t)"length") || s_eq(fld, (long)(intptr_t)"trim")) || s_eq(fld, (long)(intptr_t)"code")) || s_eq(fld, (long)(intptr_t)"keys")) || s_eq(fld, (long)(intptr_t)"byValue")) || s_eq(fld, (long)(intptr_t)"sort"));
   return 0;
 }
 long u_isTextMethod(long name) {
+
   return ((((((((s_eq(name, (long)(intptr_t)"concat") || s_eq(name, (long)(intptr_t)"slice")) || s_eq(name, (long)(intptr_t)"split")) || s_eq(name, (long)(intptr_t)"contains")) || s_eq(name, (long)(intptr_t)"replace")) || s_eq(name, (long)(intptr_t)"at")) || s_eq(name, (long)(intptr_t)"push")) || s_eq(name, (long)(intptr_t)"padLeft")) || s_eq(name, (long)(intptr_t)"padRight"));
   return 0;
 }
 long u_checkMethod(long t, long name, long args, long ctx) {
   long at = 0;
   long pt = 0;
+
   if ((!u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name))) {
+
   if ((u_isNumType(t) && u_isTextMethod(name))) {
+
   u_failAt(s_concat(s_concat(t, (long)(intptr_t)" has no method "), name), ctx);
   }
+
   if ((s_eq(name, (long)(intptr_t)"at") && (l_len(args) == 1L))) {
+
   at = u_exprType(l_at(args, 0L), ctx);
+
   if ((s_eq(at, (long)(intptr_t)"Str") || s_eq(at, (long)(intptr_t)"Float"))) {
+
   u_failAt(s_concat((long)(intptr_t)"at expects Int, got ", at), ctx);
   }
   }
+
   if (((s_eq(name, (long)(intptr_t)"push") && u_isListType(t)) && (l_len(args) == 1L))) {
+
   pt = u_exprType(l_at(args, 0L), ctx);
+
   if ((!u_compatible(u_elemOf(t), pt, ctx))) {
+
   u_failAt(s_concat(s_concat(s_concat((long)(intptr_t)"push expects ", u_elemOf(t)), (long)(intptr_t)", got "), pt), ctx);
   }
   }
   }
+
   return 0L;
   return 0;
 }
 long u_isSysField(long fld) {
+
   return ((u_isCapField(fld) || s_eq(fld, (long)(intptr_t)"args")) || s_eq(fld, (long)(intptr_t)"stdin"));
   return 0;
 }
 long u_checkSysField(long t, long fld, long ctx) {
+
   if (u_isSysField(fld)) {
+
   if ((!u_isRec(t, ctx))) {
+
   if ((!s_eq(t, (long)(intptr_t)"Sys"))) {
+
   u_failAt(s_concat(s_concat((long)(intptr_t)".", fld), (long)(intptr_t)" exists only on main's world value; pass it down as a parameter"), ctx);
   }
   }
   }
+
   return 0L;
+  return 0;
+}
+long u_methodArgs(long name) {
+  long r = 0;
+
+  r = (0L - 1L);
+
+  if ((((((((((((u_isTextMethod(name) || s_eq(name, (long)(intptr_t)"print")) || s_eq(name, (long)(intptr_t)"read")) || s_eq(name, (long)(intptr_t)"mod")) || s_eq(name, (long)(intptr_t)"atan2")) || s_eq(name, (long)(intptr_t)"get")) || s_eq(name, (long)(intptr_t)"has")) || s_eq(name, (long)(intptr_t)"ge")) || s_eq(name, (long)(intptr_t)"le")) || s_eq(name, (long)(intptr_t)"and")) || s_eq(name, (long)(intptr_t)"or")) || s_eq(name, (long)(intptr_t)"send"))) {
+
+  r = 1L;
+  }
+
+  if (((((s_eq(name, (long)(intptr_t)"slice") || s_eq(name, (long)(intptr_t)"replace")) || s_eq(name, (long)(intptr_t)"write")) || s_eq(name, (long)(intptr_t)"append")) || s_eq(name, (long)(intptr_t)"set"))) {
+
+  r = 2L;
+  }
+
+  return r;
   return 0;
 }
 long u_emitMethod(long recv, long name, long args, long ctx) {
   long t = 0;
+  long want = 0;
   long recvC = 0;
   long r = 0;
+
   t = u_exprType(recv, ctx);
+
   u_checkCap(recv, name, ctx);
+
+  want = u_methodArgs(name);
+
+  if ((want < 0L)) {
+
+  u_failAt(s_concat((long)(intptr_t)"no method named ", name), ctx);
+  }
+
+  if ((!(l_len(args) == want))) {
+
+  u_failAt(s_concat(s_concat(s_concat(s_concat(name, (long)(intptr_t)" takes "), i_tostr(want)), (long)(intptr_t)" values, got "), i_tostr(l_len(args))), ctx);
+  }
+
   if ((s_eq(name, (long)(intptr_t)"print") && (!u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->fnNames, name)))) {
+
   u_emitExpr(recv, ctx);
+
   return s_concat(s_concat((long)(intptr_t)"(", u_emitPrint(l_at(args, 0L), ctx)), (long)(intptr_t)", 0L)");
   }
+
   u_checkMethod(t, name, args, ctx);
+
   recvC = u_emitExpr(recv, ctx);
+
   r = (long)(intptr_t)"0";
+
   if (s_eq(name, (long)(intptr_t)"concat")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_concat(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"slice")) {
+
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_slice(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"at")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_at(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
+
   if (u_isListType(t)) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_at(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(name, (long)(intptr_t)"push")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"l_push(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"read")) {
+
   r = s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)", u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"write")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(", u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"append")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(", u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"split")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"contains")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_contains(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"replace")) {
+
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"mod")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" % "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"atan2")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")))");
   }
+
   if (s_eq(name, (long)(intptr_t)"padLeft")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"padRight")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"s_padright(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"set")) {
+
   r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)", "), u_emitExpr(l_at(args, 1L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"get")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
+
   if (s_eq(u_mapValueOf(t), (long)(intptr_t)"Str")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_gets(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
   }
+
   if (s_eq(name, (long)(intptr_t)"has")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"ge")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"le")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" <= "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"and")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" && "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   if (s_eq(name, (long)(intptr_t)"or")) {
+
   r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" || "), u_emitExpr(l_at(args, 0L), ctx)), (long)(intptr_t)")");
   }
+
   return r;
   return 0;
 }
@@ -2766,39 +4308,106 @@ long u_cEscape(long s) {
   long n = 0;
   long c = 0;
   long piece = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   n = s_len(s);
+
   while ((k < n)) {
+
   c = s_code(s_at(s, k));
+
   piece = s_at(s, k);
+
   if ((c == 34L)) {
+
   piece = (long)(intptr_t)"\\\"";
   }
+
   if ((c == 92L)) {
+
   piece = (long)(intptr_t)"\\\\";
   }
+
   if ((c == 10L)) {
+
   piece = (long)(intptr_t)"\\n";
   }
+
   if ((c == 9L)) {
+
   piece = (long)(intptr_t)"\\t";
   }
+
   if ((c == 13L)) {
+
   piece = (long)(intptr_t)"\\r";
   }
+
   out = s_concat(out, piece);
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
-long u_emitVar(long s, long ctx) {
+long u_caseArity(long name, long ctx) {
   long r = 0;
+  long a = 0;
+
+  r = (0L - 1L);
+
+  {
+  long _lst = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->types;
+  long _n = l_len(_lst);
+  for (long _i = 0; _i < _n; _i = _i + 1) {
+  long t = l_at(_lst, _i);
+
+  a = u_caseArityIn(t, name);
+
+  if ((a > r)) {
+
+  r = a;
+  }
+  }
+  }
+
+  return r;
+  return 0;
+}
+long u_emitVar(long s, long ctx) {
+  long vt = 0;
+  long ar = 0;
+  long r = 0;
+
+  vt = u_variantOf(s, ctx);
+
+  if (s_eq(vt, (long)(intptr_t)"")) {
+
+  if (((s_eq(u_envOld(((CtxT*)(intptr_t)ctx)->env, s), (long)(intptr_t)"__gone__") && (!s_eq(s, (long)(intptr_t)"true"))) && (!s_eq(s, (long)(intptr_t)"false")))) {
+
+  u_failAt(s_concat((long)(intptr_t)"no variable named ", s), ctx);
+  }
+  } else {
+
+  ar = u_caseArity(s, ctx);
+
+  if ((ar > 0L)) {
+
+  u_failAt(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"case ", s), (long)(intptr_t)" takes "), i_tostr(ar)), (long)(intptr_t)" values, got 0"), ctx);
+  }
+  }
+
   r = s;
+
   if (u_hasName(((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->boxedNullary, s)) {
+
   r = s_concat(s, (long)(intptr_t)"()");
   }
+
   return r;
   return 0;
 }
@@ -2806,37 +4415,56 @@ long u_emitArgs(long args, long ctx) {
   long out = 0;
   long k = 0;
   long m = 0;
+
   out = (long)(intptr_t)"";
+
   k = 0L;
+
   m = l_len(args);
+
   while ((k < m)) {
+
   if ((k > 0L)) {
+
   out = s_concat(out, (long)(intptr_t)", ");
   }
+
   out = s_concat(out, u_emitExpr(l_at(args, k), ctx));
+
   k = (k + 1L);
   }
+
   return out;
   return 0;
 }
 long u_binType(long op, long a, long b, long ctx) {
   long r = 0;
+
   r = (long)(intptr_t)"Int";
+
   if (((((((s_eq(op, (long)(intptr_t)"==") || s_eq(op, (long)(intptr_t)"<")) || s_eq(op, (long)(intptr_t)">")) || s_eq(op, (long)(intptr_t)"<=")) || s_eq(op, (long)(intptr_t)">=")) || s_eq(op, (long)(intptr_t)"&&")) || s_eq(op, (long)(intptr_t)"||"))) {
+
   r = (long)(intptr_t)"Bool";
   }
+
   if (s_eq(op, (long)(intptr_t)"u-")) {
+
   r = u_exprType(b, ctx);
   }
+
   if (s_eq(u_exprType(a, ctx), (long)(intptr_t)"Float")) {
+
   if (u_isFloatArith(op)) {
+
   r = (long)(intptr_t)"Float";
   }
   }
+
   return r;
   return 0;
 }
 long u_exprType(long e, long ctx) {
+
   switch (((Obj*)(intptr_t)e)->tag) {
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Int"; }
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return (long)(intptr_t)"Float"; }
@@ -2845,7 +4473,7 @@ long u_exprType(long e, long ctx) {
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_listType(es, ctx); }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return u_binType(op, a, b, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_callRet(name, ctx); }
-  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return (long)(intptr_t)"Int"; }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return u_matchType(scrut, arms, ctx); }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_fieldType(recv, fld, ctx); }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return u_methodRet(recv, name, ctx); }
   case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return (long)(intptr_t)"Int"; }
@@ -2853,56 +4481,123 @@ long u_exprType(long e, long ctx) {
   return 0;
   return 0;
 }
+long u_matchType(long scrut, long arms, long ctx) {
+  long r = 0;
+  long a = 0;
+  long styp = 0;
+  long olds = 0;
+  long bi = 0;
+
+  r = (long)(intptr_t)"Int";
+
+  if ((l_len(arms) > 0L)) {
+
+  a = l_at(arms, 0L);
+
+  styp = u_exprType(scrut, ctx);
+
+  olds = u_envOlds(((CtxT*)(intptr_t)ctx)->env, ((ArmT*)(intptr_t)a)->binds);
+
+  bi = 0L;
+
+  while ((bi < l_len(((ArmT*)(intptr_t)a)->binds))) {
+
+  u_envPut(((CtxT*)(intptr_t)ctx)->env, l_at(((ArmT*)(intptr_t)a)->binds, bi), u_payloadType(styp, ((ArmT*)(intptr_t)a)->tag, bi, ctx));
+
+  bi = (bi + 1L);
+  }
+
+  r = u_exprType(((ArmT*)(intptr_t)a)->body, ctx);
+
+  u_envRestore(((CtxT*)(intptr_t)ctx)->env, ((ArmT*)(intptr_t)a)->binds, olds);
+  }
+
+  return r;
+  return 0;
+}
 long u_fieldType(long recv, long fld, long ctx) {
   long t = 0;
   long r = 0;
+
   t = u_exprType(recv, ctx);
+
   r = (long)(intptr_t)"Int";
+
   if (s_eq(fld, (long)(intptr_t)"toStr")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(fld, (long)(intptr_t)"toFloat")) {
+
   r = (long)(intptr_t)"Float";
   }
+
   if (s_eq(fld, (long)(intptr_t)"trim")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(fld, (long)(intptr_t)"not")) {
+
   r = (long)(intptr_t)"Bool";
   }
+
   if (u_isMathField(fld)) {
+
   r = (long)(intptr_t)"Float";
   }
+
   if (s_eq(fld, (long)(intptr_t)"screen")) {
+
   r = (long)(intptr_t)"Screen";
   }
+
   if (s_eq(fld, (long)(intptr_t)"files")) {
+
   r = (long)(intptr_t)"Files";
   }
+
   if (s_eq(fld, (long)(intptr_t)"mail")) {
+
   r = (long)(intptr_t)"Mail";
   }
+
   if (s_eq(fld, (long)(intptr_t)"args")) {
+
   r = (long)(intptr_t)"List[Str]";
   }
+
   if (s_eq(fld, (long)(intptr_t)"stdin")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(fld, (long)(intptr_t)"keys")) {
+
   r = (long)(intptr_t)"List[Str]";
   }
+
   if (s_eq(fld, (long)(intptr_t)"byValue")) {
+
   r = (long)(intptr_t)"List[Str]";
   }
+
   if (s_eq(fld, (long)(intptr_t)"sort")) {
+
   r = t;
   }
+
   if (u_isRec(t, ctx)) {
+
   r = u_recFieldType(t, fld, ctx);
   }
+
   if (u_useUFCS(t, fld, ctx)) {
+
   r = u_callRet(fld, ctx);
   }
+
   return r;
   return 0;
 }
@@ -2912,17 +4607,27 @@ long u_recFieldType(long tyName, long fld, long ctx) {
   long k = 0;
   long m = 0;
   long rec = 0;
+
   r = (long)(intptr_t)"Int";
+
   recs = ((SigsT*)(intptr_t)((CtxT*)(intptr_t)ctx)->sigs)->records;
+
   k = 0L;
+
   m = l_len(recs);
+
   while ((k < m)) {
+
   rec = l_at(recs, k);
+
   if (s_eq(((RecDefT*)(intptr_t)rec)->name, tyName)) {
+
   r = u_fieldTypeIn(rec, fld);
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
@@ -2930,162 +4635,212 @@ long u_fieldTypeIn(long rec, long fld) {
   long r = 0;
   long k = 0;
   long m = 0;
+
   r = (long)(intptr_t)"Int";
+
   k = 0L;
+
   m = l_len(((RecDefT*)(intptr_t)rec)->fields);
+
   while ((k < m)) {
+
   if (s_eq(l_at(((RecDefT*)(intptr_t)rec)->fields, k), fld)) {
+
   r = l_at(((RecDefT*)(intptr_t)rec)->ftypes, k);
   }
+
   k = (k + 1L);
   }
+
   return r;
   return 0;
 }
 long u_methodRet(long recv, long name, long ctx) {
   long r = 0;
   long rt = 0;
+
   r = (long)(intptr_t)"Int";
+
   if (s_eq(name, (long)(intptr_t)"concat")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"slice")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"read")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"split")) {
+
   r = (long)(intptr_t)"List[Str]";
   }
+
   if (s_eq(name, (long)(intptr_t)"contains")) {
+
   r = (long)(intptr_t)"Bool";
   }
+
   if (s_eq(name, (long)(intptr_t)"replace")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"padLeft")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"padRight")) {
+
   r = (long)(intptr_t)"Str";
   }
+
   if (s_eq(name, (long)(intptr_t)"atan2")) {
+
   r = (long)(intptr_t)"Float";
   }
+
   if (((((s_eq(name, (long)(intptr_t)"has") || s_eq(name, (long)(intptr_t)"and")) || s_eq(name, (long)(intptr_t)"or")) || s_eq(name, (long)(intptr_t)"ge")) || s_eq(name, (long)(intptr_t)"le"))) {
+
   r = (long)(intptr_t)"Bool";
   }
+
   if (s_eq(name, (long)(intptr_t)"get")) {
+
   r = u_mapValueOf(u_exprType(recv, ctx));
   }
+
   if (s_eq(name, (long)(intptr_t)"at")) {
+
   r = (long)(intptr_t)"Str";
+
   rt = u_exprType(recv, ctx);
+
   if (u_isListType(rt)) {
+
   r = u_elemOf(rt);
   }
   }
+
   return r;
   return 0;
 }
 long u_isMain(long name) {
+
   return s_eq(name, (long)(intptr_t)"main");
   return 0;
 }
 long u_notEof(long toks, long i) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
   case T_Eof: { return false; }
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
   }
   return 0;
   return 0;
 }
 long u_inBlock(long toks, long j) {
+
   return ((!u_isPunct(toks, j, (long)(intptr_t)"}")) && u_notEof(toks, j));
   return 0;
 }
 long u_inArgs(long toks, long j) {
+
   return ((!u_isPunct(toks, j, (long)(intptr_t)")")) && u_notEof(toks, j));
   return 0;
 }
 long u_isIdent(long toks, long i) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return true; }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return true; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
   case T_Eof: { return false; }
   }
   return 0;
   return 0;
 }
 long u_isWord(long toks, long i, long w) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return s_eq(s, w); }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return s_eq(s, w); }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
   case T_Eof: { return false; }
   }
   return 0;
   return 0;
 }
 long u_isAssign(long toks, long i) {
+
   return (u_isIdent(toks, i) && u_isPunct(toks, (i + 1L), (long)(intptr_t)"="));
   return 0;
 }
 long u_identAt(long toks, long i) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return s; }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return s; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
   case T_Eof: { return (long)(intptr_t)"?"; }
   }
   return 0;
   return 0;
 }
 long u_punctAt(long toks, long i) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return p; }
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return (long)(intptr_t)"?"; }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return p; }
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return (long)(intptr_t)"?"; }
   case T_Eof: { return (long)(intptr_t)"?"; }
   }
   return 0;
   return 0;
 }
 long u_isPunct(long toks, long i, long op) {
-  switch (((Obj*)(intptr_t)l_at(toks, i))->tag) {
-  case T_Punct: { long p = ((Obj*)(intptr_t)l_at(toks, i))->v0; return s_eq(p, op); }
-  case T_Ident: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Int: { long v = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Float: { long f = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
-  case T_Str: { long s = ((Obj*)(intptr_t)l_at(toks, i))->v0; return false; }
+
+  switch (((Obj*)(intptr_t)u_tokAt(toks, i))->tag) {
+  case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return s_eq(p, op); }
+  case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Float: { long f = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, i))->v0; return false; }
   case T_Eof: { return false; }
   }
   return 0;
   return 0;
 }
 long u_isCmpOp(long toks, long i) {
+
   return ((((u_isPunct(toks, i, (long)(intptr_t)"==") || u_isPunct(toks, i, (long)(intptr_t)"<")) || u_isPunct(toks, i, (long)(intptr_t)">")) || u_isPunct(toks, i, (long)(intptr_t)"<=")) || u_isPunct(toks, i, (long)(intptr_t)">="));
   return 0;
 }
 long u_isAddOp(long toks, long i) {
+
   return (u_isPunct(toks, i, (long)(intptr_t)"+") || u_isPunct(toks, i, (long)(intptr_t)"-"));
   return 0;
 }
 long u_isMulOp(long toks, long i) {
+
   return ((u_isPunct(toks, i, (long)(intptr_t)"*") || u_isPunct(toks, i, (long)(intptr_t)"/")) || u_isPunct(toks, i, (long)(intptr_t)"%"));
   return 0;
 }
@@ -3101,92 +4856,167 @@ long u_lex(long src) {
   long start = 0;
   long num = 0;
   long fol = 0;
+
   toks = l_new();
+
   lines = l_new();
+
   n = s_len(src);
+
   i = 0L;
+
   line = 1L;
+
   while ((i < n)) {
+
   c = s_code(s_at(src, i));
+
   if (u_isSpace(c)) {
+
   if ((c == 10L)) {
+
   line = (line + 1L);
   }
+
   i = (i + 1L);
   } else {
+
   if (u_isComment(src, i, n)) {
+
   while (((i < n) && (!(s_code(s_at(src, i)) == 10L)))) {
+
   i = (i + 1L);
   }
   } else {
+
   if ((c == 34L)) {
+
   j = (i + 1L);
+
   s = (long)(intptr_t)"";
+
   while (((j < n) && (!(s_code(s_at(src, j)) == 34L)))) {
+
+  if ((s_code(s_at(src, j)) == 10L)) {
+
+  fail(s_concat(s_concat((long)(intptr_t)"input.smplr:", i_tostr(line)), (long)(intptr_t)": a text is missing its closing quote"));
+  }
+
   if ((s_code(s_at(src, j)) == 92L)) {
+
   j = (j + 1L);
+
   s = s_concat(s, u_esc(src, j));
   } else {
+
   s = s_concat(s, s_at(src, j));
   }
+
   j = (j + 1L);
   }
+
+  if ((j == n)) {
+
+  fail(s_concat(s_concat((long)(intptr_t)"input.smplr:", i_tostr(line)), (long)(intptr_t)": a text is missing its closing quote"));
+  }
+
   l_push(toks, Str(s));
+
   l_push(lines, line);
+
   i = (j + 1L);
   } else {
+
   if (u_isDigit(c)) {
+
   start = i;
+
   num = 0L;
+
   while (((i < n) && u_isDigit(s_code(s_at(src, i))))) {
+
   num = ((num * 10L) + (s_code(s_at(src, i)) - 48L));
+
   i = (i + 1L);
   }
+
   if (((((i + 1L) < n) && (s_code(s_at(src, i)) == 46L)) && u_isDigit(s_code(s_at(src, (i + 1L)))))) {
+
   i = (i + 1L);
+
   while (((i < n) && u_isDigit(s_code(s_at(src, i))))) {
+
   i = (i + 1L);
   }
+
   if (((i < n) && ((s_code(s_at(src, i)) == 101L) || (s_code(s_at(src, i)) == 69L)))) {
+
   j = (i + 1L);
+
   if (((j < n) && ((s_code(s_at(src, j)) == 43L) || (s_code(s_at(src, j)) == 45L)))) {
+
   j = (j + 1L);
   }
+
   if (((j < n) && u_isDigit(s_code(s_at(src, j))))) {
+
   i = j;
+
   while (((i < n) && u_isDigit(s_code(s_at(src, i))))) {
+
   i = (i + 1L);
   }
   }
   }
+
   l_push(toks, Float(s_slice(src, start, i)));
+
   l_push(lines, line);
   } else {
+
   l_push(toks, Int(num));
+
   l_push(lines, line);
   }
   } else {
+
   if (u_isAlpha(c)) {
+
   j = i;
+
   while (((j < n) && u_isAlnum(s_code(s_at(src, j))))) {
+
   j = (j + 1L);
   }
+
   l_push(toks, Ident(s_slice(src, i, j)));
+
   l_push(lines, line);
+
   i = j;
   } else {
+
   if (u_isTwoCharOp(src, i, n)) {
+
   l_push(toks, Punct(s_slice(src, i, (i + 2L))));
+
   l_push(lines, line);
+
   i = (i + 2L);
   } else {
+
   fol = ((l_len(lines) == 0L) || (!(l_at(lines, (l_len(lines) - 1L)) == line)));
+
   if (((s_code(s_at(src, i)) == 40L) && fol)) {
+
   l_push(toks, Punct((long)(intptr_t)"s("));
   } else {
+
   l_push(toks, Punct(s_at(src, i)));
   }
+
   l_push(lines, line);
+
   i = (i + 1L);
   }
   }
@@ -3195,53 +5025,72 @@ long u_lex(long src) {
   }
   }
   }
+
   l_push(toks, Eof());
+
   l_push(lines, line);
+
   return Lexed(toks, lines);
   return 0;
 }
 long u_esc(long src, long j) {
   long c = 0;
   long r = 0;
+
   c = s_code(s_at(src, j));
+
   r = s_at(src, j);
+
   if ((c == 110L)) {
+
   r = (long)(intptr_t)"\n";
   }
+
   if ((c == 116L)) {
+
   r = (long)(intptr_t)"\t";
   }
+
   if ((c == 114L)) {
+
   r = (long)(intptr_t)"\r";
   }
+
   return r;
   return 0;
 }
 long u_isComment(long src, long i, long n) {
+
   return ((((i + 1L) < n) && (s_code(s_at(src, i)) == 47L)) && (s_code(s_at(src, (i + 1L))) == 47L));
   return 0;
 }
 long u_isTwoCharOp(long src, long i, long n) {
+
   return (((((u_twoIs(src, i, n, 45L, 62L) || u_twoIs(src, i, n, 61L, 61L)) || u_twoIs(src, i, n, 60L, 61L)) || u_twoIs(src, i, n, 62L, 61L)) || u_twoIs(src, i, n, 38L, 38L)) || u_twoIs(src, i, n, 124L, 124L));
   return 0;
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
+
   return ((((i + 1L) < n) && (s_code(s_at(src, i)) == a)) && (s_code(s_at(src, (i + 1L))) == b));
   return 0;
 }
 long u_isDigit(long c) {
+
   return ((c >= 48L) && (c <= 57L));
   return 0;
 }
 long u_isAlpha(long c) {
+
   return ((((c >= 65L) && (c <= 90L)) || ((c >= 97L) && (c <= 122L))) || (c == 95L));
   return 0;
 }
 long u_isAlnum(long c) {
+
   return (u_isAlpha(c) || u_isDigit(c));
   return 0;
 }
 long u_isSpace(long c) {
+
   return ((((c == 32L) || (c == 9L)) || (c == 10L)) || (c == 13L));
   return 0;
 }
