@@ -128,7 +128,8 @@ main(sys) {
 - A name keeps one type through the whole function, also in another block or loop: if `k` was a
   text in one loop, a later counter needs another name. After `s = "12"` write `n = s.toInt`.
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()`.
-- Text is in quotes: `"a"` or `'a'`. A character is a one-letter text: `s.at(i)`. Compare characters as text:
+- Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
+  anything else stays as it is. A character is a one-letter text: `s.at(i)`. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code`; a number has no `.code`.
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!x` for not.
 - `+` adds two numbers or joins two texts, never one of each: write `"n = " + n.toStr`.
@@ -193,6 +194,12 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
+- Patterns (regular expressions, as in Python: `\d \w \s \b`, `[a-z]`, `( )`, `(?: )`, `|`, `* + ? {2,5}`, lazy `*?`,
+  `^ $`, `\1`, `(?= ) (?! ) (?<= ) (?<! )`, and `(?i)`, `(?m)`, `(?s)` first in the pattern). Write them plainly:
+  `"\d+"`. `s.reTest(p)` is a Bool; `s.reFind(p)` is the first match as a `List[Str]`, the whole match at 0 and
+  the groups from 1, or an empty list; `s.reAll(p)` is every match, a `List[List[Str]]` of the same;
+  `s.reReplace(p, to)` replaces every match, with `$1` in `to` for group 1 and `$0` for the whole match;
+  `s.reSplit(p)` splits on it.
 - JSON in a Str: `s.json("name")` is the value under that key, `s.json("0")` the item at that place in an array;
   it comes back as a Str (a text without its quotes, `12.5`, `true`, or the JSON of an inner object), `""` when missing.
   Chain it: `s.json("user").json("name")`. `s.jsonItems` and `s.jsonKeys` are `List[Str]`

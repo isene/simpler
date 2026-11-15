@@ -1650,6 +1650,39 @@ if [ "$bytesout" = 'bytes4.smplr:11: Bytes cannot be printed; print a part with 
     if [ "$bytesout" = '122~11~hi256~' ]; then ok; else nope "the Bytes type and a list of bytes (got: $bytesout)"; fi
 else nope "printing Bytes (got: $bytesout)"; fi
 
+# Patterns: reTest, reFind, reAll, reReplace and reSplit, and a backslash that stays in a text.
+cat > "$TMP/mod/re.smplr" <<'REGEX'
+main(sys) {
+  t = "Mail bob@site.com or ann@web.no before 2026-11-16, cost $45."
+  sys.screen.print(t.reTest("\d{4}-\d\d-\d\d"))
+  sys.screen.print(t.reTest("^\d"))
+  m = t.reFind("(\w+)@(\w+)\.(\w+)")
+  sys.screen.print(m.join("|"))
+  sys.screen.print(t.reFind("nothing").length)
+  for g in t.reAll("(\w+)@[\w.]+") {
+    sys.screen.print(g.at(1) + " <" + g.at(0) + ">")
+  }
+  sys.screen.print(t.reReplace("(\d+)-(\d+)-(\d+)", "$3.$2.$1"))
+  sys.screen.print("a1b22c".reSplit("\d+").join(","))
+  sys.screen.print("Blåbær og RØDBETER".reReplace("(?i)[æøå]", "_"))
+  sys.screen.print("tab\there \\d".reFind("\t(\w+) \\\\d").at(1))
+  sys.screen.print('say "hi" twice'.reFind('"([^"]*)"').at(1))
+  sys.screen.print("x".reTest("(a"))
+}
+REGEX
+reout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run re.smplr 2>&1 | tr '\n' '~' )"
+if [ "$reout" = 're.smplr:16: the pattern "(a" has a ( with no )~true~false~bob@site.com|bob|site|com~0~bob <bob@site.com>~ann <ann@web.no>~Mail bob@site.com or ann@web.no before 16.11.2026, cost $45.~a,b,c~Bl_b_r og R_DBETER~here~hi~' ]; then ok; else nope "patterns (got: $reout)"; fi
+cat > "$TMP/mod/re2.smplr" <<'REGEX'
+main(sys) {
+  sys.screen.print("foo foobar".reAll("foo(?!bar)").length + "cost $45 or 67".reAll("(?<=\$)\d+").length)
+  sys.screen.print("abccd".reFind("(\w)\1").at(0) + "<a><b>".reFind("<.+?>").at(0) + "one\ntwo".reAll("(?m)^\w+$").length.toStr)
+  a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"
+  sys.screen.print(a.reTest("(a+)+$"))
+}
+REGEX
+reout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run re2.smplr 2>&1 | tr '\n' '~' )"
+if [ "$reout" = 're2.smplr:5: the pattern "(a+)+$" takes too many steps on this text~2~cc<a>2~' ]; then ok; else nope "looking ahead and behind, and a pattern that runs away (got: $reout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

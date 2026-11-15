@@ -188,7 +188,7 @@ The names an arm binds live only in that arm.
 42        -3            // Int (a leading - negates)
 3.14   -0.5   0.0   1.5e3   2.0e-9   // Float (a dot with a digit each
                                      // side, plus an optional e exponent)
-"hi\n"                  // Str, escapes: \n \t \r \" \\
+"hi\n"                  // Str, escapes: \n \t \r \" \' \\; a backslash before anything else stays ("\d+")
 true      false         // Bool
 []        [1, 2, 3]     // List ([] needs an annotation)
 ```
@@ -269,6 +269,11 @@ arguments. Dispatch is by the receiver's static type.
 | `s.split(d)` | `List[Str]` | the parts of `s` between each `d`; `d` may be many characters |
 | `s.contains(t)` | `Bool` | is `t` a substring |
 | `s.find(t)` | `Int` | the place where `t` first starts, or -1 |
+| `s.reTest(p)` | `Bool` | is there a match of the pattern `p` anywhere in `s` |
+| `s.reFind(p)` | `List[Str]` | the first match: the whole match at 0, then each group (`""` for a group that took no part); empty when there is no match |
+| `s.reAll(p)` | `List[List[Str]]` | every match, each as `reFind` gives it |
+| `s.reReplace(p, to)` | `Str` | every match replaced by `to`; in `to`, `$1` is group 1, `$0` the whole match, `$$` a dollar sign |
+| `s.reSplit(p)` | `List[Str]` | the parts of `s` between the matches |
 | `s.json(k)` | `Str` | `s` read as JSON: the value under key `k` of an object, or at place `k` (`"0"`, `"1"`) of an array; a text comes back without quotes and escapes, a number, `true`, `false` or `null` as written, an object or array as its JSON; `""` when missing |
 | `s.jsonItems` | `List[Str]` | the items of a JSON array, or the values of a JSON object |
 | `s.jsonKeys` | `List[Str]` | the keys of a JSON object |
@@ -520,6 +525,28 @@ these; they do not exist:
   `!Mut` function may change one it was handed.
 - No tuples, no null. A `Map` returns a typed default (`0` or `""`) for a
   missing key.
+
+## 12b. Patterns
+
+A pattern is a regular expression in a text, written as in Python or Perl. The engine is part of
+every compiled program and needs no library.
+
+- One character: a letter for itself, `.` (any but a line end), `\d \w \s` and `\D \W \S`,
+  `[a-z0-9_]`, `[^,]`, `\n \t \r \f \v \e`, `\x41`, `\u00e5`, and a backslash before a sign for the sign.
+- How many: `*`, `+`, `?`, `{3}`, `{2,}`, `{2,5}`, `{,5}`; a `?` after it takes as few as it can.
+- Groups: `( )` keeps what it matched, `(?: )` does not, `(?P<name> )` and `(?<name> )` count as plain groups,
+  `a|b` is either, `\1` to `\9` is what a group matched.
+- Places: `^` and `$`, `\b` and `\B`, `\A` and `\Z`.
+- Looking around: `(?= )`, `(?! )`, `(?<= )`, `(?<! )`.
+- `(?i)` ignores case, `(?m)` lets `^` and `$` match at each line, `(?s)` lets `.` match a line end.
+  They count for the whole pattern.
+- A text is read as UTF-8, so `.` and `[æøå]` take whole letters. `\w` is a to z, digits, `_` and every
+  letter outside ASCII. `(?i)` knows a to z and the Latin letters with accents.
+
+A pattern that is wrong stops the program with its place and what is wrong:
+`notes.smplr:16: the pattern "(a" has a ( with no )`. A pattern that would run for ever on a text
+(`(a+)+$` on thirty `a` and a `!`) stops the program the same way after a fixed number of steps.
+The last 16 patterns are kept ready, so a pattern used in a loop is read once.
 
 ## 13. Modules
 

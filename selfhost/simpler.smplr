@@ -272,6 +272,7 @@ main(sys) {
   sys.screen.print("#include <sys/ioctl.h>")
   sys.screen.print("#include <signal.h>")
   sys.screen.print("#include <poll.h>")
+  sys.screen.print("#include <sys/resource.h>")
   fl = "static const char* simpler_fl[] = {"
   q = 0
   while q < files.length {
@@ -346,6 +347,107 @@ main(sys) {
   sys.screen.print("long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
   sys.screen.print("long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
   sys.screen.print("long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { l_push(l, *p); p++; } return l; }")
+  sys.screen.print("enum { RC = 1, RANY, RSET, RBOL, REOL, RWB, RNWB, RSTART, REND, RGRP, RALT, RREP, RBREF, RLOOK };")
+  sys.screen.print("#define RE_MAXG 32")
+  sys.screen.print("#define RE_INF 1073741824")
+  sys.screen.print("typedef struct RNode { int t, lo, hi, lazy, neg, g, nrg; long c; long* rg; struct RNode* sub; struct RNode* alt; struct RNode* next; } RNode;")
+  sys.screen.print("typedef struct { RNode* root; int ng, fi, fm, fs; char* key; long line; const char* pp; const char* b; const char* e; const char* end; const char* cs[RE_MAXG]; const char* ce[RE_MAXG]; long steps, limit; const char* base; } RE;")
+  sys.screen.print("typedef struct RK { int kind; RNode* n; struct RK* up; long count; const char* last; } RK;")
+  sys.screen.print("static void re_die(RE* R, const char* why) { fprintf(stderr, \"%s: the pattern \\\"%s\\\" %s\\n\", simpler_at(R->line), R->key, why); exit(1); }")
+  sys.screen.print("static RNode* re_new(int t) { RNode* n = (RNode*)calloc(1, sizeof(RNode)); n->t = t; return n; }")
+  sys.screen.print("static const char* re_dec(const char* p, long* c) { const unsigned char* u = (const unsigned char*)p; if (u[0] < 0x80) { *c = u[0]; return p + 1; } if (u[0] >= 0xC0 && u[0] < 0xE0 && (u[1] & 0xC0) == 0x80) { *c = ((long)(u[0] & 31) << 6) | (u[1] & 63); return p + 2; } if (u[0] >= 0xE0 && u[0] < 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80) { *c = ((long)(u[0] & 15) << 12) | ((long)(u[1] & 63) << 6) | (u[2] & 63); return p + 3; } if (u[0] >= 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80 && (u[3] & 0xC0) == 0x80) { *c = ((long)(u[0] & 7) << 18) | ((long)(u[1] & 63) << 12) | ((long)(u[2] & 63) << 6) | (u[3] & 63); return p + 4; } *c = 0x110000 + u[0]; return p + 1; }")
+  sys.screen.print("static int re_word(long c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c >= 128; }")
+  sys.screen.print("static long re_low(long c) { if ((c >= 'A' && c <= 'Z') || (c >= 0xC0 && c <= 0xDE && c != 0xD7)) return c + 32; return c; }")
+  sys.screen.print("static long re_up(long c) { if ((c >= 'a' && c <= 'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) return c - 32; return c; }")
+  sys.screen.print("static int re_cls(long cls, long c) { int r; long l = cls | 32; if (l == 'd') r = c >= '0' && c <= '9'; else if (l == 'w') r = re_word(c); else r = c == 32 || (c >= 9 && c <= 13); return (cls & 32) ? r : !r; }")
+  sys.screen.print("static int re_inset(RE* R, RNode* n, long c) { long l = re_low(c), u = re_up(c); for (int i = 0; i < n->nrg; i += 2) { long lo = n->rg[i], hi = n->rg[i + 1]; if (lo == -1) { if (re_cls(hi, c)) return 1; } else if (c >= lo && c <= hi) return 1; else if (R->fi && ((l >= lo && l <= hi) || (u >= lo && u <= hi))) return 1; } return 0; }")
+  sys.screen.print("static void re_setadd(RNode* n, long lo, long hi) { n->rg = (long*)realloc(n->rg, sizeof(long) * (n->nrg + 2)); n->rg[n->nrg++] = lo; n->rg[n->nrg++] = hi; }")
+  sys.screen.print("static long re_hex(RE* R, int digits) { long u = 0; for (int k = 0; k < digits; k++) { char h = *R->pp; long v; if (h >= '0' && h <= '9') v = h - '0'; else if ((h | 32) >= 'a' && (h | 32) <= 'f') v = (h | 32) - 'a' + 10; else re_die(R, \"has a \\\\x or \\\\u without its hex digits\"); u = u * 16 + v; R->pp++; } return u; }")
+  sys.screen.print("static long re_escc(RE* R, int* cls) { long c; *cls = 0; if (!*R->pp) re_die(R, \"ends in a backslash\"); R->pp = re_dec(R->pp, &c); switch (c) { case 'n': return 10; case 't': return 9; case 'r': return 13; case 'f': return 12; case 'v': return 11; case 'e': return 27; case 'b': return 8; case 'x': return re_hex(R, 2); case 'u': return re_hex(R, 4); case 'd': case 'D': case 'w': case 'W': case 's': case 'S': *cls = (int)c; return 0; } if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) re_die(R, \"has a backslash before a letter that means nothing\"); return c; }")
+  sys.screen.print("static RNode* re_set(RE* R) { RNode* n = re_new(RSET); int first = 1; if (*R->pp == '^') { n->neg = 1; R->pp++; } while (1) { long lo, hi; int cls = 0; if (!*R->pp) re_die(R, \"has a [ with no ]\"); if (*R->pp == ']' && !first) { R->pp++; break; } first = 0; if (*R->pp == '\\\\') { R->pp++; lo = re_escc(R, &cls); } else R->pp = re_dec(R->pp, &lo); if (cls) { re_setadd(n, -1, cls); continue; } hi = lo; if (*R->pp == '-' && R->pp[1] && R->pp[1] != ']') { int c2 = 0; R->pp++; if (*R->pp == '\\\\') { R->pp++; hi = re_escc(R, &c2); if (c2) re_die(R, \"has a range that ends in a class\"); } else R->pp = re_dec(R->pp, &hi); if (hi < lo) re_die(R, \"has a range that runs backwards\"); } re_setadd(n, lo, hi); } return n; }")
+  sys.screen.print("static RNode* re_alt(RE* R, int depth);")
+  sys.screen.print("static RNode* re_atom(RE* R, int depth) {")
+  sys.screen.print("  long c; char c0 = *R->pp; RNode* n;")
+  sys.screen.print("  if (c0 == '(') { n = re_new(RGRP); R->pp++; int cap = 1;")
+  sys.screen.print("    if (*R->pp == '?') { char f = R->pp[1]; cap = 0;")
+  sys.screen.print("      if (f == ':') R->pp += 2;")
+  sys.screen.print("      else if (f == '=' || f == '!') { n->t = RLOOK; n->c = 1; n->neg = f == '!'; R->pp += 2; }")
+  sys.screen.print("      else if (f == '<' && (R->pp[2] == '=' || R->pp[2] == '!')) { n->t = RLOOK; n->c = 2; n->neg = R->pp[2] == '!'; R->pp += 3; }")
+  sys.screen.print("      else if (f == '<' || (f == 'P' && R->pp[2] == '<')) { while (*R->pp && *R->pp != '>') R->pp++; if (!*R->pp) re_die(R, \"has a group name with no >\"); R->pp++; cap = 1; }")
+  sys.screen.print("      else { const char* q = R->pp + 1; while (*q == 'i' || *q == 'm' || *q == 's') q++; if (*q != ')' || q == R->pp + 1) re_die(R, \"has a (? form that is not known\"); for (q = R->pp + 1; *q != ')'; q++) { if (*q == 'i') R->fi = 1; if (*q == 'm') R->fm = 1; if (*q == 's') R->fs = 1; } R->pp = q + 1; return n; } }")
+  sys.screen.print("    if (cap) { if (R->ng + 1 >= RE_MAXG) re_die(R, \"has more than 31 groups\"); n->g = ++R->ng; }")
+  sys.screen.print("    n->sub = re_alt(R, depth + 1); if (*R->pp != ')') re_die(R, \"has a ( with no )\"); R->pp++; return n; }")
+  sys.screen.print("  if (c0 == '[') { R->pp++; return re_set(R); }")
+  sys.screen.print("  if (c0 == '.') { R->pp++; return re_new(RANY); }")
+  sys.screen.print("  if (c0 == '^') { R->pp++; return re_new(RBOL); }")
+  sys.screen.print("  if (c0 == '$') { R->pp++; return re_new(REOL); }")
+  sys.screen.print("  if (c0 == '*' || c0 == '+' || c0 == '?') re_die(R, \"has a * + or ? with nothing before it\");")
+  sys.screen.print("  if (c0 == '\\\\') { int cls; char e = R->pp[1]; R->pp++;")
+  sys.screen.print("    if (e == 'b') { R->pp++; return re_new(RWB); } if (e == 'B') { R->pp++; return re_new(RNWB); }")
+  sys.screen.print("    if (e == 'A') { R->pp++; return re_new(RSTART); } if (e == 'Z' || e == 'z') { R->pp++; return re_new(REND); }")
+  sys.screen.print("    if (e >= '1' && e <= '9') { R->pp++; n = re_new(RBREF); n->g = e - '0'; return n; }")
+  sys.screen.print("    c = re_escc(R, &cls); if (cls) { n = re_new(RSET); re_setadd(n, -1, cls); return n; } n = re_new(RC); n->c = c; return n; }")
+  sys.screen.print("  R->pp = re_dec(R->pp, &c); n = re_new(RC); n->c = c; return n; }")
+  sys.screen.print("static RNode* re_seq(RE* R, int depth) { RNode* head = 0; RNode** tail = &head; while (*R->pp && *R->pp != '|' && *R->pp != ')') { RNode* a = re_atom(R, depth); while (1) { long lo, hi; const char* q = R->pp; char c = *q; if (c == '*') { lo = 0; hi = RE_INF; q++; } else if (c == '+') { lo = 1; hi = RE_INF; q++; } else if (c == '?') { lo = 0; hi = 1; q++; } else if (c == '{' && ((q[1] >= '0' && q[1] <= '9') || (q[1] == ',' && q[2] >= '0' && q[2] <= '9'))) { char* t = (char*)q + 1; lo = 0; if (*t != ',') lo = strtol(q + 1, &t, 10); hi = lo; if (*t == ',') { t++; if (*t == '}') hi = RE_INF; else if (*t >= '0' && *t <= '9') hi = strtol(t, &t, 10); else break; } if (*t != '}') break; q = t + 1; if (hi < lo) re_die(R, \"has a count that runs backwards\"); if (lo > 1000 || (hi != RE_INF && hi > 1000)) re_die(R, \"has a count above 1000\"); } else break; RNode* r = re_new(RREP); r->lo = (int)lo; r->hi = (int)hi; r->sub = a; if (*q == '?') { r->lazy = 1; q++; } else if (*q == '+') q++; R->pp = q; a = r; } *tail = a; tail = &a->next; } return head; }")
+  sys.screen.print("static RNode* re_alt(RE* R, int depth) { if (depth > 200) re_die(R, \"has groups more than 200 deep\"); RNode* first = re_seq(R, depth); if (*R->pp != '|') return first; RNode* head = re_new(RALT); RNode* cur = head; head->sub = first; while (*R->pp == '|') { RNode* a = re_new(RALT); R->pp++; a->sub = re_seq(R, depth); cur->alt = a; cur = a; } return head; }")
+  sys.screen.print("static RE* re_comp(long pat, long line) { static RE* cache[16]; static int at = 0; const char* src = (const char*)(intptr_t)pat; for (int i = 0; i < 16; i++) if (cache[i] && strcmp(cache[i]->key, src) == 0) { cache[i]->line = line; return cache[i]; } RE* R = (RE*)calloc(1, sizeof(RE)); R->key = strdup(src); R->pp = R->key; R->line = line; R->root = re_alt(R, 0); if (*R->pp == ')') re_die(R, \"has a ) with no (\"); cache[at] = R; at = (at + 1) % 16; return R; }")
+  sys.screen.print("static int re_m(RE* R, RNode* n, const char* p, RK* k);")
+  sys.screen.print("static const char* re_one(RE* R, RNode* n, const char* p) { long c; const char* q; if (p >= R->e) return 0; q = re_dec(p, &c); if (n->t == RC) return (c == n->c || (R->fi && re_low(c) == re_low(n->c))) ? q : 0; if (n->t == RANY) return (c != 10 || R->fs) ? q : 0; return re_inset(R, n, c) != n->neg ? q : 0; }")
+  sys.screen.print("static int re_rep(RE* R, RNode* n, const char* p, RK* k, long count, const char* last) {")
+  sys.screen.print("  RNode* s = n->sub;")
+  sys.screen.print("  if (s && !s->next && (s->t == RC || s->t == RANY || s->t == RSET)) { const char* q = p; const char* r; long c = 0;")
+  sys.screen.print("    if (!n->lazy) { while (c < n->hi && (r = re_one(R, s, q))) { q = r; c++; } if (c < n->lo) return 0; while (1) { if (re_m(R, n->next, q, k)) return 1; if (c == n->lo || q == p) return 0; q--; while (q > p && ((unsigned char)*q & 0xC0) == 0x80) q--; c--; } }")
+  sys.screen.print("    while (c < n->lo) { r = re_one(R, s, q); if (!r) return 0; q = r; c++; }")
+  sys.screen.print("    while (1) { if (re_m(R, n->next, q, k)) return 1; if (c >= n->hi) return 0; r = re_one(R, s, q); if (!r) return 0; q = r; c++; } }")
+  sys.screen.print("  if (count > 0 && p == last && count >= n->lo) return re_m(R, n->next, p, k);")
+  sys.screen.print("  RK kk = { 1, n, k, count + 1, p };")
+  sys.screen.print("  if (!n->lazy) { if (count < n->hi && re_m(R, s, p, &kk)) return 1; return count >= n->lo ? re_m(R, n->next, p, k) : 0; }")
+  sys.screen.print("  if (count >= n->lo && re_m(R, n->next, p, k)) return 1;")
+  sys.screen.print("  return count < n->hi ? re_m(R, s, p, &kk) : 0; }")
+  sys.screen.print("static int re_k(RE* R, const char* p, RK* k) {")
+  sys.screen.print("  if (!k) { R->end = p; return 1; }")
+  sys.screen.print("  if (k->kind == 0) { RNode* n = k->n; if (n->g > 0) { const char* os = R->cs[n->g]; const char* oe = R->ce[n->g]; R->cs[n->g] = k->last; R->ce[n->g] = p; if (re_m(R, n->next, p, k->up)) return 1; R->cs[n->g] = os; R->ce[n->g] = oe; return 0; } return re_m(R, n->next, p, k->up); }")
+  sys.screen.print("  if (k->kind == 1) return re_rep(R, k->n, p, k->up, k->count, k->last);")
+  sys.screen.print("  if (k->kind == 2) return 1;")
+  sys.screen.print("  return p == k->last; }")
+  sys.screen.print("static int re_look(RE* R, RNode* n, const char* p, RK* k) { const char* scs[RE_MAXG]; const char* sce[RE_MAXG]; int ok = 0; memcpy(scs, R->cs, sizeof(scs)); memcpy(sce, R->ce, sizeof(sce)); if (n->c == 1) { RK kk = { 2, 0, 0, 0, 0 }; ok = re_m(R, n->sub, p, &kk); } else { RK kk = { 3, 0, 0, 0, p }; const char* q = p; while (1) { if (re_m(R, n->sub, q, &kk)) { ok = 1; break; } if (q == R->b) break; q--; while (q > R->b && ((unsigned char)*q & 0xC0) == 0x80) q--; } } if (ok != n->neg && re_m(R, n->next, p, k)) return 1; memcpy(R->cs, scs, sizeof(scs)); memcpy(R->ce, sce, sizeof(sce)); return 0; }")
+  sys.screen.print("static long re_budget = 0;")
+  sys.screen.print("static int re_m(RE* R, RNode* n, const char* p, RK* k) {")
+  sys.screen.print("  char here;")
+  sys.screen.print("  if (++R->steps > R->limit) re_die(R, \"takes too many steps on this text\");")
+  sys.screen.print("  if (R->base - &here > re_budget) re_die(R, \"goes too deep on this text\");")
+  sys.screen.print("  while (n && n->t <= RSET) { p = re_one(R, n, p); if (!p) return 0; n = n->next; }")
+  sys.screen.print("  if (!n) return re_k(R, p, k);")
+  sys.screen.print("  switch (n->t) {")
+  sys.screen.print("    case RBOL: return (p == R->b || (R->fm && p[-1] == 10)) ? re_m(R, n->next, p, k) : 0;")
+  sys.screen.print("    case REOL: return (p == R->e || (R->fm && *p == 10) || (p + 1 == R->e && *p == 10)) ? re_m(R, n->next, p, k) : 0;")
+  sys.screen.print("    case RSTART: return p == R->b ? re_m(R, n->next, p, k) : 0;")
+  sys.screen.print("    case REND: return p == R->e ? re_m(R, n->next, p, k) : 0;")
+  sys.screen.print("    case RWB: case RNWB: { int a = p > R->b && ((unsigned char)p[-1] >= 128 || re_word(p[-1])); int b = p < R->e && ((unsigned char)*p >= 128 || re_word(*p)); return ((a != b) == (n->t == RWB)) ? re_m(R, n->next, p, k) : 0; }")
+  sys.screen.print("    case RGRP: { RK kk = { 0, n, k, 0, p }; return re_m(R, n->sub, p, &kk); }")
+  sys.screen.print("    case RALT: { for (RNode* a = n; a; a = a->alt) if (re_m(R, a->sub, p, k)) return 1; return 0; }")
+  sys.screen.print("    case RREP: return re_rep(R, n, p, k, 0, 0);")
+  sys.screen.print("    case RBREF: { const char* s = n->g <= R->ng ? R->cs[n->g] : 0; const char* e = n->g <= R->ng ? R->ce[n->g] : 0; long len; if (!s || !e) return 0; len = e - s; if (R->e - p < len) return 0; for (long i = 0; i < len; i++) if (s[i] != p[i] && !(R->fi && (unsigned char)s[i] < 128 && re_low((unsigned char)s[i]) == re_low((unsigned char)p[i]))) return 0; return re_m(R, n->next, p + len, k); }")
+  sys.screen.print("    case RLOOK: return re_look(R, n, p, k);")
+  sys.screen.print("  }")
+  sys.screen.print("  return 0; }")
+  sys.screen.print("static const char* re_step(RE* R, const char* p) { if (p >= R->e) return R->e + 1; p++; while (p < R->e && ((unsigned char)*p & 0xC0) == 0x80) p++; return p; }")
+  sys.screen.print("static const char* re_search(RE* R, const char* from) { char mark; const char* p = from; RNode* f = R->root; R->steps = 0; R->base = &mark; while (1) { if (f && f->t == RC && !R->fi && f->c < 128 && f->c > 0) { p = (const char*)memchr(p, (int)f->c, (size_t)(R->e - p)); if (!p) return 0; } for (int i = 0; i <= R->ng; i++) { R->cs[i] = 0; R->ce[i] = 0; } if (re_m(R, R->root, p, 0)) { R->cs[0] = p; R->ce[0] = R->end; return p; } if (p >= R->e) return 0; p = re_step(R, p); } }")
+  sys.screen.print("static void re_stack(void) { struct rlimit rl; long cur = 8388608; long want = 67108864; if (getrlimit(RLIMIT_STACK, &rl) == 0) {")
+  sys.screen.print("#ifdef __linux__")
+  sys.screen.print("if (rl.rlim_cur != RLIM_INFINITY && (long)rl.rlim_cur < want && (rl.rlim_max == RLIM_INFINITY || (long)rl.rlim_max >= want)) { rl.rlim_cur = (rlim_t)want; setrlimit(RLIMIT_STACK, &rl); getrlimit(RLIMIT_STACK, &rl); }")
+  sys.screen.print("#endif")
+  sys.screen.print("cur = (rl.rlim_cur == RLIM_INFINITY || (long)rl.rlim_cur > want) ? want : (long)rl.rlim_cur; } re_budget = cur / 2; }")
+  sys.screen.print("static RE* re_open(long s, long pat, long line) { RE* R = re_comp(pat, line); if (!re_budget) re_stack(); R->b = (const char*)(intptr_t)s; R->e = R->b + strlen(R->b); R->limit = 1000000 + 100 * (long)(R->e - R->b); return R; }")
+  sys.screen.print("static long re_str(const char* a, const char* b) { long n = (a && b && b > a) ? (long)(b - a) : 0; char* r = (char*)malloc(n + 1); if (n) memcpy(r, a, n); r[n] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("static long re_groups(RE* R) { long l = l_new(); for (int i = 0; i <= R->ng; i++) l_push(l, re_str(R->cs[i], R->ce[i])); return l; }")
+  sys.screen.print("static const char* re_after(RE* R) { return R->ce[0] > R->cs[0] ? R->ce[0] : re_step(R, R->ce[0]); }")
+  sys.screen.print("long re_test(long s, long pat, long line) { RE* R = re_open(s, pat, line); return re_search(R, R->b) != 0; }")
+  sys.screen.print("long re_find(long s, long pat, long line) { RE* R = re_open(s, pat, line); if (!re_search(R, R->b)) return l_new(); return re_groups(R); }")
+  sys.screen.print("long re_all(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; while (p <= R->e && re_search(R, p)) { l_push(out, re_groups(R)); p = re_after(R); } return out; }")
+  sys.screen.print("long re_split(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; const char* last = p; while (p <= R->e && re_search(R, p)) { if (R->ce[0] == R->cs[0]) { p = re_after(R); continue; } l_push(out, re_str(last, R->cs[0])); last = R->ce[0]; p = last; } l_push(out, re_str(last, R->e)); return out; }")
+  sys.screen.print("static void re_put(char** b, size_t* n, size_t* cap, const char* a, size_t len) { if (*n + len + 1 > *cap) { *cap = (*n + len + 1) * 2; *b = (char*)realloc(*b, *cap); } if (len) memcpy(*b + *n, a, len); *n += len; (*b)[*n] = 0; }")
+  sys.screen.print("long re_replace(long s, long pat, long to, long line) { RE* R = re_open(s, pat, line); const char* t = (const char*)(intptr_t)to; size_t n = 0, cap = 64; char* out = (char*)malloc(cap); const char* p = R->b; const char* last = p; out[0] = 0; while (p <= R->e && re_search(R, p)) { re_put(&out, &n, &cap, last, (size_t)(R->cs[0] - last)); for (const char* q = t; *q; q++) { if (*q == '$' && q[1] == '$') { re_put(&out, &n, &cap, q, 1); q++; } else if (*q == '$' && q[1] >= '0' && q[1] <= '9') { int g = q[1] - '0'; q++; if (q[1] >= '0' && q[1] <= '9' && g * 10 + (q[1] - '0') <= R->ng) { g = g * 10 + (q[1] - '0'); q++; } if (g <= R->ng && R->cs[g] && R->ce[g] > R->cs[g]) re_put(&out, &n, &cap, R->cs[g], (size_t)(R->ce[g] - R->cs[g])); } else re_put(&out, &n, &cap, q, 1); } last = R->ce[0]; p = re_after(R); } if (last < R->e) re_put(&out, &n, &cap, last, (size_t)(R->e - last)); return (long)(intptr_t)out; }")
   sys.screen.print("long s_case(long s, long up) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); char* r = (char*)malloc(n + 1); for (long i = 0; i <= n; i++) { char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; r[i] = c; } return (long)(intptr_t)r; }")
   sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)malloc(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
   sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; long len = strlen(p); if (len >= n) return s; char* r = (char*)malloc(n + 1); long pad = n - len; for (long i = 0; i < pad; i++) r[i] = 32; for (long i = 0; i < len; i++) r[pad + i] = p[i]; r[n] = 0; return (long)(intptr_t)r; }")
@@ -4138,7 +4240,7 @@ isTextField(fld : Str) : Bool {
 }
 
 isTextMethod(name : Str) : Bool {
-  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "find") || (name == "json") || (name == "join") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
+  (name == "concat") || (name == "slice") || (name == "split") || (name == "contains") || (name == "find") || (name == "json") || (name == "reTest") || (name == "reFind") || (name == "reAll") || (name == "reSplit") || (name == "reReplace") || (name == "join") || (name == "startsWith") || (name == "endsWith") || (name == "replace") || (name == "at") || (name == "push") || (name == "padLeft") || (name == "padRight")
 }
 
 // A method must exist on its receiver, and `at` / `push` take the right type.
@@ -4204,6 +4306,16 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
         failAt("Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx)
       }
     }
+    if (name == "reTest") || (name == "reFind") || (name == "reAll") || (name == "reSplit") || (name == "reReplace") {
+      if t != "Str" {
+        failAt(name.concat(" looks for a pattern in a text; got ").concat(t), ctx)
+      }
+      for a in args {
+        if exprType(a, ctx) != "Str" {
+          failAt(name.concat(" takes its pattern as a text, got ").concat(exprType(a, ctx)), ctx)
+        }
+      }
+    }
     if (name == "json") && (args.length == 1) {
       if (t != "Str") || (exprType(args.at(0), ctx) != "Str") {
         failAt("json takes a key or a place as a text, and gives the value there as a text", ctx)
@@ -4247,7 +4359,7 @@ methodArgs(name : Str) : Int {
   if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
     r = 2
   }
   if (name == "feed") || (name == "send") {
@@ -4438,6 +4550,12 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "find" {
     r = "s_find(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if (name == "reTest") || (name == "reFind") || (name == "reAll") || (name == "reSplit") {
+    r = "re_".concat(name.slice(2, name.length).lower).concat("(").concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "reReplace" {
+    r = "re_replace(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "json" {
     r = "s_json(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -4778,8 +4896,17 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if (name == "contains") || (name == "startsWith") || (name == "endsWith") {
     r = "Bool"
   }
-  if (name == "replace") || (name == "json") {
+  if (name == "replace") || (name == "json") || (name == "reReplace") {
     r = "Str"
+  }
+  if name == "reTest" {
+    r = "Bool"
+  }
+  if (name == "reFind") || (name == "reSplit") {
+    r = "List[Str]"
+  }
+  if name == "reAll" {
+    r = "List[List[Str]]"
   }
   if name == "find" {
     r = "Int"
@@ -5039,6 +5166,9 @@ esc(src : Str, j : Int) : Str {
   if c == 110 { r = "\n" }
   if c == 116 { r = "\t" }
   if c == 114 { r = "\r" }
+  if (c != 110) && (c != 116) && (c != 114) && (c != 92) && (c != 34) && (c != 39) {
+    r = "\\".concat(r)
+  }
   r
 }
 
