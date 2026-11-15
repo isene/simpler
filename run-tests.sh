@@ -746,6 +746,47 @@ main(sys) {
   sys.screen.print(n)
 }' \
     "input.smplr:11: no variable named n"
+# a running program stops with its line, never goes on with a wrong value
+stops() { # description  source  input  expected message
+    printf '%s' "$2" > "$TMP/input.smplr"
+    ( cd "$TMP" && ./seedc > stop.c 2>/dev/null )
+    local err rc
+    err="$( cc -o "$TMP/stop" "$TMP/stop.c" 2>/dev/null && printf '%s' "$3" | "$TMP/stop" 2>&1 >/dev/null )"; rc=$?
+    if [ "$rc" -eq 1 ] && [ "$err" = "$4" ]; then ok; else nope "$1 (rc=$rc, got: $err)"; fi
+}
+stops "list index past the end" \
+    'main(sys) {
+  xs = [1, 2, 3]
+  sys.screen.print(xs.at(3))
+}' "" "input.smplr:3: list index 3, but the list has 3 items"
+stops "text index past the end" \
+    'main(sys) {
+  s = "abc"
+  i = 0
+  while i < 4 {
+    sys.screen.print(s.at(i))
+    i = i + 1
+  }
+}' "" "input.smplr:5: text index 3, but the text has 3 characters"
+stops "slice past the end" \
+    'main(sys) {
+  s = "abc"
+  sys.screen.print(s.slice(1, 9))
+}' "" "input.smplr:3: slice 1 to 9, but the text has 3 characters"
+stops "division by zero" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(10 / n)
+}' "0" "input.smplr:3: division by zero"
+stops "remainder by zero" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(10 % n)
+}' "0" "input.smplr:3: division by zero"
+check_err "text ends in a backslash" \
+    'main(sys) {
+  x = "a\' \
+    "input.smplr:2: a text is missing its closing quote"
 # a loop's name is free again after the loop
 printf '%s' 'main(sys) {
   ["a", "b"].each { row in

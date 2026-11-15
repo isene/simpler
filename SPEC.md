@@ -433,6 +433,11 @@ cc out.c -o wordfreq
 
 `./simpler test > tests.c` writes the test runner in place of the program.
 
+A running program never goes on with a wrong value. A list or text index past
+the end, a slice past the end and a whole-number division by zero stop it with
+`input.smplr:<line>: <what happened>` on stderr and exit code 1. (A missing map
+key is no error: `get` gives 0 or "".)
+
 A program the compiler refuses gets one line on stderr and exit code 1:
 `input.smplr:<line>: <what is wrong>`, with the line of the statement. The
 compiler crashing, or writing C that does not build, is a bug in the compiler.
