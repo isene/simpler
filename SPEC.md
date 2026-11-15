@@ -103,7 +103,8 @@ m  : Map[Str] = Map()    // which carries no element/value type to infer
 ```
 
 A name may be reassigned (`x = x + 1`); a binding is a local in the enclosing
-function. Annotate only when inference cannot see the type: an empty `[]` or a
+function, so **a name keeps one type through the whole function**: after
+`v = "12"`, write `n = v.toInt`, never `v = v.toInt`. Annotate only when inference cannot see the type: an empty `[]` or a
 `Map()` whose value type is not the default `Int`.
 
 ## 4. Types

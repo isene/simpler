@@ -962,12 +962,24 @@ seedEnv(body : List[Stmt], ctx : Ctx) : Int {
 
 seedStmt(s : Stmt, ctx : Ctx) : Int {
   s.match {
-    Let(name, ty, e) -> envPut(ctx.env, name, letType(ty, e, ctx))
+    Let(name, ty, e) -> seedLet(name, letType(ty, e, ctx), ctx)
     Bare(e) -> seedExpr(e, ctx)
     If(c, t, el) -> seedIf(t, el, ctx)
     While(c, b) -> seedEnv(b, ctx)
     Ret(e) -> seedExpr(e, ctx)
   }
+}
+
+// A name keeps one type through a function. Binding it again with another
+// type is refused here, since every later use would be read with the wrong one.
+seedLet(name : Str, ty : Str, ctx : Ctx) : Int {
+  if hasName(ctx.env.names, name) {
+    old = envGet(ctx.env, name)
+    if compatible(old, ty, ctx).not {
+      failAt(name.concat(" is ").concat(old).concat(" and cannot become ").concat(ty).concat("; use a new name"), ctx)
+    }
+  }
+  envPut(ctx.env, name, ty)
 }
 
 seedIf(t : List[Stmt], el : List[Stmt], ctx : Ctx) : Int {

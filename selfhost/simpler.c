@@ -162,6 +162,7 @@ long u_envPut(long env, long name, long ty);
 long u_envGet(long env, long name);
 long u_seedEnv(long body, long ctx);
 long u_seedStmt(long s, long ctx);
+long u_seedLet(long name, long ty, long ctx);
 long u_seedIf(long t, long el, long ctx);
 long u_seedExpr(long e, long ctx);
 long u_seedEach(long recv, long param, long body, long ctx);
@@ -1193,13 +1194,23 @@ long u_seedEnv(long body, long ctx) {
 }
 long u_seedStmt(long s, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
-  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_envPut(((CtxT*)(intptr_t)ctx)->env, name, u_letType(ty, e, ctx)); }
+  case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_seedLet(name, u_letType(ty, e, ctx), ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
   case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return u_seedIf(t, el, ctx); }
   case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return u_seedEnv(b, ctx); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_seedExpr(e, ctx); }
   }
   return 0;
+}
+long u_seedLet(long name, long ty, long ctx) {
+  long old = 0;
+  if (u_hasName(((TyEnvT*)(intptr_t)((CtxT*)(intptr_t)ctx)->env)->names, name)) {
+  old = u_envGet(((CtxT*)(intptr_t)ctx)->env, name);
+  if ((!u_compatible(old, ty, ctx))) {
+  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(name, (long)(intptr_t)" is "), old), (long)(intptr_t)" and cannot become "), ty), (long)(intptr_t)"; use a new name"), ctx);
+  }
+  }
+  return u_envPut(((CtxT*)(intptr_t)ctx)->env, name, ty);
 }
 long u_seedIf(long t, long el, long ctx) {
   u_seedEnv(t, ctx);

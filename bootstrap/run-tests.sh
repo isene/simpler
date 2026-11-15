@@ -269,6 +269,15 @@ main(sys) {
 if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "return type mismatch" ); then ok; else nope "early return type is checked"; fi
 rm -f "$TMP/input.smplr"
 
+# a name that changes type inside a function is refused, with the way out
+printf '%s' 'main(sys) {
+  v = "12"
+  v = v.toInt
+  sys.screen.print(v.toStr)
+}' > "$TMP/input.smplr"
+if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "v is Str and cannot become Int; use a new name" ); then ok; else nope "a name keeps one type"; fi
+rm -f "$TMP/input.smplr"
+
 # Str-keyed Map: set/get/has, get returns 0 for an absent key (so a counter
 # increments without a guard), and .keys enumerates in first-seen order.
 printf '%s' 'main(sys) {
