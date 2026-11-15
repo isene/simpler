@@ -1,0 +1,95 @@
+#!/bin/sh
+# The simpler command: run, build and inspect a Simpler program.
+#
+#   simpler run prog.smplr [arguments]   compile and run it
+#   simpler build prog.smplr [-o name]   make a program file (default: prog)
+#   simpler what prog.smplr              list everything the program can touch
+#   simpler test prog.smplr              run its test_ functions
+#   simpler c prog.smplr                 print the C it compiles to
+#   simpler prompt                       print the one page to give an AI
+set -e
+
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+home=$(cd "$(dirname "$self")" && pwd)
+
+usage() { sed -n '2,9p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+# The compiler: next to this script after an install, or built in the repo.
+compiler() {
+    if [ -n "$SIMPLERC" ]; then echo "$SIMPLERC"; return; fi
+    if [ -x "$home/simplerc" ]; then echo "$home/simplerc"; return; fi
+    if [ ! -x "$home/selfhost/simpler" ] || [ "$home/selfhost/simpler.c" -nt "$home/selfhost/simpler" ]; then
+        ${CC:-cc} -O2 -w "$home/selfhost/simpler.c" -o "$home/selfhost/simpler" -lm
+    fi
+    echo "$home/selfhost/simpler"
+}
+
+# to_c FILE MODE OUT: compile FILE to C in OUT, with messages that name FILE.
+to_c() {
+    [ -f "$1" ] || { echo "simpler: no file named $1" >&2; exit 2; }
+    work=$(mktemp -d)
+    cp "$1" "$work/input.smplr"
+    if ! (cd "$work" && "$cc_simpler" $2 > out 2> err); then
+        sed "s|^input\.smplr:|$shown:|" "$work/err" >&2
+        rm -rf "$work"
+        exit 1
+    fi
+    sed "s|input\.smplr:%ld|$shown:%ld|g" "$work/out" > "$3"
+    rm -rf "$work"
+}
+
+# A name that is safe inside a message; any other file is shown as input.smplr.
+show_name() {
+    case $1 in *[!A-Za-z0-9._/-]*) echo input.smplr ;; *) echo "$1" ;; esac
+}
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $cmd in
+    help|-h|--help) usage ;;
+    prompt) cat "$home/PROMPT.md"; exit ;;
+    run|build|what|test|c) ;;
+    *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
+esac
+[ $# -gt 0 ] || usage 2 >&2
+file=$1
+shift
+shown=$(show_name "$file")
+cc_simpler=$(compiler)
+
+case $cmd in
+    what)
+        [ -f "$file" ] || { echo "simpler: no file named $file" >&2; exit 2; }
+        work=$(mktemp -d); cp "$file" "$work/input.smplr"
+        (cd "$work" && "$cc_simpler" what) 2>&1 | sed "s|^input\.smplr:|$shown:|"
+        rm -rf "$work" ;;
+    c)
+        out=$(mktemp); to_c "$file" "" "$out"; cat "$out"; rm -f "$out" ;;
+    test)
+        dir=$(mktemp -d); to_c "$file" test "$dir/t.c"
+        ${CC:-cc} -w "$dir/t.c" -o "$dir/t" -lm
+        code=0; "$dir/t" || code=$?
+        rm -rf "$dir"; exit $code ;;
+    build)
+        name=$(basename "$file" .smplr)
+        [ "$1" = "-o" ] && name=$2
+        dir=$(mktemp -d); to_c "$file" "" "$dir/p.c"
+        ${CC:-cc} -O2 -w "$dir/p.c" -o "$name" -lm
+        rm -rf "$dir" ;;
+    run)
+        # The built program is kept under a name made from the source and the
+        # compiler, so a second run of the same program starts at once.
+        sum=$(cat "$file" "$cc_simpler" 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
+        cache=${XDG_CACHE_HOME:-$HOME/.cache}/simpler
+        if [ ! -x "$cache/$sum" ]; then
+            mkdir -p "$cache"
+            dir=$(mktemp -d); to_c "$file" "" "$dir/p.c"
+            ${CC:-cc} -O1 -w "$dir/p.c" -o "$dir/p" -lm
+            mv "$dir/p" "$cache/$sum"; rm -rf "$dir"
+        fi
+        exec "$cache/$sum" "$@" ;;
+esac

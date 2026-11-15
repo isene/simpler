@@ -1523,6 +1523,16 @@ else
     nope "committed simpler.c does not compile"
 fi
 
+# The simpler command: run, what, and a message that names the user's file.
+mkdir -p "$TMP/cli"
+printf 'main(sys) {\n  sys.screen.print("hi " + sys.args.at(0))\n  xs = [1]\n  sys.screen.print(xs.at(5))\n}\n' > "$TMP/cli/prog.smplr"
+cliout="$( cd "$TMP/cli" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run prog.smplr you 2>&1; SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" what prog.smplr | head -1 )"
+if [ "$cliout" = 'prog.smplr:4: list index 5, but the list has 1 items
+hi you
+screen  prints  (in main)' ] || [ "$cliout" = 'hi you
+prog.smplr:4: list index 5, but the list has 1 items
+screen  prints  (in main)' ]; then ok; else nope "the simpler command (got: $cliout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

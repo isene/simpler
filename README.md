@@ -99,6 +99,24 @@ capabilities are compile-time only, so they cost nothing at runtime.
 
 ## Try it
 
+Install it (needs a C compiler and curl):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/install.sh | sh
+```
+
+Or clone the repo and call `./simpler` there. Then:
+
+```bash
+simpler run hello.smplr        # compile and run
+simpler what hello.smplr       # list everything the program can touch
+simpler build hello.smplr      # make the program file ./hello
+simpler test hello.smplr       # run its test_ functions
+simpler prompt                 # the one page to give an AI that writes Simpler
+```
+
+What goes on underneath:
+
 **No Rust required.** The compiler is now written in Simpler. Its source is
 transpiled to C and committed as [`selfhost/simpler.c`](selfhost/simpler.c), so a
 plain C compiler bootstraps the whole language:
