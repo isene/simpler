@@ -354,6 +354,7 @@ nothing at runtime.
 | `sys.files.delete(path)` | — | `!IO` | delete a file or an empty folder; the program stops if it cannot |
 | `sys.programs.run(name, args)` | `Str` | `!IO` | run another program with a `List[Str]` of arguments and give what it printed; the program stops if it fails |
 | `sys.programs.feed(name, args, text)` | `Str` | `!IO` | like `run`, with `text` as the program's standard input |
+| `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
 | `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
 | `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
@@ -402,7 +403,7 @@ A file call with no such line is refused. So is a path written out in the
 program that the line does not name. A path made while running is checked as
 it is used, and the program stops if the line does not allow it (a path with
 `..` in it never counts as under a folder). A link inside an allowed folder that leads out of it is not followed:
-the program stops with `a link leads out of "data/"`. A file named one by one at the top is opened as it is. A program with no `reads` and no
+the program stops with `a link leads out of "data/"`. A file named one by one at the top is opened as it is. Under `/sys` and `/proc` a link may lead elsewhere in the same tree, since the kernel makes those links. A program with no `reads` and no
 `writes` line cannot touch any file.
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A

@@ -1560,6 +1560,20 @@ printf 'main(sys) {\n  t = sys.term\n  t.put(0, 0, "a", "bold 208 on52")\n  t.pu
 colout="$( cd "$TMP/mod" && for a in 7 256 on9x; do printf 'x' | script -qec "./col $a" /dev/null 2>/dev/null | tr -d '\r'; done )"
 if printf '%s' "$colout" | grep -qF "$(printf '\033[1m\033[38;5;208m\033[48;5;52ma')" && printf '%s' "$colout" | grep -qF "$(printf '\033[38;5;7mb')" && printf '%s' "$colout" | grep -qF 'col.smplr:4: no style named "256"' && printf '%s' "$colout" | grep -qF 'no style named "on9x"'; then ok; else nope "colour numbers in a style"; fi
 
+# /proc files say they are empty and /sys is made of the kernel's own links: both are read.
+printf 'reads "/proc/"\nreads "/sys/class/net/"\nmain(sys) {\n  sys.screen.print(sys.files.read("/proc/self/comm").trim)\n  sys.screen.print(sys.files.read("/sys/class/net/lo/operstate").trim.length > 0)\n  sys.screen.print(sys.files.read("/proc/self/cwd/x").length)\n}\n' > "$TMP/mod/proc.smplr"
+procout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" build proc.smplr -o procread 2>&1; ./procread 2>&1 | LC_ALL=C sort | tr '\n' '|' )"
+if [ "$procout" = 'proc.smplr:6: this program may not read "/proc/self/cwd/x": a link leads out of "/proc/"|procread|true|' ]; then ok; else nope "reading /proc and /sys (got: $procout)"; fi
+
+# try: what a program printed, or "" when it fails or is missing, with no error text.
+printf 'runs "sh", "nosuchprog"\nmain(sys) {\n  sys.screen.print("[" + sys.programs.try("sh", ["-c", "echo hi"]).trim + "]")\n  sys.screen.print("[" + sys.programs.try("sh", ["-c", "echo out; echo err >&2; exit 3"]) + "]")\n  sys.screen.print("[" + sys.programs.try("nosuchprog", []) + "]")\n  sys.screen.print(sys.programs.try("ls", []))\n}\n' > "$TMP/mod/try.smplr"
+tryout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run try.smplr 2>&1 | tr '\n' '|' )"
+if [ "$tryout" = 'try.smplr:6: this program may not run "ls"; add it to the runs line at the top|' ]; then
+    sed -i '/"ls"/d' "$TMP/mod/try.smplr"
+    tryout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run try.smplr 2>&1 | tr '\n' '|' )"
+    if [ "$tryout" = '[hi]|[]|[]|' ]; then ok; else nope "try (got: $tryout)"; fi
+else nope "try obeys the runs line (got: $tryout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

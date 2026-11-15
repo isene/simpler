@@ -152,7 +152,9 @@ main(sys) {
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line. Any other file is refused.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
-  it fails); `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status;
+  it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
+  and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
+  and lets it print to the screen;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
 - The web: `sys.net.fetch(url)` gives the body, `sys.net.post(url, body)` sends; both stop the
@@ -171,7 +173,7 @@ main(sys) {
   module only when you were given its page.
 - Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
   (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
-- No function of yours may be named `run`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
+- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `reach`, `post`, `date` or `var`.
 - `fail("message")` prints to stderr and stops the program. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.
 - Decimal numbers are `Float`: `3.0`. `Int` and `Float` never mix: use `.toFloat` and `.toInt`.
