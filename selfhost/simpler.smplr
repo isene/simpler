@@ -725,6 +725,10 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   if prog.mails.length > 0 {
     out = out.concat("may mail   ").concat(mayText(prog.mails)).concat("\n")
   }
+  // a full-screen program draws through term, so say that on the screen row
+  if out.contains("term    takes") {
+    out = out.replace("screen  not used\n", "screen  prints no lines; term draws on it\n")
+  }
   out.concat("nothing else: a program reaches the world only through what is listed here")
 }
 
