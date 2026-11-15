@@ -132,11 +132,11 @@ main(sys) {
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!x` for not.
 - `+` adds two numbers or joins two texts, never one of each: write `"n = " + n.toStr`.
 - Loops: `for x in xs { }`, `for i in 0..n { }` (0 up to n - 1), `for i in 1..=n { }` (1 up to n) and
-  `while cond { }`. No `break`, no `continue`: use a flag, or `return` in a function.
+  `while cond { }`. `break` leaves the loop, `continue` starts its next round.
 - `if a { } else if b { } else { }`. No parentheses needed, braces always.
 - Input is `sys.stdin` (all of it, one text). Output is `sys.screen.print(text)`, one line per call.
   Only `main(sys)` has `sys`.
-- A function that does `.push` or `.set` on a list or map it got as a parameter says `!Mut` after its
+- A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter says `!Mut` after its
   return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
@@ -158,9 +158,9 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.abs`. Bool: `b.not`
-- List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.sort` (a new sorted list)
+- List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
+  gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 
 There is nothing else: no `filter`, `map`, `join`, `reverse`, `indexOf`, `substring`,
-`pop`, `remove`, `println`, `len`, no `xs[i]`, no `s[i]`, no string formatting, no `let` or `var`.
-A list has no way to remove or change an item. For a stack, copy all but the last item into a new list.
+`pop`, `println`, `len`, no `xs[i]`, no `s[i]`, no string formatting, no `let` or `var`.

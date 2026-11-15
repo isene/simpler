@@ -223,6 +223,7 @@ if cond { ... } else { ... }       // with else
 if a { ... } else if b { ... } else { ... }
 
 while cond { ... }                 // the one general loop
+break                              // leave the nearest loop; continue starts its next round
 
 xs.each { x in ... }               // iterate a list, or the letters of a text
 for x in xs { ... }                // the same loop
@@ -289,6 +290,8 @@ them must link it: `cc out.c -o out -lm`.
 **`Bool`**: `b.not`, `b.and(c)`, `b.or(c)` (all `Bool`).
 
 **`List[T]`**: `xs.length` (`Int`), `xs.at(i)` (`T`), `xs.push(x)`,
+`xs.set(i, x)` (put `x` at place `i`), `xs.remove(i)` (take the item at `i` out and give it;
+the last one is `xs.remove(xs.length - 1)`),
 `xs.sort` (new sorted `List[T]`), `xs.each { x in ... }`.
 
 **`Map`**: `m.set(k, v)`, `m.get(k)` (value type), `m.has(k)` (`Bool`),
@@ -309,7 +312,7 @@ shout(screen : Screen, who : Str) !IO {
 ```
 
 **`!Mut`.** A list, map or record handed to a function is the caller's own,
-not a copy. A function that changes one (`.push` or `.set` on it, on a part of
+not a copy. A function that changes one (`.push`, `.set` or `.remove` on it, on a part of
 it, or by passing it to a `!Mut` function that changes it) must say `!Mut`.
 Building and returning a new list needs no mark, and neither does changing a
 list the function made itself.
@@ -458,8 +461,6 @@ Knowing what is *not* here is as useful as knowing what is. Do not reach for
 these; they do not exist:
 
 - No `import` / modules / globals (capabilities replace them).
-- No `break` or `continue` (loops are `while`, `for` and `.each`; leave a function
-  early with `return`).
 - No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).

@@ -899,6 +899,42 @@ for f in "$TMP"/page*.smplr; do
   ( cd "$TMP" && ./seedc > page.c 2>/dev/null && cc -w -o page page.c -lm 2>/dev/null ) || pagebad=1
 done
 if [ "$pagebad" = 0 ]; then ok; else nope "the programs in PROMPT.md compile"; fi
+cp /dev/null "$TMP/input.smplr"; cat > "$TMP/input.smplr" <<'SMPLR'
+drop(xs : List[Int]) : Int !Mut { xs.remove(0) }
+main(sys) {
+  xs = [1, 2, 3, 4]
+  xs.set(1, 20)
+  top = xs.remove(xs.length - 1)
+  drop(xs)
+  for i in 0..10 {
+    if i == 1 { continue }
+    if i == 3 { break }
+    sys.screen.print(i)
+  }
+  n = 0
+  while true {
+    n = n + 1
+    if n > 3 { break }
+  }
+  sys.screen.print(top + n)
+  for x in xs { sys.screen.print(x) }
+}
+SMPLR
+( cd "$TMP" && ./seedc > jump.c 2>/dev/null )
+if cc -o "$TMP/jump" "$TMP/jump.c" 2>/dev/null && [ "$("$TMP/jump" | tr '\n' ' ')" = "0 2 8 20 3 " ]; then ok; else nope "break, continue, and set and remove on a list"; fi
+check_err "break outside a loop" \
+    'main(sys) {
+  x = 1
+  if x == 1 { break }
+}' "input.smplr:3: break is only for inside a loop"
+check_err "remove on a handed list needs !Mut" \
+    'drop(xs : List[Int]) : Int { xs.remove(0) }
+main(sys) { drop([1]) }' "drop changes a list or map it was handed"
+check_err "set on a list with the wrong type" \
+    'main(sys) {
+  xs = [1]
+  xs.set(0, "a")
+}' "input.smplr:3: set expects Int, got Str"
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"

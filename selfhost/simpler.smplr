@@ -51,6 +51,7 @@ Stmt = type {
   While(Expr, List[Stmt])
   Ret(Expr)
   Line(Int)
+  Jump(Str)
 }
 
 Fn = type {
@@ -238,6 +239,8 @@ main(sys) {
   sys.screen.print("long s_lenp(const char* p) { for (int k = 0; k < 4; k++) if (sl_p[k] == p) return sl_n[k]; long n = (long)strlen(p); sl_p[sl_k] = p; sl_n[sl_k] = n; sl_k = (sl_k + 1) & 3; return n; }")
   sys.screen.print("long s_len(long s) { return s_lenp((const char*)(intptr_t)s); }")
   // A running program stops with its source line, never goes on with a wrong value.
+  sys.screen.print("long l_setc(long lp, long i, long x, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } l->data[i] = x; return 0; }")
+  sys.screen.print("long l_removec(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } long x = l->data[i]; for (long k = i; k + 1 < l->len; k++) l->data[k] = l->data[k + 1]; l->len = l->len - 1; return x; }")
   sys.screen.print("long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"input.smplr:%ld: list index %ld, but the list has %ld items\\n\", line, i, l->len); exit(1); } return l->data[i]; }")
   sys.screen.print("long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; long n = s_lenp(p); if (i < 0 || i >= n) { fprintf(stderr, \"input.smplr:%ld: text index %ld, but the text has %ld characters\\n\", line, i, n); exit(1); } char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; long len = s_lenp(p); if (a < 0 || b > len) { fprintf(stderr, \"input.smplr:%ld: slice %ld to %ld, but the text has %ld characters\\n\", line, a, b, len); exit(1); } if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
@@ -564,6 +567,7 @@ whatStmt(s : Stmt, fn : Str, w : What, sigs : Sigs) : Int !Mut {
     While(c, b) -> whatExpr(c, fn, w, sigs) + whatBody(b, fn, w, sigs)
     Ret(e) -> whatExpr(e, fn, w, sigs)
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -807,7 +811,7 @@ expect(toks : Lexed, i : Int, p : Str) : Int {
 }
 
 isKeyword(toks : Lexed, i : Int) : Bool {
-  isWord(toks, i, "if") || isWord(toks, i, "else") || isWord(toks, i, "while") || isWord(toks, i, "return") || isWord(toks, i, "for")
+  isWord(toks, i, "if") || isWord(toks, i, "else") || isWord(toks, i, "while") || isWord(toks, i, "return") || isWord(toks, i, "for") || isWord(toks, i, "break") || isWord(toks, i, "continue")
 }
 
 expectIdent(toks : Lexed, i : Int, what : Str) : Str {
@@ -985,6 +989,7 @@ checkUseful(s : Stmt, toks : Lexed, i : Int) : Int {
     While(c, b) -> 0
     Ret(e) -> 0
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -1020,6 +1025,12 @@ parseStmt(toks : Lexed, i : Int) : PStmt {
   }
   if isWord(toks, i, "return") {
     return parseReturn(toks, i)
+  }
+  if isWord(toks, i, "break") {
+    return PStmt(node = Jump("break"), next = i + 1)
+  }
+  if isWord(toks, i, "continue") {
+    return PStmt(node = Jump("continue"), next = i + 1)
   }
   if isWord(toks, i, "for") && isIdent(toks, i + 1) && isWord(toks, i + 2, "in") {
     return parseFor(toks, i)
@@ -1620,6 +1631,7 @@ seedStmt(s : Stmt, ctx : Ctx) : Int !Mut {
     While(c, b) -> seedEnv(b, ctx)
     Ret(e) -> seedExpr(e, ctx)
     Line(n) -> setLine(n, ctx)
+    Jump(w) -> 0
   }
 }
 
@@ -1773,6 +1785,7 @@ collectStmt(s : Stmt, names : List[Str]) : Int !Mut {
     While(c, b) -> collectBody(b, names)
     Ret(e) -> collectExpr(e, names)
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -1830,6 +1843,7 @@ emitStmt(s : Stmt, asReturn : Bool, ctx : Ctx) : Str !Mut {
     While(c, b) -> emitWhile(c, b, ctx)
     Ret(e) -> emitRet(e, ctx)
     Line(n) -> emitLine(n, ctx)
+    Jump(w) -> "  ".concat(w).concat(";")
   }
 }
 
@@ -2405,8 +2419,55 @@ checkTypes(prog : Prog, sigs : Sigs) : Int {
   0
 }
 
+// break and continue belong inside a loop.
+jumpBody(body : List[Stmt], inLoop : Bool) : Int {
+  line = 0
+  body.each { s in
+    line = jumpStmt(s, inLoop, line)
+  }
+  0
+}
+
+jumpStmt(s : Stmt, inLoop : Bool, line : Int) : Int {
+  s.match {
+    Let(name, ty, e) -> line
+    Bare(e) -> jumpExpr(e, inLoop, line)
+    If(c, t, el) -> line + jumpBody(t, inLoop) + jumpBody(el, inLoop)
+    While(c, b) -> line + jumpBody(b, true)
+    Ret(e) -> line
+    Line(n) -> n
+    Jump(w) -> jumpAt(w, inLoop, line)
+  }
+}
+
+jumpAt(w : Str, inLoop : Bool, line : Int) : Int {
+  if inLoop.not {
+    fail("input.smplr:".concat(line.toStr).concat(": ").concat(w).concat(" is only for inside a loop"))
+  }
+  line
+}
+
+jumpExpr(e : Expr, inLoop : Bool, line : Int) : Int {
+  e.match {
+    Num(n) -> line
+    FloatLit(t) -> line
+    Var(n) -> line
+    StrLit(t) -> line
+    ListLit(es) -> line
+    Bin(op, a, b) -> line
+    Call(name, args) -> line
+    Match(scrut, arms) -> line
+    Field(recv, fld) -> line
+    Method(recv, name, args) -> line
+    Each(recv, param, body) -> line + jumpBody(body, true)
+  }
+}
+
 retPass(prog : Prog, sigs : Sigs) : Int !Mut {
   checkTypes(prog, sigs)
+  prog.fns.each { f in
+    jumpBody(f.body, false)
+  }
   changed = true
   while changed {
     changed = false
@@ -2433,6 +2494,7 @@ lastHanded(body : List[Stmt], ctx : Ctx) : Bool !Mut {
 lastStmt(s : Stmt, prev : Bool, ctx : Ctx) : Bool !Mut {
   s.match {
     Line(n) -> prev
+    Jump(w) -> prev
     Bare(e) -> handed(e, ctx)
     Ret(e) -> handed(e, ctx)
     If(c, t, el) -> lastHanded(t, ctx).or(lastHanded(el, ctx))
@@ -2459,6 +2521,7 @@ stmtRets(s : Stmt, ctx : Ctx) : Bool !Mut {
     Bare(e) -> eachRets(e, ctx)
     Let(name, ty, e) -> false
     Line(n) -> false
+    Jump(w) -> false
   }
 }
 
@@ -2544,6 +2607,7 @@ markStmt(s : Stmt, ctx : Ctx) : Int !Mut {
     While(c, b) -> markExpr(c, ctx) + markBody(b, ctx)
     Ret(e) -> markExpr(e, ctx)
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -2610,7 +2674,7 @@ markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
 
 // A handed value put into a local list or map makes that local handed too.
 markMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
-  if (name == "push") || (name == "set") {
+  if (name == "push") || (name == "set") || (name == "remove") {
     root = rootVar(recv)
     if anyHanded(args, ctx) && (root == "").not {
       setHanded(root, ctx)
@@ -2659,6 +2723,7 @@ effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int !Mut {
     While(c, b) -> effWhile(c, b, used, ctx)
     Ret(e) -> effExpr(e, used, ctx)
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -2708,7 +2773,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if (name == "append") || (name == "list") || (name == "exists") || (name == "rename") || (name == "delete") {
     used.push("IO")
   }
-  if (name == "push") || (name == "set") {
+  if (name == "push") || (name == "set") || (name == "remove") {
     if handed(recv, ctx) {
       used.push("Mut")
     }
@@ -3151,6 +3216,7 @@ checkReturnStmt(s : Stmt, ret : Str, ctx : Ctx) : Int !Mut {
     While(c, b) -> 0
     Ret(e) -> checkRetExpr(e, ret, ctx)
     Line(n) -> 0
+    Jump(w) -> 0
   }
 }
 
@@ -3549,6 +3615,23 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
         failAt("push expects ".concat(elemOf(t)).concat(", got ").concat(pt), ctx)
       }
     }
+    if (name == "set") && isListType(t) && (args.length == 2) {
+      if exprType(args.at(0), ctx) != "Int" {
+        failAt("set on a list expects the place as an Int, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+      pt = exprType(args.at(1), ctx)
+      if compatible(elemOf(t), pt, ctx).not {
+        failAt("set expects ".concat(elemOf(t)).concat(", got ").concat(pt), ctx)
+      }
+    }
+    if name == "remove" {
+      if isListType(t).not {
+        failAt("remove takes an item out of a list; ".concat(t).concat(" has no method remove"), ctx)
+      }
+      if exprType(args.at(0), ctx) != "Int" {
+        failAt("remove expects the place as an Int, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
   }
   0
 }
@@ -3571,7 +3654,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") {
@@ -3671,6 +3754,12 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "set" {
     r = "m_set(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+    if isListType(t) {
+      r = "l_setc(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    }
+  }
+  if name == "remove" {
+    r = "l_removec(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "get" {
     r = "m_get(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -3957,6 +4046,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "get" {
     r = mapValueOf(exprType(recv, ctx))
   }
+  if name == "remove" {
+    r = elemOf(exprType(recv, ctx))
+  }
   if name == "at" {
     r = "Str"
     rt = exprType(recv, ctx)
@@ -4210,7 +4302,7 @@ isDigit(c : Int) : Bool {
 // Names the C output already uses. A program's own name that matches one gets
 // "_c" added, so the C always compiles (a case named Obj, a variable named int).
 cTaken() : List[Str] {
-  ["auto", "break", "case", "char", "const", "continue", "default", "do", "double", "enum", "extern", "float",
+  ["auto", "case", "char", "const", "default", "do", "double", "enum", "extern", "float",
    "goto", "inline", "int", "long", "register", "restrict", "short", "signed", "sizeof", "static", "struct", "switch",
    "typedef", "union", "unsigned", "void", "volatile", "Obj", "SList", "SMap", "FILE", "NULL", "EOF", "NAN", "INFINITY",
    "BUFSIZ", "DIR", "errno", "RAND_MAX", "EXIT_SUCCESS", "EXIT_FAILURE", "SEEK_SET", "SEEK_CUR", "SEEK_END", "HUGE_VAL", "mk", "l2d",
