@@ -195,12 +195,14 @@ true      false         // Bool
 
 ## 6. Operators
 
-Twelve operators: `+ - * / %`, `== < > <= >=`, `&& ||`. Arithmetic and
+Fourteen operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!` in front of a `Bool`. Arithmetic and
 ordering take **`Int` or `Float`**, and the two may **not be mixed** (convert
 with `.toFloat` / `.toInt`); `%` (remainder) takes `Int` only; `==` works on
 `Int`, `Float`, and `Str`. A leading `-` negates. `&&` and `||` join two `Bool`s.
 From tightest to loosest: `* / %`, then `+ -`, then the comparisons, then `&&`,
-then `||`. There is no `!=` and no `!`: write `(a == b).not`.
+then `||`. `a != b` and `!ok` mean the same as `(a == b).not` and `ok.not`.
+On two `Str`s, `+` joins them and `< > <= >=` compare them by byte order; a
+`Str` plus a number is refused (use `.toStr`). Text may also be in single quotes.
 
 ```
 a + b    a - b    a * b    a / b
@@ -222,7 +224,9 @@ if a { ... } else if b { ... } else { ... }
 
 while cond { ... }                 // the one general loop
 
-xs.each { x in ... }               // iterate a list
+xs.each { x in ... }               // iterate a list, or the letters of a text
+for x in xs { ... }                // the same loop
+for i in 0..n { ... }              // i = 0 up to n - 1; 0..=n includes n
 
 e.match { Case -> ... }            // branch on a variant (section 4)
 ```
@@ -259,7 +263,8 @@ arguments. Dispatch is by the receiver's static type.
 | `s.code` | `Int` | byte value of the first character |
 | `s.slice(a, b)` | `Str` | substring `[a, b)` |
 | `s.trim` | `Str` | strip leading/trailing whitespace (space, tab, CR, LF) |
-| `s.concat(t)` | `Str` | `s` followed by `t` |
+| `s.concat(t)` | `Str` | `s` followed by `t` (also `s + t`) |
+| `s.startsWith(t)`, `s.endsWith(t)` | `Bool` | does `s` begin or end with `t` |
 | `s.split(d)` | `List[Str]` | split on the first character of `d` |
 | `s.contains(t)` | `Bool` | is `t` a substring |
 | `s.replace(a, b)` | `Str` | every `a` replaced by `b` |
@@ -453,9 +458,8 @@ Knowing what is *not* here is as useful as knowing what is. Do not reach for
 these; they do not exist:
 
 - No `import` / modules / globals (capabilities replace them).
-- No `break` or `continue` (loops are `while` and `.each`; leave a function
+- No `break` or `continue` (loops are `while`, `for` and `.each`; leave a function
   early with `return`).
-- No `!=` or `!` (use `.not`).
 - No classes, inheritance, interfaces, or generics beyond `List[T]` / `Map[T]`.
 - No closures or first-class functions (so sorting by a derived key is a
   type-specific method like `Map.byValue`, not a comparator argument).

@@ -587,7 +587,7 @@ main(sys) { sys.screen.print(name(Red)) }' \
 # arithmetic on a non-Int operand
 reject "Int operands" \
     'main(sys) { x = 1 + "a" sys.screen.print(x) }' \
-    "needs Int operands"
+    "+ adds two numbers or joins two texts"
 # a function argument of the wrong type
 reject "argument type" \
     'greet(s : Str) : Int { 0 }
@@ -671,7 +671,7 @@ greet(screen : Screen, who : Str) !IO { screen.print(who) }' \
     "expects Str, got Int"
 check_err "Int op needs Ints" \
     'main(sys) { x = 1 + "a" sys.screen.print(x) }' \
-    "needs Int operands"
+    "+ adds two numbers or joins two texts"
 check_err "wrong return type" \
     'twice(n : Int) : Int { "no" }
 main(sys) { sys.screen.print(twice(2)) }' \
@@ -843,6 +843,53 @@ check_err "a delete needs !IO" \
 wipe(f : Files) : Int { f.delete("box/x")
   0 }
 main(sys) { wipe(sys.files) }' "uses !IO but does not declare it"
+# the forms models write from habit: != and !, + on texts, single quotes, for, startsWith
+echo 'is_lower(c : Str) : Bool { c >= '"'a'"' && c <= '"'z'"' }
+main(sys) {
+  xs = [3, 1, 2]
+  total = 0
+  for x in xs { total = total + x }
+  for i in 1..=3 { total = total + i }
+  for i in 0..2 { total = total + 100 }
+  s = "ab" + "cd" + total.toStr
+  sys.screen.print(s)
+  if total != 5 && !(s == "x") { sys.screen.print("ne") }
+  if !is_lower("A") && is_lower("q") { sys.screen.print("low") }
+  sys.screen.print(s.startsWith("ab") && s.endsWith("212") && !s.startsWith("b"))
+  for w in "a b".split(" ") { sys.screen.print(w + "!") }
+  sys.screen.print("b" < "a")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > habits.c 2>/dev/null )
+if cc -o "$TMP/habits" "$TMP/habits.c" 2>/dev/null && [ "$("$TMP/habits" | tr '\n' ' ')" = "abcd212 ne low true a! b! false " ]; then ok; else nope "the forms models write from habit"; fi
+check_err "a text plus a number" \
+    'main(sys) { sys.screen.print("n " + 3) }' "turn the number into text with .toStr"
+check_err "for is no name for a variable" \
+    'main(sys) {
+  for = 3
+}' "input.smplr:2: expected a name"
+check_err "a for loop that changes a handed list needs !Mut" \
+    'add(xs : List[Int]) : Int { for i in 0..3 { xs.push(i) }
+  0 }
+main(sys) { add([1]) }' "add changes a list or map it was handed"
+echo 'main(sys) {
+  n = 0
+  for c in "a1b22" {
+    if c >= "0" && c <= "9" { n = n + 1 }
+  }
+  "x,y".each { c in sys.screen.print(c) }
+  sys.screen.print(n)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > letters.c 2>/dev/null )
+if cc -o "$TMP/letters" "$TMP/letters.c" 2>/dev/null && [ "$("$TMP/letters" | tr '\n' ' ')" = "x , y 3 " ]; then ok; else nope "a loop over a text gives its letters"; fi
+check_err "a loop over a number" \
+    'main(sys) {
+  for i in 5 { sys.screen.print(i) }
+}' "input.smplr:2: a loop goes over a list or the letters of a text, not Int"
+check_err "a loop over a map" \
+    'main(sys) {
+  m = Map()
+  m.each { k in sys.screen.print(k) }
+}' "a loop goes over a list or the letters of a text, not Map"
 check_err "a reads line with a missing name" \
     'reads "a.txt",
 main(sys) { 0 }' "expected a file name in quotes, or the word args"
