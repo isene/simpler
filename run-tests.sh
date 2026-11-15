@@ -831,7 +831,7 @@ main(sys) {
   sys.files.delete("tree/".concat(sys.args.at(0)))
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > tree.c 2>/dev/null && cc -o treep tree.c 2>/dev/null && mkdir -p tree/sub && echo f > tree/f.txt && echo keep > keep.txt )
-if [ "$( cd "$TMP" && ./treep ../keep.txt 2>&1 | tr '\n' ' ' )" = 'f.txt sub/ input.smplr:5: this program may not write "tree/../keep.txt" ' ] && [ -e "$TMP/keep.txt" ]; then ok; else nope "a folder ends in /, and a delete may not climb out"; fi
+if [ "$( cd "$TMP" && ./treep ../keep.txt 2>/dev/null | tr '\n' ' ' )" = 'f.txt sub/ ' ] && [ "$( cd "$TMP" && ./treep ../keep.txt 2>&1 >/dev/null )" = 'input.smplr:5: this program may not write "tree/../keep.txt"' ] && [ -e "$TMP/keep.txt" ]; then ok; else nope "a folder ends in /, and a delete may not climb out"; fi
 if ( cd "$TMP" && ./treep none 2>&1 | grep -q 'input.smplr:5: could not delete "tree/none"' ); then ok; else nope "a delete that fails stops the program"; fi
 check_err "listing a folder the reads line does not name" \
     'reads "box/"
