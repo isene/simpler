@@ -105,7 +105,15 @@ Install it (needs a C compiler and curl):
 curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/install.sh | sh
 ```
 
-Or clone the repo and call `./simpler` there. Then:
+Or clone the repo and call `./simpler` there.
+
+With Claude Code, add the skill, and Claude writes Simpler when asked ("write me a tool in Simpler that ..."):
+
+```bash
+mkdir -p ~/.claude/skills/simpler && curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/skill/simpler/SKILL.md -o ~/.claude/skills/simpler/SKILL.md
+```
+
+Then:
 
 ```bash
 simpler run hello.smplr        # compile and run
