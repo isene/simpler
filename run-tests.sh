@@ -1877,6 +1877,74 @@ for body in 'out.at(0).push("z")' 'for r in out { r.push("z") }' 'two = out
   if [ "$hold2" = 'hold2.smplr:1: f changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "a change to a handed row inside a new list needs !Mut (got: $hold2)"; fi
 done
 
+# A record field can be set; setting one on a handed record needs !Mut; the
+# value must have the field's type; only a record has fields to set.
+cat > "$TMP/mod/setf.smplr" <<'SMPLR'
+Pos = type { x : Int, y : Int }
+St = type { name : Str, n : Int, at : Pos, f : Float, xs : List[Int] }
+bump(s : St) : Int !Mut {
+  s.n = s.n + 1
+  s.at.x = s.at.x + 10
+  s.n
+}
+main(sys) {
+  s = St(name = "a", n = 1, at = Pos(x = 1, y = 2), f = 1.5, xs = [1])
+  t = s
+  t.name = "b" + s.name
+  bump(s)
+  bump(t)
+  s.f = s.f * 2.0
+  ps = [Pos(x = 0, y = 0), Pos(x = 5, y = 5)]
+  ps.at(1).y = 9
+  for p in ps {
+    p.x = p.x + 1
+  }
+  sys.screen.print(s.name + " " + s.n.toStr + " " + s.at.x.toStr + " " + s.f.toStr + " " + ps.at(1).y.toStr + " " + ps.at(0).x.toStr + ps.at(1).x.toStr)
+}
+SMPLR
+setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf.smplr 2>&1 )"
+if [ "$setf" = 'ba 3 21 3 9 16' ]; then ok; else nope "a record field can be set (got: $setf)"; fi
+sed -i 's/ : Int !Mut {/ : Int {/' "$TMP/mod/setf.smplr"
+setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf.smplr 2>&1 )"
+if [ "$setf" = 'setf.smplr:3: bump changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "setting a field of a handed record needs !Mut (got: $setf)"; fi
+printf 'P = type { x : Int }\nmain(sys) {\n  p = P(x = 1)\n  p.x = "a"\n  sys.screen.print(p.x.toStr)\n}\n' > "$TMP/mod/setf2.smplr"
+setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf2.smplr 2>&1 )"
+if [ "$setf" = 'setf2.smplr:4: .x expects Int, got Str' ]; then ok; else nope "a field takes only its own type (got: $setf)"; fi
+printf 'main(sys) {\n  s = "abc"\n  s.length = 2\n  sys.screen.print(s)\n}\n' > "$TMP/mod/setf3.smplr"
+setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf3.smplr 2>&1 )"
+if [ "$setf" = 'setf3.smplr:3: only a field of a record can be set with =, and this is Str' ]; then ok; else nope "only a record field can be set (got: $setf)"; fi
+
+# Rows of the caller sorted into groups of the function's own: adding to a
+# group is free, changing a row in a group needs !Mut. String is read as Str.
+cat > "$TMP/mod/grp.smplr" <<'SMPLR'
+group(rows : List[List[Str]], tag : String) : Int {
+  groups : List[List[List[Str]]] = []
+  m = Map()
+  for row in rows {
+    key = row.at(0)
+    if !m.has(key) {
+      m.set(key, groups.length)
+      ng : List[List[Str]] = []
+      groups.push(ng)
+    }
+    groups.at(m.get(key)).push(row)
+  }
+  for g in groups {
+    g.push([tag])
+  }
+  groups.length
+}
+main(sys) {
+  a : List[List[Str]] = [["x"], ["y"], ["x"]]
+  sys.screen.print(group(a, "t").toStr)
+}
+SMPLR
+grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run grp.smplr 2>&1 )"
+if [ "$grp" = '2' ]; then ok; else nope "rows sorted into own groups need no !Mut (got: $grp)"; fi
+sed -i 's/    g.push(\[tag\])/    for r in g {\n      r.push(tag)\n    }/' "$TMP/mod/grp.smplr"
+grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run grp.smplr 2>&1 )"
+if [ "$grp" = 'grp.smplr:1: group changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "a change to a row inside a group needs !Mut (got: $grp)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

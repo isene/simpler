@@ -146,7 +146,7 @@ dir.set("alice", "1234")
 dir.get("bob")                       // "" for an absent key (never null)
 ```
 
-**Records** are named product types: real value structs.
+**Records** are named product types.
 
 ```
 Point = type { x : Int, y : Int }
@@ -155,6 +155,10 @@ Box   = type { label : Str, items : List[Int] }
 p = Point(x = 3, y = 4)              // construct
 p.x                                  // read a field -> 3
 ```
+
+A field is set with `p.x = 5` (the value must have the field's type). A record
+is shared, never copied: after `q = p`, `q.x = 5` changes `p` too. A function
+that sets a field of a record it was handed must say `!Mut`.
 
 Construction is **positional in declaration order**; the `field =` names are
 optional sugar and are not checked, so the values must be in order.

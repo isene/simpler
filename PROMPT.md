@@ -141,8 +141,8 @@ main(sys) {
 - `if a { } else if b { } else { }`. No parentheses needed, braces always.
 - Input is `sys.stdin` (all of it, one text). Output is `sys.screen.print(text)`, one line per call.
   Only `main(sys)` has `sys`.
-- A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter says `!Mut` after its
-  return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
+- A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter, or sets a field of
+  a record it got, says `!Mut` after its return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
   `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value. An arm is
@@ -150,8 +150,9 @@ main(sys) {
 - A type may hold lists, maps, other types and itself. A tree is a variant that holds itself:
   `Expr = type { Num(Int) Name(Str) Add(Expr, Expr) Call(Str, List[Expr]) }`. Keep data with a shape
   (a tree, a table, a list of things with several fields) in types such as these, never packed into texts.
-- A record never changes: there is no `p.x = 5`. Make a new one (`p = Point(x = 5, y = p.y)`, in a list
-  `ps.set(i, Point(x = 5, y = ps.at(i).y))`). A list or map inside a record can change: `b.items.push(3)`.
+- A field of a record is set with `p.x = 5`, also deeper: `game.player.hp = 0`, `ps.at(i).x = 5`. A record is
+  shared like a list, never copied: after `q = p`, `q.x = 5` changes `p` too. Keep the state of a big program
+  in one record and hand it to the functions.
 - A function that prints or touches files says `!IO` after its return type and gets what it needs as a
   parameter: `out : Screen` or `files : Files`, handed over as `sys.screen` or `sys.files`.
 - Files: `sys.files.read(path)?` (the `?` is required; "" if it cannot be read), `.write(path, text)`,

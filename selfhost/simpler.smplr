@@ -1445,6 +1445,10 @@ parseType(toks : Lexed, i : Int) : PType {
   if ty == "Map[Int]" {
     ty = "Map"
   }
+  // models write String now and then; it is Str
+  if ty == "String" {
+    ty = "Str"
+  }
   PType(ty = ty, next = k)
 }
 
@@ -1637,7 +1641,48 @@ parseStmt(toks : Lexed, i : Int) : PStmt {
     return PStmt(node = Let(expectIdent(toks, i, "a name"), "", ae.node), next = ae.next)
   }
   e = parseExpr(toks, i)
+  // `p.x = v` sets a field of a record; it travels as the method `=x`
+  if isPunct(toks, e.next, "=") && ((fieldName(e.node) == "").not) {
+    v = parseExpr(toks, e.next + 1)
+    return PStmt(node = Bare(Method(fieldRecv(e.node), "=".concat(fieldName(e.node)), [v.node])), next = v.next)
+  }
   PStmt(node = Bare(e.node), next = e.next)
+}
+
+fieldName(e : Expr) : Str {
+  e.match {
+    Field(recv, fld) -> fld
+    Var(s) -> ""
+    Method(recv, name, args) -> ""
+    ListLit(es) -> ""
+    Call(name, args) -> ""
+    Match(scrut, arms) -> ""
+    Bin(op, a, b) -> ""
+    Each(recv, param, body) -> ""
+    Num(v) -> ""
+    FloatLit(s) -> ""
+    StrLit(s) -> ""
+  }
+}
+
+fieldRecv(e : Expr) : Expr {
+  e.match {
+    Field(recv, fld) -> recv
+    Var(s) -> e
+    Method(recv, name, args) -> e
+    ListLit(es) -> e
+    Call(name, args) -> e
+    Match(scrut, arms) -> e
+    Bin(op, a, b) -> e
+    Each(recv, param, body) -> e
+    Num(v) -> e
+    FloatLit(s) -> e
+    StrLit(s) -> e
+  }
+}
+
+isSetField(name : Str) : Bool {
+  name.startsWith("=")
 }
 
 // `for x in xs { }` is xs.each { x in }; `for i in a..b { }` counts from a up to
@@ -2866,32 +2911,88 @@ isHanded(s : Str, ctx : Ctx) : Bool {
   hasName(ctx.env.names, "__h__".concat(s))
 }
 
-// A list or map of the function's own that had a handed value put in: adding to it changes
-// nothing the caller has, but what it holds may be the caller's. The env keeps them as __i__<name>.
-isHolding(s : Str, ctx : Ctx) : Bool {
-  hasName(ctx.env.names, "__i__".concat(s))
+// A list, map or record of the function's own that had a handed value put in. Adding to it
+// changes nothing the caller has, but what it holds may be the caller's. The env keeps the
+// depth as __i__<name>: 1 when its items are the caller's, 2 when the items of its items are.
+holdOf(s : Str, ctx : Ctx) : Int {
+  r = 0
+  if hasName(ctx.env.names, "__i__".concat(s)) {
+    r = envGet(ctx.env, "__i__".concat(s)).toInt
+  }
+  r
 }
 
-setHolding(s : Str, ctx : Ctx) : Int !Mut {
-  if (s == "").not && isHolding(s, ctx).not && isHanded(s, ctx).not {
-    envPut(ctx.env, "__i__".concat(s), "1")
+setHolding(s : Str, d : Int, ctx : Ctx) : Int !Mut {
+  if (s == "").not && isHanded(s, ctx).not {
+    cur = holdOf(s, ctx)
+    if (cur == 0) || (d < cur) {
+      envPut(ctx.env, "__i__".concat(s), d.toStr)
+    }
   }
   0
 }
 
-holding(e : Expr, ctx : Ctx) : Bool {
-  r = rootVar(e)
-  (r == "").not && isHolding(r, ctx)
+oneLess(d : Int) : Int {
+  r = 0
+  if d > 1 {
+    r = d - 1
+  }
+  r
 }
 
-anyHolding(es : List[Expr], ctx : Ctx) : Bool !Mut {
-  r = false
+// 0: holds nothing of the caller's (or is the caller's itself, which handed() answers).
+holdDepth(e : Expr, ctx : Ctx) : Int !Mut {
+  e.match {
+    Var(s) -> holdOf(s, ctx)
+    Field(recv, fld) -> oneLess(holdDepth(recv, ctx))
+    Method(recv, name, args) -> oneLess(holdDepth(recv, ctx))
+    ListLit(es) -> 1 + minLevel(es, ctx)
+    Call(name, args) -> 0
+    Match(scrut, arms) -> 0
+    Bin(op, a, b) -> 0
+    Each(recv, param, body) -> 0
+    Num(v) -> 0
+    FloatLit(s) -> 0
+    StrLit(s) -> 0
+  }
+}
+
+// The nearest caller's value in a list of values: 0 when one is the caller's itself,
+// its depth when one holds some, -1 when none does.
+minLevel(es : List[Expr], ctx : Ctx) : Int !Mut {
+  r = 0 - 1
   es.each { x in
-    if holding(x, ctx) || listHolds(x, ctx) {
-      r = true
+    l = 0 - 1
+    if handed(x, ctx) {
+      l = 0
+    } else {
+      d = holdDepth(x, ctx)
+      if d > 0 {
+        l = d
+      }
+    }
+    if (l >= 0) && ((r < 0) || (l < r)) {
+      r = l
     }
   }
   r
+}
+
+// How many steps (.at, .get, a field) lie between an expression and its first name.
+pathLen(e : Expr) : Int {
+  e.match {
+    Field(recv, fld) -> 1 + pathLen(recv)
+    Method(recv, name, args) -> 1 + pathLen(recv)
+    Var(s) -> 0
+    ListLit(es) -> 0
+    Call(name, args) -> 0
+    Match(scrut, arms) -> 0
+    Bin(op, a, b) -> 0
+    Each(recv, param, body) -> 0
+    Num(v) -> 0
+    FloatLit(s) -> 0
+    StrLit(s) -> 0
+  }
 }
 
 setHanded(s : Str, ctx : Ctx) : Int !Mut {
@@ -2901,34 +3002,10 @@ setHanded(s : Str, ctx : Ctx) : Int !Mut {
   0
 }
 
-// A type whose values cannot be changed in place: a plain one, or a record of only such.
+// A type whose values cannot be changed in place: a plain one. A record can (`p.x = 5`).
 // Putting such a value from a handed list into a new list changes nothing the caller has.
 fixedType(t : Str, ctx : Ctx, depth : Int) : Bool {
-  if plainType(t) {
-    return true
-  }
-  if depth > 8 {
-    return false
-  }
-  r = false
-  recs = ctx.sigs.records
-  k = 0
-  m = recs.length
-  while k < m {
-    rec = recs.at(k)
-    if rec.name == t {
-      r = true
-      j = 0
-      while j < rec.ftypes.length {
-        if fixedType(rec.ftypes.at(j), ctx, depth + 1).not {
-          r = false
-        }
-        j = j + 1
-      }
-    }
-    k = k + 1
-  }
-  r
+  plainType(t)
 }
 
 handed(e : Expr, ctx : Ctx) : Bool !Mut {
@@ -2937,8 +3014,8 @@ handed(e : Expr, ctx : Ctx) : Bool !Mut {
   }
   e.match {
     Var(s) -> isHanded(s, ctx)
-    Field(recv, fld) -> handedField(recv, fld, ctx)
-    Method(recv, name, args) -> ((name == "at").or(name == "get")).and(handed(recv, ctx) || holding(recv, ctx))
+    Field(recv, fld) -> handedField(recv, fld, ctx) || (holdDepth(recv, ctx) == 1)
+    Method(recv, name, args) -> ((name == "at").or(name == "get")).and(handed(recv, ctx) || (holdDepth(recv, ctx) == 1))
     ListLit(es) -> false
     Call(name, args) -> callHanded(name, args, ctx)
     Match(scrut, arms) -> armsHanded(scrut, arms, ctx)
@@ -3298,29 +3375,13 @@ markStmt(s : Stmt, ctx : Ctx) : Int !Mut {
   }
 }
 
-// `[a, b]` with a handed value in it is a new list that holds the caller's.
-listHolds(e : Expr, ctx : Ctx) : Bool !Mut {
-  e.match {
-    ListLit(es) -> anyHanded(es, ctx) || anyHolding(es, ctx)
-    Var(s) -> false
-    Field(recv, fld) -> false
-    Method(recv, name, args) -> false
-    Call(name, args) -> false
-    Match(scrut, arms) -> false
-    Bin(op, a, b) -> false
-    Each(recv, param, body) -> false
-    Num(v) -> false
-    FloatLit(s) -> false
-    StrLit(s) -> false
-  }
-}
-
 markLet(name : Str, e : Expr, ctx : Ctx) : Int !Mut {
   if handed(e, ctx) {
     setHanded(name, ctx)
   }
-  if holding(e, ctx) || listHolds(e, ctx) {
-    setHolding(name, ctx)
+  hd = holdDepth(e, ctx)
+  if hd > 0 {
+    setHolding(name, hd, ctx)
   }
   markExpr(e, ctx)
 }
@@ -3350,8 +3411,14 @@ markAll(es : List[Expr], ctx : Ctx) : Int !Mut {
 
 markEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
   et = loopItem(exprType(recv, ctx))
-  if (handed(recv, ctx) || holding(recv, ctx)) && plainType(et).not {
-    setHanded(param, ctx)
+  if plainType(et).not {
+    ed = holdDepth(recv, ctx)
+    if handed(recv, ctx) || (ed == 1) {
+      setHanded(param, ctx)
+    }
+    if ed > 1 {
+      setHolding(param, ed - 1, ctx)
+    }
   }
   markExpr(recv, ctx)
   old = envOld(ctx.env, param)
@@ -3361,7 +3428,7 @@ markEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
 }
 
 markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
-  h = handed(scrut, ctx) || holding(scrut, ctx)
+  h = handed(scrut, ctx) || (holdDepth(scrut, ctx) > 0)
   markExpr(scrut, ctx)
   styp = exprType(scrut, ctx)
   arms.each { a in
@@ -3381,10 +3448,11 @@ markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
 
 // A handed value put into a local list or map makes that local handed too.
 markMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
-  if (name == "push") || (name == "set") || (name == "remove") {
+  if (name == "push") || (name == "set") || (name == "remove") || isSetField(name) {
     root = rootVar(recv)
-    if anyHanded(args, ctx) || anyHolding(args, ctx) {
-      setHolding(root, ctx)
+    ml = minLevel(args, ctx)
+    if ml >= 0 {
+      setHolding(root, ml + 1 + pathLen(recv), ctx)
     }
   }
   markExpr(recv, ctx)
@@ -3481,7 +3549,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if (name == "append") || (name == "list") || (name == "exists") || (name == "rename") || (name == "delete") {
     used.push("IO")
   }
-  if (name == "push") || (name == "set") || (name == "remove") {
+  if (name == "push") || (name == "set") || (name == "remove") || isSetField(name) {
     if handed(recv, ctx) {
       used.push("Mut")
     }
@@ -4556,7 +4624,21 @@ methodArgs(name : Str) : Int {
   r
 }
 
+emitSetField(recv : Expr, fld : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  t = exprType(recv, ctx)
+  if isRec(t, ctx).not {
+    failAt("only a field of a record can be set with =, and this is ".concat(capShow(t)), ctx)
+  }
+  checkField(t, fld, ctx)
+  wantType(args.at(0), fieldType(recv, fld, ctx), ".".concat(fld), ctx)
+  recvC = emitExpr(recv, ctx)
+  "(((R_".concat(t).concat("*)(intptr_t)").concat(recvC).concat(")->").concat(fld).concat(" = ").concat(emitExpr(args.at(0), ctx)).concat(", 0L)")
+}
+
 emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  if isSetField(name) {
+    return emitSetField(recv, name.slice(1, name.length), args, ctx)
+  }
   rv = rootVar(recv)
   if (rv != "") && (capNeed(name) == "") && (rv != "sys") && (rv != "true") && (rv != "false") && (variantOf(rv, ctx) == "") && (envOld(ctx.env, rv) == "__gone__") {
     failAt("no variable named ".concat(rv).concat("; if it is a module, put  uses \"").concat(rv).concat("\"  at the top"), ctx)
