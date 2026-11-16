@@ -1,0 +1,41 @@
+count(n : Str) : Int {
+  n = n.toInt
+  n + 1
+}
+main(sys) {
+  c = "abc"
+  sys.screen.print(c)
+  c = c.length
+  sys.screen.print(c + 1)
+  c = [c, c]
+  sys.screen.print(c.length)
+  lines = ["a=1", "b:22", "plain"]
+  for line in lines {
+    t = line
+    if t.contains("=") {
+      d = t.slice(2)
+      sys.screen.print(d)
+    }
+    if t.contains(":") {
+      d = t.find(":")
+      sys.screen.print(d + 10)
+      t = 99
+      sys.screen.print(t)
+    }
+    sys.screen.print(t)
+  }
+  x = "outer"
+  for x in [1, 2] {
+    x = "in".concat(x.toStr)
+    sys.screen.print(x)
+  }
+  sys.screen.print(x)
+  sys.screen.print(count("41"))
+  k = 0
+  while k < 2 {
+    k = k + 1
+    v = k
+    v = "v".concat(v.toStr)
+    sys.screen.print(v)
+  }
+}

@@ -56,6 +56,7 @@ check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\nt
 check_run m5e   "20"
 check_run m6    "15"
 check_run emptylist "$(printf '1\n0')"
+check_run retype    "$(printf 'abc\n4\n2\n1\na=1\n11\n99\nb:22\nplain\nin1\nin2\nouter\n42\nv1\nv2')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
@@ -283,13 +284,13 @@ main(sys) {
 if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "return type mismatch" ); then ok; else nope "early return type is checked"; fi
 rm -f "$TMP/input.smplr"
 
-# a name that changes type inside a function is refused, with the way out
+# a name bound again with another type is a second variable
 printf '%s' 'main(sys) {
   v = "12"
   v = v.toInt
   sys.screen.print(v.toStr)
 }' > "$TMP/input.smplr"
-if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "v is Str and cannot become Int; use a new name" ); then ok; else nope "a name keeps one type"; fi
+if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "cannot become" ); then nope "a name may take a new type"; else ok; fi
 rm -f "$TMP/input.smplr"
 
 # Capabilities: a function reaches the screen or a file only through a value

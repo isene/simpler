@@ -2277,8 +2277,211 @@ seedEnv(body : List[Stmt], ctx : Ctx) : Int !Mut {
   k = 0
   m = body.length
   while k < m {
-    seedStmt(body.at(k), ctx)
+    s = body.at(k)
+    if envOld(ctx.env, "__anyren__") != "__gone__" {
+      s = renTop(s, ctx)
+      body.set(k, s)
+    }
+    nn = shadowName(s, ctx)
+    if nn != "" {
+      s = reLet(s, nn)
+      body.set(k, s)
+    }
+    seedStmt(s, ctx)
     k = k + 1
+  }
+  0
+}
+
+// --- a name bound again with another type ---------------------------------
+// `c = "x"` and later `c = 5` makes a second variable, c__2, that stands for
+// c from there to the end of its block. Each variable so keeps one type, and
+// a read after the block gets the first c with its own value. The statements
+// are rewritten in place the first time a function is seeded.
+shadowName(s : Stmt, ctx : Ctx) : Str !Mut {
+  s.match {
+    Let(name, ty, e) -> shadowLet(name, letType(ty, e, ctx), ctx)
+    Bare(e) -> ""
+    If(c, t, el) -> ""
+    While(c, b) -> ""
+    Ret(e) -> ""
+    Line(n) -> ""
+    Jump(w) -> ""
+  }
+}
+
+shadowLet(name : Str, ty : Str, ctx : Ctx) : Str !Mut {
+  old = envOld(ctx.env, name)
+  if (old == "__gone__") || (ty == "List") {
+    return ""
+  }
+  if compatible(old, ty, ctx) {
+    return ""
+  }
+  src = envOld(ctx.env, "__src__".concat(name))
+  if src == "__gone__" {
+    src = name
+  }
+  n = 2
+  fresh = src.concat("__").concat(n.toStr)
+  while hasName(ctx.env.names, fresh) || hasName(ctx.env.names, "__src__".concat(fresh)) {
+    n = n + 1
+    fresh = src.concat("__").concat(n.toStr)
+  }
+  envPut(ctx.env, "__src__".concat(fresh), src)
+  envPut(ctx.env, "__ren__".concat(src), fresh)
+  envPut(ctx.env, "__ren__".concat(name), fresh)
+  envPut(ctx.env, "__anyren__", "1")
+  fresh
+}
+
+reLet(s : Stmt, nn : Str) : Stmt {
+  s.match {
+    Let(name, ty, e) -> Let(nn, ty, e)
+    Bare(e) -> s
+    If(c, t, el) -> s
+    While(c, b) -> s
+    Ret(e) -> s
+    Line(n) -> s
+    Jump(w) -> s
+  }
+}
+
+renOf(name : Str, ctx : Ctx) : Str {
+  r = name
+  go = true
+  while go {
+    nx = envOld(ctx.env, "__ren__".concat(r))
+    if (nx == "__gone__") || (nx == "") || (nx == r) {
+      go = false
+    } else {
+      r = nx
+    }
+  }
+  r
+}
+
+// Inside an each loop or a match arm the name it binds is its own again.
+renMask(names : List[Str], ctx : Ctx) : List[Str] !Mut {
+  olds : List[Str] = []
+  names.each { n in
+    o = envOld(ctx.env, "__ren__".concat(n))
+    if o == "__gone__" {
+      o = ""
+    }
+    olds.push(o)
+    envPut(ctx.env, "__ren__".concat(n), "")
+  }
+  olds
+}
+
+renUnmask(names : List[Str], olds : List[Str], ctx : Ctx) : Int !Mut {
+  k = 0
+  while k < names.length {
+    envPut(ctx.env, "__ren__".concat(names.at(k)), olds.at(k))
+    k = k + 1
+  }
+  0
+}
+
+// The statement itself; the bodies of an if or while stay the same lists,
+// since seedEnv walks into them next and rewrites them in place.
+renTop(s : Stmt, ctx : Ctx) : Stmt !Mut {
+  s.match {
+    Let(name, ty, e) -> Let(renOf(name, ctx), ty, renExpr(e, ctx))
+    Bare(e) -> Bare(renExpr(e, ctx))
+    If(c, t, el) -> If(renExpr(c, ctx), t, el)
+    While(c, b) -> While(renExpr(c, ctx), b)
+    Ret(e) -> Ret(renExpr(e, ctx))
+    Line(n) -> s
+    Jump(w) -> s
+  }
+}
+
+renDeep(s : Stmt, ctx : Ctx) : Stmt !Mut {
+  s.match {
+    Let(name, ty, e) -> Let(renOf(name, ctx), ty, renExpr(e, ctx))
+    Bare(e) -> Bare(renExpr(e, ctx))
+    If(c, t, el) -> If(renExpr(c, ctx), renBody(t, ctx), renBody(el, ctx))
+    While(c, b) -> While(renExpr(c, ctx), renBody(b, ctx))
+    Ret(e) -> Ret(renExpr(e, ctx))
+    Line(n) -> s
+    Jump(w) -> s
+  }
+}
+
+renBody(body : List[Stmt], ctx : Ctx) : List[Stmt] !Mut {
+  out : List[Stmt] = []
+  body.each { s in
+    out.push(renDeep(s, ctx))
+  }
+  out
+}
+
+renList(es : List[Expr], ctx : Ctx) : List[Expr] !Mut {
+  out : List[Expr] = []
+  es.each { e in
+    out.push(renExpr(e, ctx))
+  }
+  out
+}
+
+renEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Expr !Mut {
+  r = renExpr(recv, ctx)
+  olds = renMask([param], ctx)
+  b = renBody(body, ctx)
+  renUnmask([param], olds, ctx)
+  Each(r, param, b)
+}
+
+renArms(arms : List[Arm], ctx : Ctx) : List[Arm] !Mut {
+  out : List[Arm] = []
+  arms.each { a in
+    olds = renMask(a.binds, ctx)
+    out.push(Arm(tag = a.tag, binds = a.binds, body = renExpr(a.body, ctx)))
+    renUnmask(a.binds, olds, ctx)
+  }
+  out
+}
+
+renExpr(e : Expr, ctx : Ctx) : Expr !Mut {
+  e.match {
+    Num(v) -> e
+    FloatLit(s) -> e
+    Var(s) -> Var(renOf(s, ctx))
+    StrLit(s) -> e
+    ListLit(es) -> ListLit(renList(es, ctx))
+    Bin(op, a, b) -> Bin(op, renExpr(a, ctx), renExpr(b, ctx))
+    Call(name, args) -> Call(name, renList(args, ctx))
+    Match(scrut, arms) -> Match(renExpr(scrut, ctx), renArms(arms, ctx))
+    Field(recv, fld) -> Field(renExpr(recv, ctx), fld)
+    Method(recv, name, args) -> Method(renExpr(recv, ctx), name, renList(args, ctx))
+    Each(recv, param, body) -> renEach(recv, param, body, ctx)
+  }
+}
+
+// A block: what it renamed ends with it.
+seedBlock(body : List[Stmt], ctx : Ctx) : Int !Mut {
+  n0 = ctx.env.names.length
+  seedEnv(body, ctx)
+  if envOld(ctx.env, "__anyren__") != "__gone__" {
+    n1 = ctx.env.names.length
+    j = n0
+    while j < n1 {
+      key = ctx.env.names.at(j)
+      if key.startsWith("__ren__") {
+        was = ""
+        i = 0
+        while i < n0 {
+          if ctx.env.names.at(i) == key {
+            was = ctx.env.tys.at(i)
+          }
+          i = i + 1
+        }
+        envPut(ctx.env, key, was)
+      }
+      j = j + 1
+    }
   }
   0
 }
@@ -2288,7 +2491,7 @@ seedStmt(s : Stmt, ctx : Ctx) : Int !Mut {
     Let(name, ty, e) -> seedLet(name, letType(ty, e, ctx), ctx)
     Bare(e) -> seedExpr(e, ctx)
     If(c, t, el) -> seedIf(t, el, ctx)
-    While(c, b) -> seedEnv(b, ctx)
+    While(c, b) -> seedBlock(b, ctx)
     Ret(e) -> seedExpr(e, ctx)
     Line(n) -> setLine(n, ctx)
     Jump(w) -> 0
@@ -2316,8 +2519,8 @@ seedLet(name : Str, ty0 : Str, ctx : Ctx) : Int !Mut {
 }
 
 seedIf(t : List[Stmt], el : List[Stmt], ctx : Ctx) : Int !Mut {
-  seedEnv(t, ctx)
-  seedEnv(el, ctx)
+  seedBlock(t, ctx)
+  seedBlock(el, ctx)
   0
 }
 
@@ -2340,7 +2543,9 @@ seedExpr(e : Expr, ctx : Ctx) : Int !Mut {
 seedEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
   old = envOld(ctx.env, param)
   envPut(ctx.env, param, loopItem(exprType(recv, ctx)))
-  seedEnv(body, ctx)
+  olds = renMask([param], ctx)
+  seedBlock(body, ctx)
+  renUnmask([param], olds, ctx)
   envPut(ctx.env, param, old)
   0
 }
