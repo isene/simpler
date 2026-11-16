@@ -1689,6 +1689,11 @@ exitout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "
 if [ "$exitout" = "a
 rc=7" ]; then ok; else nope "exit with a status (got: $exitout)"; fi
 
+# start (no waiting), millis and char.
+printf 'runs "sleep", "sh"\nmain(sys) {\n  sys.screen.print(65.char + 229.char + 8364.char + 128512.char + "|" + 0.char + "|" + "€".code.toStr + " " + "a".code.toStr)\n  a = sys.clock.millis\n  pid = sys.programs.start("sleep", ["0.3"])\n  b = sys.clock.millis\n  sys.screen.print((pid > 1).toStr + " " + (b - a < 200).toStr + " " + (a > sys.clock.now * 1000 - 2000).toStr)\n  sys.screen.print(sys.programs.status("sh", ["-c", "kill -0 " + pid.toStr]))\n  p = "s" + "h"\n  q = "ech" + "o"\n  sys.programs.start(p, [])\n  sys.programs.start(q, [])\n}\n' > "$TMP/mod/start.smplr"
+stout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run start.smplr 2>&1 | tr '\n' '~' )"
+if [ "$stout" = 'Aå€😀||8364 97~1 1 1~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

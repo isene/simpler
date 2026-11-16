@@ -305,7 +305,7 @@ main(sys) {
   sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a / b; }")
   sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a % b; }")
   sys.screen.print("long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; char* r = (char*)malloc(2); r[0] = p[i]; r[1] = 0; return (long)(intptr_t)r; }")
-  sys.screen.print("long s_code(long s) { return (long)(unsigned char)((const char*)(intptr_t)s)[0]; }")
+  sys.screen.print("long s_code(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long c = p[0]; int n = c >= 240 ? 3 : c >= 224 ? 2 : c >= 192 ? 1 : 0; long v = c & (63 >> n); for (int k = 1; k <= n; k++) { if ((p[k] & 192) != 128) return c; v = (v << 6) | (p[k] & 63); } return n ? v : c; }")
   sys.screen.print("long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; if (b < a) b = a; long n = b - a; char* r = (char*)malloc(n + 1); for (long k = 0; k < n; k++) r[k] = p[a + k]; r[n] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
   sys.screen.print("long s_eq(long a, long b) { return strcmp((const char*)(intptr_t)a, (const char*)(intptr_t)b) == 0; }")
@@ -492,6 +492,9 @@ main(sys) {
   sys.screen.print("long simpler_try(long name, long args, long line) { int code = 0; simpler_quiet = 1; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, 0); simpler_quiet = 0; return code == 0 ? out : (long)(intptr_t)\"\"; }")
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
   sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }")
+  sys.screen.print("long i_char(long n) { char* o = (char*)malloc(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }")
+  sys.screen.print("long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }")
+  sys.screen.print("long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }")
   sys.screen.print("static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
   sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }")
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
@@ -964,7 +967,7 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if fld == "args" {
     whatAdd(w, "args", "reads the command line", fn)
   }
-  if fld == "now" {
+  if (fld == "now") || (fld == "millis") {
     whatAdd(w, "clock", "reads the time", fn)
   }
   if fld == "term" {
@@ -1008,7 +1011,7 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     if name == "send" {
       whatAdd(w, "mail", "sends to ".concat(whatPath(args.at(0)).replace("a path", "an address")), fn)
     }
-    if (name == "run") || (name == "status") || (name == "try") || (name == "feed") {
+    if (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") {
       whatAdd(w, "program", "runs ".concat(whatPath(args.at(0))), fn)
     }
     if (name == "fetch") || (name == "reach") || (name == "fetchWith") {
@@ -3335,7 +3338,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if (name == "print") || (name == "part") || (name == "fetchWith") || (name == "readBytes") || (name == "writeBytes") {
     used.push("IO")
   }
-  if (name == "send") || (name == "run") || (name == "status") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "reach") {
+  if (name == "send") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "reach") {
     used.push("IO")
   }
   if name == "read" {
@@ -4092,6 +4095,18 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
       }
       r = "simpler_now()"
     }
+    if fld == "millis" {
+      if t != "Clock" {
+        failAt(".millis needs a Clock handed down from main, got ".concat(capShow(t)), ctx)
+      }
+      r = "simpler_millis()"
+    }
+    if (fld == "char") || (fld == "char_c") {
+      if t != "Int" {
+        failAt(".char turns a number into its character and needs an Int, got ".concat(capShow(t)), ctx)
+      }
+      r = "i_char(".concat(recvC).concat(")")
+    }
     if fld == "keys" {
       r = "m_keys(".concat(recvC).concat(")")
     }
@@ -4119,7 +4134,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "bytes").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "bytes").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(fld == "millis").or(fld == "char").or(fld == "char_c").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -4177,7 +4192,7 @@ capNeed(name : Str) : Str {
   if name == "send" {
     r = "Mail"
   }
-  if (name == "run") || (name == "status") || (name == "try") || (name == "feed") {
+  if (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") {
     r = "Programs"
   }
   if (name == "fetch") || (name == "post") || (name == "reach") || (name == "fetchWith") {
@@ -4371,7 +4386,7 @@ methodArgs(name : Str) : Int {
   if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
-  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
+  if (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
     r = 2
   }
   if (name == "feed") || (name == "send") {
@@ -4429,7 +4444,7 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "push" {
     r = "l_push(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
-  if (name == "run") || (name == "status") || (name == "try") {
+  if (name == "run") || (name == "status") || (name == "start") || (name == "try") {
     runCheck(args.at(0), ctx)
     wantType(args.at(0), "Str", name, ctx)
     wantType(args.at(1), "List[Str]", name, ctx)
@@ -4773,7 +4788,7 @@ matchType(scrut : Expr, arms : List[Arm], ctx : Ctx) : Str !Mut {
 fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   t = exprType(recv, ctx)
   r = "Int"
-  if fld == "toStr" {
+  if (fld == "toStr") || (fld == "char") || (fld == "char_c") {
     r = "Str"
   }
   if fld == "toFloat" {

@@ -261,7 +261,7 @@ arguments. Dispatch is by the receiver's static type.
 |------|--------|---------|
 | `s.length` | `Int` | number of bytes |
 | `s.at(i)` | `Str` | one-character string at `i` |
-| `s.code` | `Int` | byte value of the first character |
+| `s.code` | `Int` | number of the first character (its Unicode number when the text starts with a whole UTF-8 character, else the byte) |
 | `s.slice(a, b)` | `Str` | substring `[a, b)` |
 | `s.trim` | `Str` | strip leading/trailing whitespace (space, tab, CR, LF) |
 | `s.concat(t)` | `Str` | `s` followed by `t` (also `s + t`) |
@@ -291,7 +291,7 @@ arguments. Dispatch is by the receiver's static type.
 | `s.toFloat` | `Float` | parse (0 if not a number) |
 | `s == t` | `Bool` | equality |
 
-**`Int`**: `n.toStr` (`Str`), `n.toFloat` (`Float`), arithmetic and ordering.
+**`Int`**: `n.toStr` (`Str`), `n.char` (`Str`, the character with that Unicode number as UTF-8; "" for 0 or a number out of range), `n.toFloat` (`Float`), arithmetic and ordering.
 (The older method forms `n.mod(m)`, `n.ge(m)`, `n.le(m)`, `b.and(c)` and
 `b.or(c)` still compile; write the operators.)
 
@@ -372,12 +372,14 @@ nothing at runtime.
 | `sys.programs.feed(name, args, text)` | `Str` | `!IO` | like `run`, with `text` as the program's standard input |
 | `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
 | `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
+| `sys.programs.start(name, args)` | `Int` | `!IO` | start it without waiting, in a session of its own with no input, and give its process number (-1 if it could not start); the name obeys `runs` |
 | `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
 | `sys.net.fetchWith(url, headers)` | `Str` | `!IO` | like `fetch`, with a `List[Str]` of header lines such as `"X-Key: abc"` (at most 16, one line each) |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
 | `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
 | `sys.mail.send(to, subject, body)` | `Int` | `!IO` | send one mail through the machine's `sendmail` (or the program named in the variable `SIMPLER_SENDMAIL`); `to` is one address on the `mails` line, or one that a `"*@example.com"` entry on it covers; the program stops when the address is not allowed or the mail could not be handed over |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
+| `sys.clock.millis` | `Int` | — | thousandths of a second since 1970 |
 | `sys.clock.date(secs)` | `Str` | — | local time as `2026-11-15 19:40:02` |
 | `sys.clock.dateAs(secs, pattern)` | `Str` | — | the time as text in a `strftime` pattern, such as `"%a %d %b %H:%M"`, in local time |
 | `sys.clock.secsOf(text)` | `Int` | — | seconds from a date text: `2026-01-31`, `2026-01-31 12:00`, `2026-01-31T12:00:00Z` or with `+01:00`; local time when no zone is given; `0` when the text is no date |

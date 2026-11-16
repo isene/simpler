@@ -130,7 +130,7 @@ main(sys) {
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()`.
 - Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
   anything else stays as it is. A character is a one-letter text: `s.at(i)`. Compare characters as text:
-  `c >= "a" && c <= "z"`. The number of a character is `c.code`; a number has no `.code`.
+  `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!x` for not.
 - `+` adds two numbers or joins two texts, never one of each: write `"n = " + n.toStr`.
 - Loops: `for x in xs { }`, `for i in 0..n { }` (0 up to n - 1), `for i in 1..=n { }` (1 up to n) and
@@ -162,14 +162,15 @@ main(sys) {
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
-  and lets it print to the screen;
+  and lets it print to the screen; `sys.programs.start("mpv", [file])` starts it, does not wait,
+  and gives its process number;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
 - The web: `sys.net.fetch(url)` gives the body, `sys.net.fetchWith(url, ["X-Key: abc"])` the same
   with headers, `sys.net.post(url, body)` sends; all stop the
   program on failure, so ask first with `sys.net.reach(url)` (the status, 0 if nothing answers) when a
   miss is expected. The top names each
-  host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.date(secs)` (text),
+  host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
