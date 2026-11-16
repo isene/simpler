@@ -1742,6 +1742,30 @@ if [ "$tryout" = 'try.smplr:6: this program may not run "ls"; add it to the runs
     if [ "$tryout" = '[hi]|[]|[]|' ]; then ok; else nope "try (got: $tryout)"; fi
 else nope "try obeys the runs line (got: $tryout)"; fi
 
+# The kernel lock: a shell the program runs cannot leave what the top lines name.
+if grep -q landlock /sys/kernel/security/lsm 2>/dev/null; then
+    mkdir -p "$TMP/lockt/box" "$TMP/lockt/pub"; echo secret > "$TMP/lockt/outside.txt"; echo hello > "$TMP/lockt/pub/in.txt"
+    cat > "$TMP/lockt/lock.smplr" <<'LOCKT'
+reads "pub/"
+writes "box/"
+runs "sh"
+main(sys) {
+  cmd = ["echo x > box/ok.txt", "cat pub/in.txt", "echo x > evil.txt", "cat outside.txt", "echo x > pub/in.txt", "rm outside.txt", "mv box/ok.txt moved.txt", "ls ..", "kill -0 " + sys.args.at(0), "cat /proc/1/cmdline"]
+  out = ""
+  for c in cmd {
+    r = "n"
+    if sys.programs.status("sh", ["-c", "( " + c + " ) >/dev/null 2>&1"]) == 0 {
+      r = "y"
+    }
+    out = out + r
+  }
+  sys.screen.print(out)
+}
+LOCKT
+    lockout="$( cd "$TMP/lockt" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run lock.smplr $$ 2>&1 )"
+    if [ "$lockout" = "yynnnnnnnn" ] && [ "$(cat "$TMP/lockt/outside.txt")" = secret ] && [ ! -e "$TMP/lockt/evil.txt" ]; then ok; else nope "the kernel lock (got: $lockout)"; fi
+else ok; fi
+
 # Print with no line end, date texts, the home folder, and a fetch with headers.
 mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"
 printf '#!/bin/sh\nfor a in "$@"; do printf "%%s," "$a"; done\nprintf "\\n200"\n' > "$TMP/fakebin/curl"; chmod +x "$TMP/fakebin/curl"

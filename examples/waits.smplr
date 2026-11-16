@@ -1,4 +1,5 @@
 reads "/tmp/"
+writes "/tmp/simpler-waits-test"
 runs "sh"
 
 // A program waits in the kernel: for a time, for a file change, for a line.

@@ -442,6 +442,25 @@ it is used, and the program stops if the line does not allow it (a path with
 the program stops with `a link leads out of "data/"`. A path that starts with `~/` is under the home folder, in a top line and in the program alike. A file named one by one at the top is opened as it is. Under `/sys` and `/proc` a link may lead elsewhere in the same tree, since the kernel makes those links. A program with no `reads` and no
 `writes` line cannot touch any file.
 
+**The kernel keeps the same list.** On Linux 5.13 or newer a built program hands
+its top lines to the kernel (Landlock) before `main` starts. From then on the
+kernel refuses any other file, for the program and for every program it starts.
+So `runs "sh"` gives a shell that can read and write only what the top lines name.
+
+- A `reads` name may be read, a `writes` name may be written, made and removed.
+  A file that only a started program writes is named in `writes` too.
+- With a `runs` or `fetches` line the system folders (`/usr`, `/bin`, `/lib`,
+  `/etc` and the like) may be read and run, and nothing in the home folder.
+- With no `fetches` line no program in the tree can open a TCP connection
+  (Linux 6.7). With one, the kernel lets the net through, and the host check
+  stays with `sys.net`: a started program could reach any host.
+- No program in the tree can become root, or signal a program outside it (Linux 6.12).
+- Mail is handed to a helper that starts before the lock. It checks the address
+  again and runs the mail program, which needs its own settings files.
+- A name with a `*` opens its folder in the kernel; the exact check stays in the program.
+- A single file named in `writes` cannot be removed or renamed; name its folder for that.
+- On an older kernel, or another system, the checks in the program are all there is.
+
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
 function that was handed only a `Screen` cannot read files. The compiler
 enforces it: `.print` compiles only on a `Screen`, the file calls only on a
