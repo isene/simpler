@@ -2866,6 +2866,34 @@ isHanded(s : Str, ctx : Ctx) : Bool {
   hasName(ctx.env.names, "__h__".concat(s))
 }
 
+// A list or map of the function's own that had a handed value put in: adding to it changes
+// nothing the caller has, but what it holds may be the caller's. The env keeps them as __i__<name>.
+isHolding(s : Str, ctx : Ctx) : Bool {
+  hasName(ctx.env.names, "__i__".concat(s))
+}
+
+setHolding(s : Str, ctx : Ctx) : Int !Mut {
+  if (s == "").not && isHolding(s, ctx).not && isHanded(s, ctx).not {
+    envPut(ctx.env, "__i__".concat(s), "1")
+  }
+  0
+}
+
+holding(e : Expr, ctx : Ctx) : Bool {
+  r = rootVar(e)
+  (r == "").not && isHolding(r, ctx)
+}
+
+anyHolding(es : List[Expr], ctx : Ctx) : Bool !Mut {
+  r = false
+  es.each { x in
+    if holding(x, ctx) || listHolds(x, ctx) {
+      r = true
+    }
+  }
+  r
+}
+
 setHanded(s : Str, ctx : Ctx) : Int !Mut {
   if isHanded(s, ctx).not {
     envPut(ctx.env, "__h__".concat(s), "1")
@@ -2910,8 +2938,8 @@ handed(e : Expr, ctx : Ctx) : Bool !Mut {
   e.match {
     Var(s) -> isHanded(s, ctx)
     Field(recv, fld) -> handedField(recv, fld, ctx)
-    Method(recv, name, args) -> ((name == "at").or(name == "get")).and(handed(recv, ctx))
-    ListLit(es) -> anyHanded(es, ctx)
+    Method(recv, name, args) -> ((name == "at").or(name == "get")).and(handed(recv, ctx) || holding(recv, ctx))
+    ListLit(es) -> false
     Call(name, args) -> callHanded(name, args, ctx)
     Match(scrut, arms) -> armsHanded(scrut, arms, ctx)
     Bin(op, a, b) -> false
@@ -3270,9 +3298,29 @@ markStmt(s : Stmt, ctx : Ctx) : Int !Mut {
   }
 }
 
+// `[a, b]` with a handed value in it is a new list that holds the caller's.
+listHolds(e : Expr, ctx : Ctx) : Bool !Mut {
+  e.match {
+    ListLit(es) -> anyHanded(es, ctx) || anyHolding(es, ctx)
+    Var(s) -> false
+    Field(recv, fld) -> false
+    Method(recv, name, args) -> false
+    Call(name, args) -> false
+    Match(scrut, arms) -> false
+    Bin(op, a, b) -> false
+    Each(recv, param, body) -> false
+    Num(v) -> false
+    FloatLit(s) -> false
+    StrLit(s) -> false
+  }
+}
+
 markLet(name : Str, e : Expr, ctx : Ctx) : Int !Mut {
   if handed(e, ctx) {
     setHanded(name, ctx)
+  }
+  if holding(e, ctx) || listHolds(e, ctx) {
+    setHolding(name, ctx)
   }
   markExpr(e, ctx)
 }
@@ -3302,7 +3350,7 @@ markAll(es : List[Expr], ctx : Ctx) : Int !Mut {
 
 markEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
   et = loopItem(exprType(recv, ctx))
-  if handed(recv, ctx) && plainType(et).not {
+  if (handed(recv, ctx) || holding(recv, ctx)) && plainType(et).not {
     setHanded(param, ctx)
   }
   markExpr(recv, ctx)
@@ -3313,7 +3361,7 @@ markEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Int !Mut {
 }
 
 markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
-  h = handed(scrut, ctx)
+  h = handed(scrut, ctx) || holding(scrut, ctx)
   markExpr(scrut, ctx)
   styp = exprType(scrut, ctx)
   arms.each { a in
@@ -3335,8 +3383,8 @@ markMatch(scrut : Expr, arms : List[Arm], ctx : Ctx) : Int !Mut {
 markMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
   if (name == "push") || (name == "set") || (name == "remove") {
     root = rootVar(recv)
-    if anyHanded(args, ctx) && (root == "").not {
-      setHanded(root, ctx)
+    if anyHanded(args, ctx) || anyHolding(args, ctx) {
+      setHolding(root, ctx)
     }
   }
   markExpr(recv, ctx)
@@ -3667,6 +3715,10 @@ emitCall(name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
 }
 
 emitMethod(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  // `s.slice(a)` runs to the end
+  if (name == "slice") && (args.length == 1) {
+    return emitMethod(recv, name, [args.at(0), Field(recv, "length")], ctx)
+  }
   if (name == "and") || (name == "or") {
     return emitMethod0(recv, name, args, ctx)
   }

@@ -1848,6 +1848,35 @@ SMPLR
 wideout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run wide.smplr 2>&1 )"
 if [ "$wideout" = '1 f5 g28' ]; then ok; else nope "a case with four and eight values (got: $wideout)"; fi
 
+# A new list that holds the caller's rows may grow without !Mut; a change to a
+# row inside it still needs !Mut. slice with one value runs to the end.
+cat > "$TMP/mod/hold1.smplr" <<'SMPLR'
+f(rows : List[List[Str]]) : List[List[Str]] {
+  out : List[List[Str]] = []
+  for i in 0..rows.length {
+    out.push(rows.at(i))
+  }
+  two = [rows.at(0)]
+  two.push(["own"])
+  out.remove(0)
+  out
+}
+main(sys) {
+  a : List[List[Str]] = [["x"], ["y"]]
+  sys.screen.print(f(a).length.toStr + " " + a.length.toStr + " " + "hello".slice(2) + "|" + "blå".slice(3) + "|")
+}
+SMPLR
+hold1="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run hold1.smplr 2>&1 )"
+if [ "$hold1" = '1 2 llo||' ]; then ok; else nope "a new list of handed rows needs no !Mut (got: $hold1)"; fi
+for body in 'out.at(0).push("z")' 'for r in out { r.push("z") }' 'two = out
+  two.at(0).set(0, "q")' 'tmp : List[List[List[Str]]] = []
+  tmp.push([rows.at(0)])
+  tmp.at(0).at(0).push("z")'; do
+  printf 'f(rows : List[List[Str]]) : List[List[Str]] {\n  out = [rows.at(0)]\n  %s\n  out\n}\nmain(sys) {\n  a : List[List[Str]] = [["x"]]\n  sys.screen.print(f(a).length.toStr)\n}\n' "$body" > "$TMP/mod/hold2.smplr"
+  hold2="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run hold2.smplr 2>&1 )"
+  if [ "$hold2" = 'hold2.smplr:1: f changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "a change to a handed row inside a new list needs !Mut (got: $hold2)"; fi
+done
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

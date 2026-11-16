@@ -266,7 +266,7 @@ arguments. Dispatch is by the receiver's static type.
 | `s.length` | `Int` | number of letters (`"blå".length` is 3); `at`, `slice`, `find` and the pads count the same way |
 | `s.at(i)` | `Str` | one-character string at `i` |
 | `s.code` | `Int` | number of the first character (its Unicode number when the text starts with a whole UTF-8 character, else the byte) |
-| `s.slice(a, b)` | `Str` | substring `[a, b)` |
+| `s.slice(a, b)`, `s.slice(a)` | `Str` | substring `[a, b)`; with one value, from `a` to the end |
 | `s.trim` | `Str` | strip leading/trailing whitespace (space, tab, CR, LF) |
 | `s.concat(t)` | `Str` | `s` followed by `t` (also `s + t`) |
 | `s.startsWith(t)`, `s.endsWith(t)` | `Bool` | does `s` begin or end with `t` |

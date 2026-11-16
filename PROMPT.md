@@ -187,7 +187,7 @@ main(sys) {
 
 ## Every method there is
 
-- Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
+- Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)` (from `a` up to `b`, not counting `b`; `s.slice(a)` runs to the end), `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
