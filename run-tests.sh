@@ -1831,6 +1831,23 @@ SMPLR
 mapout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run maps.smplr 2>&1 | tr '\n' '~' )"
 if [ "$mapout" = 'maps.smplr:33: the map has no key "two"; ask .has(key) first~1249975063 50000 k49999 0 k49999~b[]~3 list of 2 3~' ]; then ok; else nope "maps: hash, own types, missing key (got: $mapout)"; fi
 
+# A variant case holds up to eight values; four used to give C that did not compile.
+cat > "$TMP/mod/wide.smplr" <<'SMPLR'
+K = type { A(Int) F(Str, Int, Int, List[Int]) G(Int, Int, Int, Int, Int, Int, Int, Str) }
+show(k : K) : Str {
+  k.match {
+    A(n) -> n.toStr
+    F(s, a, b, xs) -> s + (a + b + xs.length).toStr
+    G(a, b, c, d, e, f, g, h) -> h + (a + b + c + d + e + f + g).toStr
+  }
+}
+main(sys) {
+  sys.screen.print(show(A(1)) + " " + show(F("f", 1, 2, [7, 8])) + " " + show(G(1, 2, 3, 4, 5, 6, 7, "g")))
+}
+SMPLR
+wideout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run wide.smplr 2>&1 )"
+if [ "$wideout" = '1 f5 g28' ]; then ok; else nope "a case with four and eight values (got: $wideout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

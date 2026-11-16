@@ -146,7 +146,7 @@ main(sys) {
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
   `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value. An arm is
-  one expression; call a function when it needs more.
+  one expression; call a function when it needs more. A case holds at most 8 values.
 - A type may hold lists, maps, other types and itself. A tree is a variant that holds itself:
   `Expr = type { Num(Int) Name(Str) Add(Expr, Expr) Call(Str, List[Expr]) }`. Keep data with a shape
   (a tree, a table, a list of things with several fields) in types such as these, never packed into texts.

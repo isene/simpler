@@ -281,8 +281,9 @@ main(sys) {
   }
   sys.screen.print(fl.concat("0};"))
   sys.screen.print("static const char* simpler_at(long line) { static char b[300]; snprintf(b, sizeof b, \"%s:%ld\", simpler_fl[line / 1000000], line % 1000000); return b; }")
-  sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; } Obj;")
-  sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
+  sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; long v3; long v4; long v5; long v6; long v7; } Obj;")
+  sys.screen.print("long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(4 * sizeof(long)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }")
+  sys.screen.print("long mk8(int tag, long v0, long v1, long v2, long v3, long v4, long v5, long v6, long v7) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; o->v3 = v3; o->v4 = v4; o->v5 = v5; o->v6 = v6; o->v7 = v7; return (long)(intptr_t)o; }")
   sys.screen.print("typedef struct { long* data; long len; long cap; } SList;")
   sys.screen.print("long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }")
   sys.screen.print("long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }")
@@ -1981,7 +1982,14 @@ emitBoxedType(t : TyDef) : Str {
   while k < m {
     cn = t.cases.at(k).cname
     ar = t.cases.at(k).arity
-    out = out.concat("\nlong ").concat(cn).concat("(").concat(ctorParams(ar)).concat(") { return mk(T_").concat(cn).concat(", ").concat(ctorArgs(ar)).concat("); }")
+    if ar > 8 {
+      fail("the case ".concat(cn).concat(" holds ").concat(ar.toStr).concat(" values; a case holds at most 8, so put them in a record"))
+    }
+    mkName = "mk"
+    if ar > 3 {
+      mkName = "mk8"
+    }
+    out = out.concat("\nlong ").concat(cn).concat("(").concat(ctorParams(ar)).concat(") { return ").concat(mkName).concat("(T_").concat(cn).concat(", ").concat(ctorArgs(ar)).concat("); }")
     k = k + 1
   }
   out
@@ -2053,7 +2061,11 @@ ctorParams(arity : Int) : Str {
 ctorArgs(arity : Int) : Str {
   out = ""
   k = 0
-  while k < 3 {
+  top = 3
+  if arity > 3 {
+    top = 8
+  }
+  while k < top {
     if k > 0 {
       out = out.concat(", ")
     }
