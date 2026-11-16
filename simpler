@@ -3,7 +3,9 @@
 #
 #   simpler run prog.smplr [arguments]   compile and run it
 #   simpler run --dry prog.smplr [args]  run it, but only say what it would write, delete, start, fetch or mail
+#   simpler run https://...              fetch a program, show what it can touch, ask once, then run it
 #   simpler undo prog.smplr              put back the files its last run wrote, changed or deleted
+#   simpler replay [--show] prog.smplr   run its last failed run again with the same input (--show prints the input)
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
 #   simpler trusted prog.smplr [args]    succeed when all it can touch is inside ~/.config/simpler/trust
@@ -20,7 +22,7 @@ while [ -L "$self" ]; do
 done
 home=$(cd "$(dirname "$self")" && pwd)
 
-usage() { sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,14p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The compiler: next to this script after an install, or built in the repo.
 compiler() {
@@ -163,6 +165,10 @@ case $cmd in
         done
         exit ;;
     undo) SIMPLER_UNDO=1; export SIMPLER_UNDO; cmd=run ;;
+    replay)
+        SIMPLER_REPLAY=1
+        [ "$1" = --show ] && { SIMPLER_REPLAY=show; shift; }
+        export SIMPLER_REPLAY; cmd=run ;;
     run|build|what|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
@@ -170,8 +176,34 @@ if [ "$cmd" = run ] && [ "$1" = --dry ]; then SIMPLER_DRY=1; export SIMPLER_DRY;
 [ $# -gt 0 ] || usage 2 >&2
 file=$1
 shift
-shown=$(show_name "$file")
 cc_simpler=$(compiler)
+
+# A program from a link: fetched each time, and run only after its owner has
+# seen what it can touch and said yes. The yes is kept for that exact text, so
+# a changed program asks again. The answer is read from the terminal, so a
+# program or an AI cannot give it.
+case $file in
+    https://*)
+        [ "$cmd" = run ] || { echo "simpler: a link can only be run" >&2; exit 2; }
+        link=$file
+        links=${XDG_CACHE_HOME:-$HOME/.cache}/simpler/links
+        mkdir -p "$links"
+        file=$links/$(printf '%s' "$link" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-16).smplr
+        curl -fsSL --max-time 30 -o "$file.new" -- "$link" || { echo "simpler: could not fetch $link" >&2; exit 1; }
+        mv "$file.new" "$file"
+        seen=${XDG_STATE_HOME:-$HOME/.local/state}/simpler/ok/$({ sha256sum 2>/dev/null || shasum -a 256; } < "$file" | cut -c1-32)
+        if [ ! -e "$seen" ]; then
+            echo "$link"
+            "$self" what "$file" || exit 1
+            grep -q landlock /sys/kernel/security/lsm 2>/dev/null || echo "Mind: this kernel cannot hold the programs it starts to that list."
+            printf 'Run it? [y/N] '
+            ans=n
+            { read -r ans < /dev/tty; } 2>/dev/null || ans=n
+            case $ans in y|Y|yes) mkdir -p "$(dirname "$seen")"; : > "$seen" ;; *) echo "simpler: not run" >&2; exit 1 ;; esac
+        fi ;;
+    http://*) echo "simpler: only an https link is run" >&2; exit 2 ;;
+esac
+shown=$(show_name "$file")
 
 case $cmd in
     trusted)

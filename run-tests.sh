@@ -1824,8 +1824,8 @@ dryout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cac
 if [ "$dryout" = 'would write "box/a.txt"|would run sh -c echo hi|done|would append to "box/a.txt"|would delete "box/a.txt"|would rename "box/a.txt" to "box/b.txt"|would fetch "https://example.com/"|would mail "me@example.com" with subject "hello"|0' ]; then ok; else nope "dry run (got: $dryout)"; fi
 
 # A limits line stops a program that spins or eats memory.
-printf 'limits "1s", "64MB"\nmain(sys) {\n  n = 0\n  while true {\n    n = n + 1\n  }\n}\n' > "$TMP/ex/spin.smplr"
-printf 'limits "5s", "64MB"\nmain(sys) {\n  xs : List[Str] = []\n  while true {\n    xs.push("0123456789012345678901234567890123456789".concat(xs.length.toStr))\n  }\n}\n' > "$TMP/ex/eat.smplr"
+printf 'limits "1s", "64MB"\nmain(sys) {\n  n = 0\n  while n >= 0 {\n    n = n + 1\n    if n > 1000 {\n      n = 0\n    }\n  }\n}\n' > "$TMP/ex/spin.smplr"
+printf 'limits "5s", "64MB"\nmain(sys) {\n  xs : List[Str] = []\n  while xs.length >= 0 {\n    xs.push("0123456789012345678901234567890123456789".concat(xs.length.toStr))\n  }\n}\n' > "$TMP/ex/eat.smplr"
 printf 'limits "soon"\nmain(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/ex/badl.smplr"
 limout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; for f in spin eat badl; do "$OLDPWD/simpler" run $f.smplr >/dev/null 2>&1; printf '%s ' $?; done )"
 if [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
@@ -1847,6 +1847,28 @@ UNT
 unout="$( cd "$TMP/un" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" XDG_STATE_HOME="$TMP/state"; "$OLDPWD/simpler" run und.smplr; cat box/a.txt box/log.txt | tr '\n' '|'; ls box | tr '\n' ' '; "$OLDPWD/simpler" undo und.smplr | wc -l; cat box/a.txt box/log.txt box/del.txt box/mv.txt | tr '\n' '|'; ls box . | tr '\n' ' '; "$OLDPWD/simpler" undo und.smplr )"
 if [ "$unout" = "newer a|old log|more|a.txt fresh.txt log.txt moved.txt 7
 old a|old log|gone|move|.: box und.smplr  box: a.txt del.txt log.txt mv.txt nothing to undo" ]; then ok; else nope "simpler undo (got: $unout)"; fi
+
+# A loop that never ends and never waits is refused; one that waits or leaves is not.
+printf 'main(sys) {\n  n = 0\n  while true {\n    n = n + 1\n  }\n}\n' > "$TMP/ex/busy.smplr"
+printf 'main(sys) {\n  n = 0\n  while true {\n    n = n + 1\n    if n > 5 {\n      break\n    }\n  }\n  while true {\n    l = sys.stdinLine\n    if l == "" {\n      break\n    }\n  }\n  sys.screen.print("ok")\n}\n' > "$TMP/ex/calm.smplr"
+busyout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run busy.smplr 2>&1 | cut -c1-55; "$OLDPWD/simpler" run calm.smplr </dev/null 2>&1 )"
+if [ "$busyout" = "$(printf 'busy.smplr:3: this loop never ends and never waits, so \nok')" ]; then ok; else nope "the loop that never waits (got: $busyout)"; fi
+
+# A failed run is kept with its arguments and input, and simpler replay runs it again.
+printf 'main(sys) {\n  for l in sys.stdin.split("\\n") {\n    if l.trim.length > 0 {\n      sys.screen.print(l.trim.toInt * sys.args.at(0).toInt)\n    }\n  }\n}\n' > "$TMP/ex/rp.smplr"
+rpout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" XDG_STATE_HOME="$TMP/state"; "$OLDPWD/simpler" replay rp.smplr 2>&1; printf '2\nx3\n' | "$OLDPWD/simpler" run rp.smplr 10 >/dev/null 2>&1; printf '4\n' | "$OLDPWD/simpler" run rp.smplr 10; "$OLDPWD/simpler" replay --show rp.smplr; "$OLDPWD/simpler" replay rp.smplr 2>&1 )"
+if [ "$rpout" = "$(printf 'simpler: no failed run is kept for this program\n40\nargument 1: 10\ninput (5 bytes):\n2\nx3\nrp.smplr:4: "x3" is not a whole number; test with .isInt first\n20')" ] || [ "$rpout" = "$(printf 'simpler: no failed run is kept for this program\n40\nargument 1: 10\ninput (5 bytes):\n2\nx3\n20\nrp.smplr:4: "x3" is not a whole number; test with .isInt first')" ]; then ok; else nope "simpler replay (got: $rpout)"; fi
+
+# A program from a link runs only after a yes typed at the terminal, asked once.
+mkdir -p "$TMP/linkbin"
+printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\ncp "$LINKSRC" "$out"\n' > "$TMP/linkbin/curl"; chmod +x "$TMP/linkbin/curl"
+lnout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" XDG_STATE_HOME="$TMP/state" LINKSRC="$TMP/ex/sum.smplr" PATH="$TMP/linkbin:$PATH"; S="$OLDPWD/simpler"
+  setsid "$S" run https://example.com/sum.smplr 5 6 </dev/null 2>&1 | tail -1
+  printf 'n\n' | script -qec "$S run https://example.com/sum.smplr 5 6" /dev/null 2>&1 | tr -d '\r' | tail -1
+  printf 'y\n' | script -qec "$S run https://example.com/sum.smplr 5 6" /dev/null 2>&1 | tr -d '\r' | tail -1
+  setsid "$S" run https://example.com/sum.smplr 5 6 </dev/null 2>&1
+  "$S" run http://example.com/sum.smplr 2>&1 )"
+if [ "$lnout" = "$(printf 'Run it? [y/N] simpler: not run\nRun it? [y/N] simpler: not run\nRun it? [y/N] sum 11\nsum 11\nsimpler: only an https link is run')" ]; then ok; else nope "run from a link (got: $lnout)"; fi
 
 # Print with no line end, date texts, the home folder, and a fetch with headers.
 mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"

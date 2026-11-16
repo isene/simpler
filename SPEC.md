@@ -475,6 +475,21 @@ one that changed a file, under `~/.local/state/simpler/undo/`.
 - The copies are made by a helper outside the kernel lock, so a started
   program cannot change them.
 
+**Replay.** When a program ends with an error, its arguments and the input it
+had read (up to 1 MB) are kept. `simpler replay prog.smplr` runs it again with
+the same arguments and input; `simpler replay --show prog.smplr` prints them,
+ready to hand to whoever fixes the program. One failed run is kept per program.
+
+**A loop must wait or end.** `while true { }` with no `break`, no `return`, no
+call of a function and nothing that waits is refused by the compiler: it would
+keep the processor busy for nothing.
+
+**A program from a link.** `simpler run https://example.com/tool.smplr` fetches
+the program, prints what `simpler what` says about it, and asks `Run it?`. The
+answer is read from the terminal, so no program can give it. A yes is kept for
+that exact text; a changed program asks again. The kernel then holds the
+program to what was shown.
+
 **A dry run.** `simpler run --dry prog.smplr` (or `SIMPLER_DRY=1` with a built
 program) runs the program but does nothing that leaves a mark. Each write,
 append, delete, rename, started program, fetch and mail prints a line such as
