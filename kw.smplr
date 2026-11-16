@@ -1,9 +1,0 @@
-main(sys) {
-  cdecl = 3
-  xs = [1, 2]
-  m = Map()
-  m.set("a", cdecl)
-  d = (0 - cdecl).abs
-  f = 2.5 * cdecl.toFloat
-  sys.screen.print("v " + cdecl.toStr + " " + xs.length.toStr + " " + d.toStr + " " + f.toStr + " " + m.get("a").toStr)
-}
