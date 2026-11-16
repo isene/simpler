@@ -5901,7 +5901,9 @@ cTaken() : List[Str] {
    "BUFSIZ", "DIR", "errno", "RAND_MAX", "EXIT_SUCCESS", "EXIT_FAILURE", "SEEK_SET", "SEEK_CUR", "SEEK_END", "HUGE_VAL", "mk", "l2d",
    "d2l", "argc", "argv", "printf", "fprintf", "sprintf", "snprintf", "malloc", "realloc",
    "free", "exit", "strlen", "strcmp", "strcpy", "strcat", "strstr", "memcpy", "atol", "atof", "qsort", "getchar",
-   "fopen", "fclose", "fputs", "fread", "fseek", "ftell", "pow", "fmod", "ceil", "fabs", "round"]
+   "fopen", "fclose", "fputs", "fread", "fseek", "ftell", "pow", "fmod", "ceil", "fabs", "round",
+   "asm", "typeof", "typeof_unqual", "unix", "linux", "labs", "bool", "intptr_t", "static_assert", "alignof", "alignas",
+   "thread_local", "constexpr", "nullptr"]
 }
 
 safeName(s : Str, taken : List[Str]) : Str {

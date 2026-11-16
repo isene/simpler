@@ -1,0 +1,12 @@
+// Names that C keeps for itself are fine as names here.
+main(sys) {
+  asm = 3
+  typeof = 4
+  unix = 5
+  linux = 6
+  labs = 7
+  bool = 8
+  alignof = 9
+  d = (0 - asm).abs
+  sys.screen.print((asm + typeof + unix + linux + labs + bool + alignof + d).toStr)
+}

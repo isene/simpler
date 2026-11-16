@@ -10117,7 +10117,7 @@ long u_isDigit(long c) {
 }
 long u_cTaken() {
 
-  return l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_new(), (long)(intptr_t)"auto"), (long)(intptr_t)"case"), (long)(intptr_t)"char"), (long)(intptr_t)"const"), (long)(intptr_t)"default"), (long)(intptr_t)"do"), (long)(intptr_t)"double"), (long)(intptr_t)"enum"), (long)(intptr_t)"extern"), (long)(intptr_t)"float"), (long)(intptr_t)"goto"), (long)(intptr_t)"inline"), (long)(intptr_t)"int"), (long)(intptr_t)"long"), (long)(intptr_t)"register"), (long)(intptr_t)"restrict"), (long)(intptr_t)"short"), (long)(intptr_t)"signed"), (long)(intptr_t)"sizeof"), (long)(intptr_t)"static"), (long)(intptr_t)"struct"), (long)(intptr_t)"switch"), (long)(intptr_t)"typedef"), (long)(intptr_t)"union"), (long)(intptr_t)"unsigned"), (long)(intptr_t)"void"), (long)(intptr_t)"volatile"), (long)(intptr_t)"Obj"), (long)(intptr_t)"SList"), (long)(intptr_t)"SMap"), (long)(intptr_t)"FILE"), (long)(intptr_t)"NULL"), (long)(intptr_t)"EOF"), (long)(intptr_t)"NAN"), (long)(intptr_t)"INFINITY"), (long)(intptr_t)"BUFSIZ"), (long)(intptr_t)"DIR"), (long)(intptr_t)"errno"), (long)(intptr_t)"RAND_MAX"), (long)(intptr_t)"EXIT_SUCCESS"), (long)(intptr_t)"EXIT_FAILURE"), (long)(intptr_t)"SEEK_SET"), (long)(intptr_t)"SEEK_CUR"), (long)(intptr_t)"SEEK_END"), (long)(intptr_t)"HUGE_VAL"), (long)(intptr_t)"mk"), (long)(intptr_t)"l2d"), (long)(intptr_t)"d2l"), (long)(intptr_t)"argc"), (long)(intptr_t)"argv"), (long)(intptr_t)"printf"), (long)(intptr_t)"fprintf"), (long)(intptr_t)"sprintf"), (long)(intptr_t)"snprintf"), (long)(intptr_t)"malloc"), (long)(intptr_t)"realloc"), (long)(intptr_t)"free"), (long)(intptr_t)"exit"), (long)(intptr_t)"strlen"), (long)(intptr_t)"strcmp"), (long)(intptr_t)"strcpy"), (long)(intptr_t)"strcat"), (long)(intptr_t)"strstr"), (long)(intptr_t)"memcpy"), (long)(intptr_t)"atol"), (long)(intptr_t)"atof"), (long)(intptr_t)"qsort"), (long)(intptr_t)"getchar"), (long)(intptr_t)"fopen"), (long)(intptr_t)"fclose"), (long)(intptr_t)"fputs"), (long)(intptr_t)"fread"), (long)(intptr_t)"fseek"), (long)(intptr_t)"ftell"), (long)(intptr_t)"pow"), (long)(intptr_t)"fmod"), (long)(intptr_t)"ceil"), (long)(intptr_t)"fabs"), (long)(intptr_t)"round");
+  return l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_with(l_new(), (long)(intptr_t)"auto"), (long)(intptr_t)"case"), (long)(intptr_t)"char"), (long)(intptr_t)"const"), (long)(intptr_t)"default"), (long)(intptr_t)"do"), (long)(intptr_t)"double"), (long)(intptr_t)"enum"), (long)(intptr_t)"extern"), (long)(intptr_t)"float"), (long)(intptr_t)"goto"), (long)(intptr_t)"inline"), (long)(intptr_t)"int"), (long)(intptr_t)"long"), (long)(intptr_t)"register"), (long)(intptr_t)"restrict"), (long)(intptr_t)"short"), (long)(intptr_t)"signed"), (long)(intptr_t)"sizeof"), (long)(intptr_t)"static"), (long)(intptr_t)"struct"), (long)(intptr_t)"switch"), (long)(intptr_t)"typedef"), (long)(intptr_t)"union"), (long)(intptr_t)"unsigned"), (long)(intptr_t)"void"), (long)(intptr_t)"volatile"), (long)(intptr_t)"Obj"), (long)(intptr_t)"SList"), (long)(intptr_t)"SMap"), (long)(intptr_t)"FILE"), (long)(intptr_t)"NULL"), (long)(intptr_t)"EOF"), (long)(intptr_t)"NAN"), (long)(intptr_t)"INFINITY"), (long)(intptr_t)"BUFSIZ"), (long)(intptr_t)"DIR"), (long)(intptr_t)"errno"), (long)(intptr_t)"RAND_MAX"), (long)(intptr_t)"EXIT_SUCCESS"), (long)(intptr_t)"EXIT_FAILURE"), (long)(intptr_t)"SEEK_SET"), (long)(intptr_t)"SEEK_CUR"), (long)(intptr_t)"SEEK_END"), (long)(intptr_t)"HUGE_VAL"), (long)(intptr_t)"mk"), (long)(intptr_t)"l2d"), (long)(intptr_t)"d2l"), (long)(intptr_t)"argc"), (long)(intptr_t)"argv"), (long)(intptr_t)"printf"), (long)(intptr_t)"fprintf"), (long)(intptr_t)"sprintf"), (long)(intptr_t)"snprintf"), (long)(intptr_t)"malloc"), (long)(intptr_t)"realloc"), (long)(intptr_t)"free"), (long)(intptr_t)"exit"), (long)(intptr_t)"strlen"), (long)(intptr_t)"strcmp"), (long)(intptr_t)"strcpy"), (long)(intptr_t)"strcat"), (long)(intptr_t)"strstr"), (long)(intptr_t)"memcpy"), (long)(intptr_t)"atol"), (long)(intptr_t)"atof"), (long)(intptr_t)"qsort"), (long)(intptr_t)"getchar"), (long)(intptr_t)"fopen"), (long)(intptr_t)"fclose"), (long)(intptr_t)"fputs"), (long)(intptr_t)"fread"), (long)(intptr_t)"fseek"), (long)(intptr_t)"ftell"), (long)(intptr_t)"pow"), (long)(intptr_t)"fmod"), (long)(intptr_t)"ceil"), (long)(intptr_t)"fabs"), (long)(intptr_t)"round"), (long)(intptr_t)"asm"), (long)(intptr_t)"typeof"), (long)(intptr_t)"typeof_unqual"), (long)(intptr_t)"unix"), (long)(intptr_t)"linux"), (long)(intptr_t)"labs"), (long)(intptr_t)"bool"), (long)(intptr_t)"intptr_t"), (long)(intptr_t)"static_assert"), (long)(intptr_t)"alignof"), (long)(intptr_t)"alignas"), (long)(intptr_t)"thread_local"), (long)(intptr_t)"constexpr"), (long)(intptr_t)"nullptr");
   return 0;
 }
 long u_safeName(long s, long taken) {
@@ -10132,9 +10132,9 @@ long u_safeName(long s, long taken) {
 
   if ((n > 1L)) {
 
-  c0 = s_code(s_atc(s, 0L, 5911));
+  c0 = s_code(s_atc(s, 0L, 5913));
 
-  c1 = s_code(s_atc(s, 1L, 5912));
+  c1 = s_code(s_atc(s, 1L, 5914));
 
   if (((c0 == 95L) || ((c1 == 95L) && (((((((c0 == 108L) || (c0 == 115L)) || (c0 == 109L)) || (c0 == 105L)) || (c0 == 102L)) || (c0 == 117L)) || (c0 == 84L))))) {
 
@@ -10148,7 +10148,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 3L)) {
 
-  if (s_eq(s_slicec(s, 0L, 4L, 5920), (long)(intptr_t)"cmp_")) {
+  if (s_eq(s_slicec(s, 0L, 4L, 5922), (long)(intptr_t)"cmp_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
@@ -10156,7 +10156,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 7L)) {
 
-  if (s_eq(s_slicec(s, 0L, 8L, 5925), (long)(intptr_t)"simpler_")) {
+  if (s_eq(s_slicec(s, 0L, 8L, 5927), (long)(intptr_t)"simpler_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
