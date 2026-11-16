@@ -181,7 +181,7 @@ main(sys) {
   module only when you were given its page. Three come with simpler: `crust` (panes on a full
   screen), `astro` (sun, moon, planets, stars, eclipses: where, when, how bright) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
   read them by hand; when you were not given its page, answer `NEED: opts`.
-- No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf`, `start`, `var` or `setVar`.
+- A function of yours may have the name of a built-in method (`run`, `print`, `setVar`); call it plainly, as `run(x)`. A call after a dot, `x.run(...)`, is always the built-in.
 - `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with
   that status and prints nothing. A function `test_name() { assert(cond) }`
   is a test; `simpler test` runs them.

@@ -999,7 +999,7 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
 }
 
 whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs : Sigs) : Int !Mut {
-  if hasName(sigs.fnNames, name).not && args.length > 0 {
+  if args.length > 0 {
     if (name == "print") || (name == "part") || (name == "error") {
       whatAdd(w, "screen", "prints", fn)
     }
@@ -3154,11 +3154,6 @@ noType(t : Str) : Str {
 }
 
 checkTypes(prog : Prog, sigs : Sigs) : Int {
-  prog.fns.each { f in
-    if (capNeed(f.name) == "Programs") || (capNeed(f.name) == "Net") || (capNeed(f.name) == "Clock") || (capNeed(f.name) == "Env") {
-      fail(spot(sigs.files, f.line).concat(f.name).concat(" is the name of a built-in method; give this function another name"))
-    }
-  }
   prog.records.each { r in
     r.ftypes.each { t in
       if typeKnown(t, sigs).not {
@@ -4444,11 +4439,9 @@ capNeed(name : Str) : Str {
 checkCap(recv : Expr, name : Str, ctx : Ctx) : Int !Mut {
   need = capNeed(name)
   if (need == "").not {
-    if hasName(ctx.sigs.fnNames, name).not {
-      t = exprType(recv, ctx)
-      if (t == need).not {
-        failAt(".".concat(name).concat(" needs a ").concat(need).concat(" handed down from main, got ").concat(capShow(t)), ctx)
-      }
+    t = exprType(recv, ctx)
+    if (t == need).not {
+      failAt(".".concat(name).concat(" needs a ").concat(need).concat(" handed down from main, got ").concat(capShow(t)), ctx)
     }
   }
   0
@@ -4506,7 +4499,7 @@ isTextMethod(name : Str) : Bool {
 
 // A method must exist on its receiver, and `at` / `push` take the right type.
 checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
-  if hasName(ctx.sigs.fnNames, name).not {
+  if true {
     if isNumType(t) && isTextMethod(name) {
       failAt(t.concat(" has no method ").concat(name), ctx)
     }
@@ -4667,7 +4660,7 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if (args.length == want).not {
     failAt(name.concat(" takes ").concat(want.toStr).concat(" values, got ").concat(args.length.toStr), ctx)
   }
-  if name == "print" && hasName(ctx.sigs.fnNames, name).not {
+  if name == "print" {
     if exprType(args.at(0), ctx) == "Bytes" {
       failAt("Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx)
     }
@@ -4718,7 +4711,7 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     wantType(args.at(0), "Str", name, ctx)
     r = "simpler_reach(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
   }
-  if name == "send" && hasName(ctx.sigs.fnNames, name).not {
+  if name == "send" {
     mailCheck(args.at(0), ctx)
     wantType(args.at(0), "Str", name, ctx)
     wantType(args.at(1), "Str", name, ctx)
@@ -4749,11 +4742,11 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     wantType(args.at(0), "Str", name, ctx)
     r = "simpler_secs(".concat(emitExpr(args.at(0), ctx)).concat(")")
   }
-  if name == "error" && hasName(ctx.sigs.fnNames, name).not {
+  if name == "error" {
     wantType(args.at(0), "Str", name, ctx)
     r = "(fflush(stdout), fputs((const char*)(intptr_t)".concat(emitExpr(args.at(0), ctx)).concat(", stderr), fputc(10, stderr), 0L)")
   }
-  if name == "part" && hasName(ctx.sigs.fnNames, name).not {
+  if name == "part" {
     wantType(args.at(0), "Str", name, ctx)
     r = "(fputs((const char*)(intptr_t)".concat(emitExpr(args.at(0), ctx)).concat(", stdout), 0L)")
   }

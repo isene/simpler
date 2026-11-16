@@ -1,0 +1,26 @@
+St = type { n : Int }
+setVar(st : St, k : Str, v : Int) : Int !Mut {
+  st.n = v
+  0
+}
+run(a : Int) : Int {
+  a * 2
+}
+start(a : Int, b : Int) : Int {
+  a + b
+}
+print(a : Int) : Int {
+  a + 100
+}
+date(a : Int) : Int {
+  a
+}
+main(sys) {
+  st = St(n = 1)
+  setVar(st, "x", 9)
+  sys.screen.print(st.n)
+  sys.screen.print(run(4))
+  sys.screen.print(start(1, 2))
+  sys.screen.print(print(1))
+  sys.screen.print(date(7))
+}

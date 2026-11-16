@@ -56,6 +56,7 @@ check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\nt
 check_run m5e   "20"
 check_run m6    "15"
 check_run emptylist "$(printf '1\n0')"
+check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
 lout="$(run_smplr selfhost/lexer.smplr)"
@@ -310,6 +311,20 @@ refused "file read through a Screen" "read needs a Files" 'peek(scr : Screen) : 
 }
 main(sys) {
   sys.screen.print(peek(sys.screen))
+}'
+refused "own function named run, dotted call on an Int" "run needs a Programs" 'run(a : Int) : Int {
+  a
+}
+main(sys) {
+  x = 5
+  sys.screen.print(x.run("ls", ["-l"]))
+}'
+refused "own function named write, dotted call on an Int" "write needs a Files" 'write(a : Int) : Int {
+  a
+}
+main(sys) {
+  x = 5
+  x.write("o.txt", "hi")
 }'
 refused "sys outside main" "exists only on main" 'peek() : Str !IO !Fail {
   sys.files.read("s.txt")
@@ -1079,9 +1094,6 @@ check_err "fetching with no fetches line" \
 check_err "fetching from a host the line does not name" \
     'fetches "example.com"
 main(sys) { sys.net.post("https://example.com@evil.example/x", "a") }' 'this program may not fetch from "example.com@evil.example"'
-check_err "a function named like a built-in method" \
-    'run(n : Int) : Int { n }
-main(sys) { run(1) }' "input.smplr:1: run is the name of a built-in method"
 check_err ".run needs a Programs" \
     'runs "ls"
 go(n : Int) : Str !IO { n.run("ls", []) }
