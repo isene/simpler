@@ -146,7 +146,7 @@ main(sys) {
 - A function that prints or touches files says `!IO` after its return type and gets what it needs as a
   parameter: `out : Screen` or `files : Files`, handed over as `sys.screen` or `sys.files`.
 - Files: `sys.files.read(path)?` (the `?` is required; "" if it cannot be read), `.write(path, text)`,
-  `.append(path, text)`, `.list(dir)` (names, a folder's ends in `/`), `.exists(path)`, `.rename(from, to)`,
+  `.append(path, text)`, `.list(dir)` (names, sorted; a folder's ends in `/`, a link to a folder too, so no other check is needed), `.exists(path)`, `.rename(from, to)`,
   `.delete(path)`. Arguments are `sys.args` (a `List[Str]`).
 - A program that touches files says which, at the top: `reads "a.txt", "data/", "logs/*.log", args` and
   `writes "out/"` (a `*` is any run of characters without a `/`).

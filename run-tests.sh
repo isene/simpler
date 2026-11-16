@@ -1552,13 +1552,19 @@ if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 p
 printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t), 3)\n  crust.frame(t, p, "Hi", "")\n  crust.line(t, crust.inner(p), 0, "in " + crust.inner(p).cols.toStr, "")\n  k = t.key\n  t.stop\n  sys.screen.print("key " + k)\n}\n' > "$TMP/mod/pane.smplr"
 ( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build pane.smplr -o pane 2>&1 )
 crout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./pane' /dev/null 2>/dev/null | tr -d '\r' )"
-if printf '%s' "$crout" | grep -qF '┌──' && printf '%s' "$crout" | grep -qF ' Hi ' && printf '%s' "$crout" | grep -qF 'in 18' && printf '%s' "$crout" | grep -qF 'key x'; then ok; else nope "crust draws a frame (got: $crout)"; fi
+if printf '%s' "$crout" | grep -qF '┌─ Hi ──' && printf '%s' "$crout" | grep -qF 'Hi' && printf '%s' "$crout" | grep -qF 'in 18' && printf '%s' "$crout" | grep -qF 'key x'; then ok; else nope "crust draws a frame (got: $crout)"; fi
 
 # A style may be a colour number, and on with a number for the background.
 printf 'main(sys) {\n  t = sys.term\n  t.put(0, 0, "a", "bold 208 on52")\n  t.put(1, 0, "b", sys.args.at(0))\n  k = t.key\n  t.stop\n}\n' > "$TMP/mod/col.smplr"
 ( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build col.smplr -o col 2>&1 )
 colout="$( cd "$TMP/mod" && for a in 7 256 on9x; do printf 'x' | script -qec "./col $a" /dev/null 2>/dev/null | tr -d '\r'; done )"
-if printf '%s' "$colout" | grep -qF "$(printf '\033[1m\033[38;5;208m\033[48;5;52ma')" && printf '%s' "$colout" | grep -qF "$(printf '\033[38;5;7mb')" && printf '%s' "$colout" | grep -qF 'col.smplr:4: no style named "256"' && printf '%s' "$colout" | grep -qF 'no style named "on9x"'; then ok; else nope "colour numbers in a style"; fi
+if printf '%s' "$colout" | grep -qF "$(printf '\033[0;1;38;5;208;48;5;52ma')" && printf '%s' "$colout" | grep -qF "$(printf '\033[0;38;5;7mb')" && printf '%s' "$colout" | grep -qF 'col.smplr:4: no style named "256"' && printf '%s' "$colout" | grep -qF 'no style named "on9x"'; then ok; else nope "colour numbers in a style"; fi
+
+# The terminal draws only the cells that changed since the last key.
+printf 'main(sys) {\n  t = sys.term\n  n = 0\n  k = ""\n  while k != "q" {\n    t.clear\n    for r in 0..4 {\n      t.put(r, 0, "row of text that stays", "bold")\n    }\n    t.put(4, 0, "n=" + n.toStr, "")\n    k = t.key\n    n = n + 1\n  }\n  t.stop\n}\n' > "$TMP/mod/diff.smplr"
+( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build diff.smplr -o diff 2>&1 )
+diffout="$( cd "$TMP/mod" && printf 'xq' | script -qec 'stty rows 6 cols 40; ./diff' /dev/null 2>/dev/null | tr -d '\r' )"
+if [ "$(printf '%s' "$diffout" | grep -o 'row of text' | wc -l)" = 4 ] && printf '%s' "$diffout" | grep -qF "$(printf '\033[5;3H\033[0m1')"; then ok; else nope "the terminal draws only what changed (got: $diffout)"; fi
 
 # /proc files say they are empty and /sys is made of the kernel's own links: both are read.
 printf 'reads "/proc/"\nreads "/sys/class/net/"\nmain(sys) {\n  sys.screen.print(sys.files.read("/proc/self/comm").trim)\n  sys.screen.print(sys.files.read("/sys/class/net/lo/operstate").trim.length > 0)\n  sys.screen.print(sys.files.read("/proc/self/cwd/x").length)\n}\n' > "$TMP/mod/proc.smplr"
