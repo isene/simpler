@@ -173,7 +173,8 @@ main(sys) {
   host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
-  Environment: `sys.env.var("HOME")`. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
+  Environment: `sys.env.var("HOME")`; `sys.env.setVar("LANG", "C")` sets one for this program and the
+  programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
 - A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
   (both from 0; the style is "" or words such as "bold red" or "reverse"; a number 0 to 255 is a colour
   and "on52" a background; text past the right edge is cut). `t.key` waits for one key and gives its name: a letter, " ", "enter", "esc", "tab",

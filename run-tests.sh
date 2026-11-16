@@ -1694,6 +1694,11 @@ printf 'runs "sleep", "sh"\nmain(sys) {\n  sys.screen.print(65.char + 229.char +
 stout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run start.smplr 2>&1 | tr '\n' '~' )"
 if [ "$stout" = 'Aå€😀||8364 97~1 1 1~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
 
+# setVar reaches a started program; self is the source under run.
+printf 'runs "sh"\nmain(sys) {\n  sys.screen.print(sys.env.self.reFind("[^/]+$").at(0))\n  sys.env.setVar("GREETING", "hi there")\n  sys.screen.print(sys.env.var("GREETING") + sys.env.setVar("A=B", "x").toStr)\n  sys.screen.print(sys.programs.run("sh", ["-c", "echo $GREETING [$SIMPLER_SELF]"]).trim)\n}\n' > "$TMP/mod/envset.smplr"
+envout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run envset.smplr 2>&1 | tr '\n' '~' )"
+if [ "$envout" = 'envset.smplr~hi there0~hi there []~' ]; then ok; else nope "setVar and self (got: $envout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

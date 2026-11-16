@@ -134,5 +134,7 @@ case $cmd in
         else
             rm -rf "$work"
         fi
+        # The program asks for its own path; that is the source file, not the cache.
+        SIMPLER_SELF=$(cd "$(dirname "$file")" && pwd)/$(basename "$file"); export SIMPLER_SELF
         exec "$cache/$sum" "$@" ;;
 esac

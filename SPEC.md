@@ -388,6 +388,8 @@ nothing at runtime.
 | `sys.term.rows`, `sys.term.cols` | `Int` | — | the size of the terminal |
 | `sys.term.clear`, `sys.term.stop` | `Int` | — | empty the terminal; give it back (also done when the program ends, and an error message is shown after that) |
 | `sys.env.var(name)` | `Str` | — | an environment variable (`""` if not set) |
+| `sys.env.setVar(name, value)` | `Int` | — | set a variable for this program and the programs it runs; 1, or 0 for a name that is empty or has `=` in it |
+| `sys.env.self` | `Str` | — | the path of the program itself: the source file under `simpler run`, the program file when built |
 | `sys.args` | `List[Str]` | — | command-line arguments (program name dropped) |
 | `sys.stdin` | `Str` | — | all of standard input |
 
