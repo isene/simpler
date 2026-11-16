@@ -5,6 +5,9 @@ This page is what a model gets before it writes Simpler. [SPEC.md](SPEC.md) is t
 Simpler is its own small language. It is NOT Python, Rust, Kotlin or JavaScript.
 Copy the shapes below exactly. Anything not shown here does not exist.
 
+Plan briefly. Do not write the program, or parts of it, while you think:
+write it once, in the answer.
+
 ## Example 1: read numbers, print their sum
 
 ```
