@@ -7,7 +7,7 @@
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
 #   simpler prompt [part ...]            print the one page to give an AI, with the parts named
-#                                        (regex json bytes net screen, or all); or a module's page
+#                                        (regex json bytes net screen, or all) and modules (crust opts)
 set -e
 
 self=$0
@@ -94,16 +94,14 @@ cmd=${1:-help}
 case $cmd in
     help|-h|--help) usage ;;
     prompt)
-        # No word: the one page. A part (regex json bytes net screen, or all): the
-        # page with those parts after it. Any other word: that module's page.
+        # The one page, then each part (regex json bytes net screen, or all) or
+        # module page (crust opts) that is named.
         [ "$1" = all ] && set -- regex json bytes net screen
-        if [ $# -eq 0 ] || [ -f "$home/prompt/$1.md" ]; then
-            cat "$home/PROMPT.md"
-            for p in "$@"; do
-                [ -f "$home/prompt/$p.md" ] || { echo "simpler: no part named $p" >&2; exit 2; }
-                echo; cat "$home/prompt/$p.md"
-            done
-        else mod_page "$1"; fi
+        cat "$home/PROMPT.md"
+        for p in "$@"; do
+            echo
+            if [ -f "$home/prompt/$p.md" ]; then cat "$home/prompt/$p.md"; else mod_page "$p"; fi
+        done
         exit ;;
     run|build|what|test|c) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;

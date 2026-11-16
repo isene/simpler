@@ -359,6 +359,7 @@ nothing at runtime.
 |------|------|--------|---------|
 | `sys.screen.print(x)` | — | `!IO` | print `Int` / `Float` / `Str` / `Bool` (as `true` / `false`), with a newline |
 | `sys.screen.part(text)` | — | `!IO` | print a text with no line end |
+| `sys.screen.error(text)` | — | `!IO` | print a line to stderr; the program goes on |
 | `sys.files.read(path)?` | `Str` | `!IO !Fail` | whole file as a string (`""` if it cannot be read) |
 | `sys.files.readBytes(path)` | `Bytes` | `!IO` | whole file as bytes, one byte of memory each (empty if it cannot be read); needs a `reads` line. `Bytes` has `b.length` and `b.at(i)` (0 to 255) and cannot be changed, looped over or printed |
 | `sys.files.writeBytes(path, bytes)` | — | `!IO` | writes the bytes; stops the program, with nothing written, if a number is outside 0 to 255; needs a `writes` line |

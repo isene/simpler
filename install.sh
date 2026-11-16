@@ -21,7 +21,7 @@ else
     for p in regex json bytes net screen; do
         curl -fsSL "$base/prompt/$p.md" -o "$dir/prompt/$p.md"
     done
-    for m in crust; do
+    for m in crust opts; do
         curl -fsSL "$base/lib/$m.smplr" -o "$dir/lib/$m.smplr"
     done
 fi

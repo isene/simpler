@@ -988,7 +988,7 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
 
 whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if hasName(sigs.fnNames, name).not && args.length > 0 {
-    if (name == "print") || (name == "part") {
+    if (name == "print") || (name == "part") || (name == "error") {
       whatAdd(w, "screen", "prints", fn)
     }
     if name == "read" {
@@ -3348,7 +3348,7 @@ effExpr(e : Expr, used : List[Str], ctx : Ctx) : Int !Mut {
 }
 
 effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut {
-  if (name == "print") || (name == "part") || (name == "fetchWith") || (name == "readBytes") || (name == "writeBytes") {
+  if (name == "print") || (name == "part") || (name == "error") || (name == "fetchWith") || (name == "readBytes") || (name == "writeBytes") {
     used.push("IO")
   }
   if (name == "send") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "reach") {
@@ -4202,7 +4202,7 @@ useUFCS(t : Str, fld : Str, ctx : Ctx) : Bool {
 // those come only from `sys`, which only main holds.
 capNeed(name : Str) : Str {
   r = ""
-  if (name == "print") || (name == "part") {
+  if (name == "print") || (name == "part") || (name == "error") {
     r = "Screen"
   }
   if (name == "read").or(name == "write").or(name == "readBytes").or(name == "writeBytes").or(name == "append").or(name == "list").or(name == "exists").or(name == "rename").or(name == "delete") {
@@ -4347,7 +4347,7 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
         failAt("writeBytes takes a path and a List[Int] of bytes, got ".concat(exprType(args.at(1), ctx)), ctx)
       }
     }
-    if ((name == "print") || (name == "part")) && (args.length == 1) {
+    if ((name == "print") || (name == "part") || (name == "error")) && (args.length == 1) {
       if exprType(args.at(0), ctx) == "Bytes" {
         failAt("Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx)
       }
@@ -4402,7 +4402,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
@@ -4415,6 +4415,10 @@ methodArgs(name : Str) : Int {
 }
 
 emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  rv = rootVar(recv)
+  if (rv != "") && (capNeed(name) == "") && (rv != "sys") && (rv != "true") && (rv != "false") && (variantOf(rv, ctx) == "") && (envOld(ctx.env, rv) == "__gone__") {
+    failAt("no variable named ".concat(rv).concat("; if it is a module, put  uses \"").concat(rv).concat("\"  at the top"), ctx)
+  }
   t = exprType(recv, ctx)
   if t == "Term" {
     if (name != "put") || (args.length != 4) {
@@ -4515,6 +4519,10 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "secsOf" {
     wantType(args.at(0), "Str", name, ctx)
     r = "simpler_secs(".concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "error" && hasName(ctx.sigs.fnNames, name).not {
+    wantType(args.at(0), "Str", name, ctx)
+    r = "(fflush(stdout), fputs((const char*)(intptr_t)".concat(emitExpr(args.at(0), ctx)).concat(", stderr), fputc(10, stderr), 0L)")
   }
   if name == "part" && hasName(ctx.sigs.fnNames, name).not {
     wantType(args.at(0), "Str", name, ctx)

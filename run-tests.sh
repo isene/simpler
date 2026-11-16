@@ -1547,6 +1547,14 @@ if [ "$(moderr 'uses "../shape"\nmain(sys) {\n}\n')" = 'bad.smplr:1: a module na
 printf 'reads "x"\nf() : Int {\n  1\n}\n' > "$TMP/mod/m1.smplr"; printf 'main(sys) {\n}\n' > "$TMP/mod/m2.smplr"; printf 'f(x : Int) : Int {\n  x +\n}\n' > "$TMP/mod/m3.smplr"
 modbad="$( for m in m1 m2 m3; do moderr "uses \"$m\"\nmain(sys) {\n}\n"; done | tr '\n' '|' )"
 if [ "$modbad" = 'm1.smplr:1: a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it|m2.smplr:1: a module has no main; main belongs to the program that uses it|m3.smplr:3: expected a value, found }|' ]; then ok; else nope "what a module may not have (got: $modbad)"; fi
+# screen.error prints to stderr and goes on; a module used without its uses line gets a hint.
+printf 'main(sys) {\n  sys.screen.print("a")\n  sys.screen.error("b")\n  sys.screen.print("c")\n}\n' > "$TMP/mod/err.smplr"
+printf 'main(sys) {\n  o = opts.parse(sys.args, "v", "")\n}\n' > "$TMP/mod/nouses.smplr"
+errout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run err.smplr 2>/dev/null | tr '\n' '~'; SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run err.smplr 2>&1 >/dev/null; SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run nouses.smplr 2>&1 )"
+if [ "$errout" = 'a~c~b
+nouses.smplr:2: no variable named opts; if it is a module, put  uses "opts"  at the top' ]; then ok; else nope "screen.error and the uses hint (got: $errout)"; fi
+# opts, the module for options on the command line: its own tests, and the page with a part and a module.
+if ( SIMPLERC="$TMP/seedc" ./simpler test lib/opts.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt regex opts | grep -qF 'parse(argv : List[Str]' ) && ( ./simpler prompt regex opts | grep -qF 's.reTest(p)' ); then ok; else nope "the opts module and its page"; fi
 # crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi
 printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t), 3)\n  crust.frame(t, p, "Hi", "")\n  crust.line(t, crust.inner(p), 0, "in " + crust.inner(p).cols.toStr, "")\n  k = t.key\n  t.stop\n  sys.screen.print("key " + k)\n}\n' > "$TMP/mod/pane.smplr"

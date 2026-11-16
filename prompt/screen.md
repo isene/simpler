@@ -1,4 +1,4 @@
-## Simpler: full-screen programs and modules
+## Simpler: full-screen programs
 
 This adds to the one page; all of its rules stay.
 
@@ -8,6 +8,3 @@ This adds to the one page; all of its rules stay.
   "backspace", "delete", "up", "down", "left", "right", "home", "end", "pgup", "pgdn", "ctrl-x",
   "resize" (the window changed size) or "eof". `t.rows`, `t.cols`, `t.clear`. `t.stop` gives the
   terminal back; do it before `sys.screen.print`. The loop is: draw, `k = t.key`, act on `k`.
-- A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
-  `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
-  module only when you were given its page.

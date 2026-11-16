@@ -152,7 +152,7 @@ main(sys) {
   `writes "out/"` (a `*` is any run of characters without a `/`).
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line, `"~/"` the home folder. Any other file is refused.
-- `sys.screen.part(text)` prints with no line end.
+- `sys.screen.part(text)` prints with no line end. `sys.screen.error(text)` prints a line to stderr.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
@@ -165,6 +165,11 @@ main(sys) {
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`; `sys.env.setVar("LANG", "C")` sets one for this program and the
   programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Clock`, `Env`.
+- A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
+  `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
+  module only when you were given its page. Two come with simpler: `crust` (panes on a full
+  screen) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
+  read them by hand; when you were not given its page, answer `NEED: opts`.
 - No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with
   that status and prints nothing. A function `test_name() { assert(cond) }`
@@ -183,7 +188,7 @@ main(sys) {
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 
 More exists, each on a page of its own: `regex` (patterns), `json`, `net` (the web, mail), `bytes` (files that are no text) and
-`screen` (full-screen programs, modules). When the job needs one you were not given, answer with one
+`screen` (full-screen programs). When the job needs one you were not given, answer with one
 line, such as `NEED: regex`.
 
 There is nothing else: no `filter`, `map`, `reverse`, `indexOf`, `substring`,

@@ -114,7 +114,7 @@ simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
 simpler prompt regex json      # the page with parts added: regex json bytes net screen, or all
-simpler prompt crust           # the page for one module
+simpler prompt crust           # the page with a module added (crust, opts)
 ```
 
 **Modules.** `uses "crust"` at the top of a program brings in `crust.smplr`:
@@ -124,6 +124,8 @@ plain Simpler with no `main`, so it can touch only what the program hands it,
 and the program's top lines bind the module's code too.
 [`lib/crust.smplr`](lib/crust.smplr) is the first one: panes and borders for
 full-screen terminal programs.
+[`lib/opts.smplr`](lib/opts.smplr) is the second: options on the command line,
+such as `-v`, `-o file` and `--out=file`.
 
 What goes on underneath:
 
