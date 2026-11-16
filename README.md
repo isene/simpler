@@ -113,6 +113,7 @@ simpler what hello.smplr       # list everything the program can touch
 simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
+simpler prompt regex json      # the page with parts added: regex json bytes net screen, or all
 simpler prompt crust           # the page for one module
 ```
 

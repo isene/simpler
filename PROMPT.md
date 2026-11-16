@@ -153,12 +153,6 @@ main(sys) {
   A name ending in `/` is a whole folder, `"./"` the folder it runs in, `args` any file named on the
   command line, `"~/"` the home folder. Any other file is refused.
 - `sys.screen.part(text)` prints with no line end.
-- A file that is no text: `b = sys.files.readBytes(path)` is of type `Bytes`: `b.length`, `b.at(i)` (a number
-  0 to 255), `b.intAt(i, n)` (the whole number in the `n` bytes, 1 to 8, from place `i`, lowest byte first),
-  `b.floatAt(i)` (the Float in 8 bytes), `b.textAt(i, n)` (those `n` bytes as text, as they are),
-  `b.findByte(n, from)` (the place of the next byte `n` at or after `from`, or -1). Bytes cannot be changed,
-  looped over or printed. To write, fill a `List[Int]`: `sys.files.writeBytes(path, [80, 75, 3, 4])`;
-  `s.bytes` is a text as such a list.
 - Other programs: `sys.programs.run("git", ["log", "-1"])` gives what it printed (the program stops if
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
@@ -166,26 +160,11 @@ main(sys) {
   and gives its process number;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
-- The web: `sys.net.fetch(url)` gives the body, `sys.net.fetchWith(url, ["X-Key: abc"])` the same
-  with headers, `sys.net.post(url, body)` sends; all stop the
-  program on failure, so ask first with `sys.net.reach(url)` (the status, 0 if nothing answers) when a
-  miss is expected. The top names each
-  host, without its port: `fetches "api.github.com", "127.0.0.1"`; a url made while running is checked against it. Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.date(secs)` (text),
+- Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`; `sys.env.setVar("LANG", "C")` sets one for this program and the
-  programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Net`, `Clock`, `Env`.
-- A full-screen program: `t = sys.term` (type `Term`). `t.put(row, col, text, style)` writes at a place
-  (both from 0; the style is "" or words such as "bold red" or "reverse"; a number 0 to 255 is a colour
-  and "on52" a background; text past the right edge is cut). `t.key` waits for one key and gives its name: a letter, " ", "enter", "esc", "tab",
-  "backspace", "delete", "up", "down", "left", "right", "home", "end", "pgup", "pgdn", "ctrl-x",
-  "resize" (the window changed size) or "eof". `t.rows`, `t.cols`, `t.clear`. `t.stop` gives the
-  terminal back; do it before `sys.screen.print`. The loop is: draw, `k = t.key`, act on `k`.
-- A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
-  `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
-  module only when you were given its page.
-- Mail: `sys.mail.send(to, subject, body)`, with a top line that says to whom: `mails "me@example.com"`
-  (`"*@example.com"` allows everyone there). Its parameter type is `Mail`, and the function says `!IO`.
+  programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Clock`, `Env`.
 - No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with
   that status and prints nothing. A function `test_name() { assert(cond) }`
@@ -197,20 +176,15 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
-- Patterns (regular expressions, as in Python: `\d \w \s \b`, `[a-z]`, `( )`, `(?: )`, `|`, `* + ? {2,5}`, lazy `*?`,
-  `^ $`, `\1`, `(?= ) (?! ) (?<= ) (?<! )`, and `(?i)`, `(?m)`, `(?s)` first in the pattern). Write them plainly:
-  `"\d+"`. `s.reTest(p)` is a Bool; `s.reFind(p)` is the first match as a `List[Str]`, the whole match at 0 and
-  the groups from 1, or an empty list; `s.reAll(p)` is every match, a `List[List[Str]]` of the same;
-  `s.reReplace(p, to)` replaces every match, with `$1` in `to` for group 1 and `$0` for the whole match;
-  `s.reSplit(p)` splits on it.
-- JSON in a Str: `s.json("name")` is the value under that key, `s.json("0")` the item at that place in an array;
-  it comes back as a Str (a text without its quotes, `12.5`, `true`, or the JSON of an inner object), `""` when missing.
-  Chain it: `s.json("user").json("name")`. `s.jsonItems` and `s.jsonKeys` are `List[Str]`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.abs`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
   `xs.join(sep)` (a list of texts as one text)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
+
+More exists, each on a page of its own: `regex` (patterns), `json`, `net` (the web, mail), `bytes` (files that are no text) and
+`screen` (full-screen programs, modules). When the job needs one you were not given, answer with one
+line, such as `NEED: regex`.
 
 There is nothing else: no `filter`, `map`, `reverse`, `indexOf`, `substring`,
 `pop`, `println`, `len`, no `xs[i]`, no `s[i]`, no string formatting, no `let` or `var`.
