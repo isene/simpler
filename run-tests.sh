@@ -1764,6 +1764,21 @@ main(sys) {
 LOCKT
     lockout="$( cd "$TMP/lockt" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run lock.smplr $$ 2>&1 )"
     if [ "$lockout" = "yynnnnnnnn" ] && [ "$(cat "$TMP/lockt/outside.txt")" = secret ] && [ ! -e "$TMP/lockt/evil.txt" ]; then ok; else nope "the kernel lock (got: $lockout)"; fi
+
+    # simpler trusted: yes only when every name on the top lines is inside the rules file.
+    printf 'reads "%s/lockt/"\nwrites "%s/lockt/box/"\nruns "sh"\n' "$TMP" "$TMP" > "$TMP/lockt/trust"
+    ln -s /etc "$TMP/lockt/pub/out"
+    tprog() { f="$TMP/lockt/$1.smplr"; shift; { for l in "$@"; do printf '%s\n' "$l"; done; printf 'main(sys) {\n  sys.screen.print("x")\n}\n'; } > "$f"; }
+    tprog t1 'reads "pub/"' 'writes "box/"' 'runs "sh"'
+    tprog t2 'reads "/etc/"'
+    tprog t3 'reads "pub/../../"'
+    tprog t4 'reads "pub/out/"'
+    tprog t5 'writes "pub/"'
+    tprog t6 'reads "pub/"' 'fetches "example.com"'
+    tprog t7 'reads "pub/"' 'runs "git"'
+    tprog t8 'reads args'
+    trout="$( cd "$TMP/lockt" && export SIMPLERC="$TMP/seedc" SIMPLER_TRUST="$TMP/lockt/trust"; for n in 1 2 3 4 5 6 7; do "$OLDPWD/simpler" trusted t$n.smplr && printf y || printf n; done; "$OLDPWD/simpler" trusted t8.smplr pub/in.txt && printf y || printf n; "$OLDPWD/simpler" trusted t8.smplr /etc/passwd && printf y || printf n; SIMPLER_TRUST="$TMP/none" "$OLDPWD/simpler" trusted t1.smplr && printf y || printf n )"
+    if [ "$trout" = "ynnnnnnynn" ]; then ok; else nope "simpler trusted (got: $trout)"; fi
 else ok; fi
 
 # Print with no line end, date texts, the home folder, and a fetch with headers.

@@ -4,6 +4,7 @@
 #   simpler run prog.smplr [arguments]   compile and run it
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
+#   simpler trusted prog.smplr [args]    succeed when all it can touch is inside ~/.config/simpler/trust
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
 #   simpler prompt [part ...]            print the one page to give an AI, with the parts named
@@ -17,7 +18,7 @@ while [ -L "$self" ]; do
 done
 home=$(cd "$(dirname "$self")" && pwd)
 
-usage() { sed -n '2,9p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,10p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The compiler: next to this script after an install, or built in the repo.
 compiler() {
@@ -89,6 +90,62 @@ show_name() {
     case $1 in *[!A-Za-z0-9._/-]*) echo input.smplr ;; *) echo "$1" ;; esac
 }
 
+# names TEXT: the quoted names in TEXT, one per line. Fails when TEXT holds
+# anything it cannot read for sure, such as a name with a quote in it.
+names() {
+    rest=$(printf '%s' "$1" | sed 's/"[^"\\]*"//g; s/anything under//g; s/any file named on the command line//g; s/[, ]//g' | tr -d '\n')
+    [ -z "$rest" ] || return 1
+    printf '%s\n' "$1" | grep -o '"[^"]*"' | sed 's/^"//; s/"$//'
+    return 0
+}
+
+# full PATH: the path as the kernel sees it, links followed. A folder keeps
+# its /, and a name with a * becomes its folder, which is what the lock opens.
+full() {
+    p=$1
+    case $p in "~/"*) p=$HOME/${p#"~/"} ;; esac
+    case $p in *'*'*) p=${p%%'*'*}; case $p in */*) p=${p%/*}/ ;; *) p=./ ;; esac ;; esac
+    case $p in
+        */) p=$(realpath -m -- "$p"); echo "${p%/}/" ;;
+        *) realpath -m -- "$p" ;;
+    esac
+}
+
+# inside WORD KIND [args]: is every name on the program's "may WORD" line
+# allowed by the KIND lines of the rules file?
+inside() {
+    word=$1; kind=$2; shift 2
+    line=$(printf '%s\n' "$listing" | sed -n "s/^may $word  *//p")
+    [ -n "$line" ] || return 0
+    wanted=$(names "$line") || return 1
+    allowed=$(names "$(sed -n "s/^$kind[[:space:]]//p" "$rules")") || return 1
+    case $line in *"any file named on the command line"*)
+        for a in "$@"; do wanted="$wanted
+$a"; done ;;
+    esac
+    case $kind in reads|writes)
+        allowed=$(printf '%s\n' "$allowed" | while IFS= read -r r; do [ -n "$r" ] && full "$r"; done) ;;
+    esac
+    while IFS= read -r n; do
+        [ -n "$n" ] || continue
+        case $kind in reads|writes) n=$(full "$n") ;; esac
+        ok=0
+        while IFS= read -r r; do
+            [ -n "$r" ] || continue
+            case $kind in
+                reads|writes) case $r in */) case $n in "$r"*) ok=1 ;; esac ;; *) [ "$n" = "$r" ] && ok=1 ;; esac ;;
+                *) if [ "$r" = "*" ] || [ "$n" = "$r" ]; then ok=1; fi ;;
+            esac
+        done <<EOF
+$allowed
+EOF
+        [ $ok = 1 ] || return 1
+    done <<EOF
+$wanted
+EOF
+    return 0
+}
+
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case $cmd in
@@ -103,7 +160,7 @@ case $cmd in
             if [ -f "$home/prompt/$p.md" ]; then cat "$home/prompt/$p.md"; else mod_page "$p"; fi
         done
         exit ;;
-    run|build|what|test|c) ;;
+    run|build|what|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
 [ $# -gt 0 ] || usage 2 >&2
@@ -113,6 +170,18 @@ shown=$(show_name "$file")
 cc_simpler=$(compiler)
 
 case $cmd in
+    trusted)
+        # Only where the kernel lock works, and only with a rules file: the same
+        # five top lines, written by the owner of the machine.
+        rules=${SIMPLER_TRUST:-$HOME/.config/simpler/trust}
+        [ -f "$rules" ] || exit 1
+        grep -q landlock /sys/kernel/security/lsm 2>/dev/null || exit 1
+        prep "$file"
+        listing=$(cd "$work" && "$cc_simpler" what 2>/dev/null) || { rm -rf "$work"; exit 1; }
+        rm -rf "$work"
+        inside read reads "$@" && inside write writes "$@" && inside run runs \
+            && inside fetch fetches && inside mail mails || exit 1
+        exit 0 ;;
     what)
         prep "$file"
         (cd "$work" && "$cc_simpler" what) 2>&1 | sed "s|^input\.smplr:|$shown:|"
