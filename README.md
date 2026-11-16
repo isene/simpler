@@ -129,8 +129,9 @@ such as `-v`, `-o file` and `--out=file`.
 [`lib/astro.smplr`](lib/astro.smplr) is the third, a full almanac: the sun, the
 moon, the planets, Pluto, 105 bright stars and the 88 constellations. Where they
 are, when they rise and set, how bright they are, moon phases to the minute,
-eclipses of the sun and the moon (also as seen from one place), twilight,
-seasons, oppositions and a list of all that happens in a year. Its numbers are
+eclipses of the sun and the moon (also as seen from one place), Jupiter's four
+moons, Saturn's rings, twilight, seasons, oppositions and a list of all that
+happens in a year. Its numbers are
 checked against [PyEphem](https://rhodesmill.org/pyephem/), which shares no code
 with it: places agree within 0.01 degrees, and all of 1,620 rise, transit and
 set times within 1.1 minutes.

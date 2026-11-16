@@ -2077,6 +2077,113 @@ almanac(year : Int) : List[Event] {
   sort_events(raw)
 }
 
+// One of Jupiter's four big moons as seen from the earth. x and y are counted in widths of
+// half the planet (Jupiter's edge is at 1.0): x runs along the planet's belts, positive to
+// the west, and y towards its north pole.
+// state is "" (seen beside the planet), "transit" (in front of it) or "hidden" (behind it).
+JMoon = type {
+  name : Str
+  x : Float
+  y : Float
+  state : Str
+}
+
+// Saturn's rings as seen from the earth. tilt: how far they are opened towards us, in
+// degrees (positive: we see their north side, 0.0: edge-on and gone). sun_tilt: the same for
+// the sun. wide and high: the size of the outer ring in seconds of arc. angle: the direction
+// the planet's north pole points, counted from north towards east.
+Rings = type {
+  tilt : Float
+  sun_tilt : Float
+  wide : Float
+  high : Float
+  angle : Float
+}
+
+// Jupiter's four big moons at a moment (a Julian date): Io, Europa, Ganymede, Callisto.
+// Good to a tenth of the planet's width.
+jupiter_moons(j : Float) : List[JMoon] {
+  d = j + delta_t(2000.0 + (j - 2451545.0) / 365.25) / 86400.0 - 2451545.0
+  v = 172.74 + 0.00111588 * d
+  m = 357.529 + 0.9856003 * d
+  n = 20.02 + 0.0830853 * d + 0.329 * sn(v)
+  jj = 66.115 + 0.9025179 * d - 0.329 * sn(v)
+  a = 1.915 * sn(m) + 0.02 * sn(2.0 * m)
+  b = 5.555 * sn(n) + 0.168 * sn(2.0 * n)
+  k = jj + a - b
+  re = 1.00014 - 0.01671 * cs(m) - 0.00014 * cs(2.0 * m)
+  r = 5.20872 - 0.25208 * cs(n) - 0.00611 * cs(2.0 * n)
+  dist = (r * r + re * re - 2.0 * r * re * cs(k)).sqrt
+  psi = to_deg(clamp1(re / dist * sn(k)).asin)
+  lam = 34.35 + 0.083091 * d + 0.329 * sn(v) + b
+  ds = 3.12 * sn(lam + 42.8)
+  de = ds - 2.22 * sn(psi) * cs(lam + 22.0) - 1.3 * (r - dist) / dist * sn(lam - 100.5)
+  t = d - dist / 173.0
+  u1 = 163.8069 + 203.4058646 * t + psi - b
+  u2 = 358.414 + 101.2916335 * t + psi - b
+  u3 = 5.7176 + 50.234518 * t + psi - b
+  u4 = 224.8092 + 21.48798 * t + psi - b
+  g = 331.18 + 50.310482 * t
+  h = 87.45 + 21.569231 * t
+  us = [u1 + 0.473 * sn(2.0 * (u1 - u2)), u2 + 1.065 * sn(2.0 * (u2 - u3)), u3 + 0.165 * sn(g), u4 + 0.843 * sn(h)]
+  rs = [5.9057 - 0.0244 * cs(2.0 * (u1 - u2)), 9.3966 - 0.0882 * cs(2.0 * (u2 - u3)), 14.9883 - 0.0216 * cs(g), 26.3627 - 0.1939 * cs(h)]
+  names = ["Io", "Europa", "Ganymede", "Callisto"]
+  out : List[JMoon] = []
+  for i in 0..4 {
+    x = rs.at(i) * sn(us.at(i))
+    y = -rs.at(i) * cs(us.at(i)) * sn(de)
+    state = ""
+    if x * x + y * y * 1.148 < 1.0 {
+      state = "hidden"
+      if cs(us.at(i)) > 0.0 {
+        state = "transit"
+      }
+    }
+    out.push(JMoon(name = names.at(i), x = x, y = y, state = state))
+  }
+  out
+}
+
+// Jupiter and its moons as one line of text, as a telescope with north up shows them: east
+// to the left. O is the planet; I, E, G and C are the moons. A moon in front of the planet
+// or behind it is not drawn. width is the number of characters (61 is a good one).
+moons_line(j : Float, width : Int) : Str {
+  mid = width / 2
+  cells : List[Str] = []
+  for i in 0..width {
+    cells.push(" ")
+  }
+  for mo in jupiter_moons(j) {
+    col = mid + (mo.x / 27.0 * mid.toFloat).round.toInt
+    if mo.state == "" && col >= 0 && col < width {
+      cells.set(col, mo.name.at(0))
+    }
+  }
+  cells.set(mid, "O")
+  cells.join("")
+}
+
+// Saturn's rings at a moment (a Julian date).
+saturn_rings(j : Float) : Rings {
+  s = sky_jd(j, 0.0, 0.0, 0.0)
+  p = pos(s, "saturn")
+  e = to_ecliptic(p.gra, p.gdec, s.ecl)
+  t = (j - 2451545.0) / 36525.0
+  i = 28.075216 - 0.012998 * t + 0.000004 * t * t
+  om = 169.50847 + 1.394681 * t + 0.000412 * t * t
+  tilt = to_deg(clamp1(sn(i) * cs(e.lat) * sn(e.lon - om) - cs(i) * sn(e.lat)).asin)
+  x = p.dist * cs(e.lat) * cs(e.lon) - s.xs
+  y = p.dist * cs(e.lat) * sn(e.lon) - s.ys
+  z = p.dist * sn(e.lat)
+  hl = to_deg(y.atan2(x))
+  hb = to_deg(z.atan2((x * x + y * y).sqrt))
+  sun_tilt = to_deg(clamp1(sn(i) * cs(hb) * sn(hl - om) - cs(i) * sn(hb)).asin)
+  pole = to_equatorial(om - 90.0, 90.0 - i, s.ecl)
+  angle = to_deg((cs(pole.dec) * sn(pole.ra - p.gra)).atan2(sn(pole.dec) * cs(p.gdec) - cs(pole.dec) * sn(p.gdec) * cs(pole.ra - p.gra)))
+  wide = 375.35 / p.dist
+  Rings(tilt = tilt, sun_tilt = sun_tilt, wide = wide, high = wide * sn(tilt).abs, angle = angle)
+}
+
 near(a : Float, b : Float, tol : Float) : Bool {
   (a - b).abs <= tol
 }
@@ -2233,4 +2340,17 @@ test_tonight() {
   assert(overhead(11, 59.9).at(0) == "Andromeda" && showers().length == 11)
   assert(tonight(2026, 11, 16, 59.9139, 10.7522, 1.0).length > 2)
   assert(title("sun") == "Sun" && names().length == 9)
+}
+
+test_moons_and_rings() {
+  at = jd(2026, 11, 16)
+  four = jupiter_moons(at)
+  assert(four.length == 4 && four.at(0).name == "Io" && four.at(3).name == "Callisto")
+  assert(near(four.at(0).x, 5.44, 0.05) && near(four.at(2).x, -10.69, 0.05) && four.at(1).state == "")
+  assert(jupiter_moons(at + 0.3).at(0).state == "hidden" && jupiter_moons(at + 40.1).at(0).state == "transit")
+  line = moons_line(at, 61)
+  assert(line.length == 61 && line.at(30) == "O" && line.find("G") < line.find("E") && line.find("I") < line.find("C"))
+  r = saturn_rings(at)
+  assert(near(r.tilt, -6.26, 0.03) && near(r.sun_tilt, -8.33, 0.03) && near(r.wide, 43.04, 0.05) && near(r.high, 4.70, 0.05))
+  assert(near(saturn_rings(at - 3000.2).tilt, 26.57, 0.05))
 }
