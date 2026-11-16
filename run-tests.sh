@@ -446,10 +446,12 @@ printf '%s' 'main(sys) {
   sys.screen.print((0.0 - 3.5).abs.toStr)
   sys.screen.print(3.7.floor.toStr)
   sys.screen.print(1.0.atan2(1.0).toStr)
+  sys.screen.print((370.5 % 360.0).toStr + " " + (-10.0 % 360.0).toStr + " " + 2.0.pow(10.0).toStr + " " + 1.0.atan.toStr)
+  sys.screen.print(2.5.round.toStr + " " + 2.1.ceil.toStr + " " + 1.0.exp.ln.toStr)
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > math.c 2>/dev/null )
 rm -f "$TMP/input.smplr"
-if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.4142135623731\n3.5\n3\n0.785398163397448')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
+if cc -o "$TMP/math" "$TMP/math.c" -lm 2>/dev/null && [ "$("$TMP/math")" = "$(printf '1\n1.4142135623731\n3.5\n3\n0.785398163397448\n10.5 -10 1024 0.785398163397448\n3 3 1')" ]; then ok; else nope "Float math layer (got: $("$TMP/math" 2>/dev/null))"; fi
 
 # scientific-notation Float literals (1.5e3, 2.0e-3, 1.151e-9), and that toStr
 # prints a large value in full rather than collapsing to %g exponential.
@@ -1555,6 +1557,8 @@ if [ "$errout" = 'a~c~b
 nouses.smplr:2: no variable named opts; if it is a module, put  uses "opts"  at the top' ]; then ok; else nope "screen.error and the uses hint (got: $errout)"; fi
 # opts, the module for options on the command line: its own tests, and the page with a part and a module.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/opts.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt regex opts | grep -qF 'parse(argv : List[Str]' ) && ( ./simpler prompt regex opts | grep -qF 's.reTest(p)' ); then ok; else nope "the opts module and its page"; fi
+# astro, the module for the sky: its own tests (numbers from the Rust orbit library), and its page without the helpers.
+if ( SIMPLERC="$TMP/seedc" ./simpler test lib/astro.smplr 2>&1 | grep -q '^6/6 passed' ) && ( ./simpler prompt astro | grep -qF 'sun_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times' ) && ! ( ./simpler prompt astro | grep -q '^moon_lr' ); then ok; else nope "astro: tests and page"; fi
 # crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi
 printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t), 3)\n  crust.frame(t, p, "Hi", "")\n  crust.line(t, crust.inner(p), 0, "in " + crust.inner(p).cols.toStr, "")\n  k = t.key\n  t.stop\n  sys.screen.print("key " + k)\n}\n' > "$TMP/mod/pane.smplr"

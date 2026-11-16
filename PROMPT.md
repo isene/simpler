@@ -167,8 +167,8 @@ main(sys) {
   programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Clock`, `Env`.
 - A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
   `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
-  module only when you were given its page. Two come with simpler: `crust` (panes on a full
-  screen) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
+  module only when you were given its page. Three come with simpler: `crust` (panes on a full
+  screen), `astro` (sun, moon and planets: where they are, when they rise and set) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
   read them by hand; when you were not given its page, answer `NEED: opts`.
 - No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with
@@ -181,7 +181,7 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)`, `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
-- Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.abs`. Bool: `b.not`
+- Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
   `xs.join(sep)` (a list of texts as one text)

@@ -114,7 +114,7 @@ simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
 simpler prompt regex json      # the page with parts added: regex json bytes net screen, or all
-simpler prompt crust           # the page with a module added (crust, opts)
+simpler prompt crust           # the page with a module added (crust, opts, astro)
 ```
 
 **Modules.** `uses "crust"` at the top of a program brings in `crust.smplr`:
@@ -126,6 +126,10 @@ and the program's top lines bind the module's code too.
 full-screen terminal programs.
 [`lib/opts.smplr`](lib/opts.smplr) is the second: options on the command line,
 such as `-v`, `-o file` and `--out=file`.
+[`lib/astro.smplr`](lib/astro.smplr) is the third: where the sun, the moon and
+the planets are, when they rise and set, moon phases, twilight, and the start
+of each season. Its numbers match the Rust library
+[orbit](https://github.com/isene/orbit) to four decimals.
 
 What goes on underneath:
 
@@ -314,8 +318,8 @@ first lexer to a compiler that compiles itself:
     `toInt`/`toFloat`/`toStr` on top of `concat`/`slice`/`at`/`length`; `Int.mod`
   - [x] **data**: a `Str`-keyed `Map` (`Int` or `Str` values, `keys`/`byValue`
     ranking) and list `sort`, plus 64-bit `Int` and `Float` with negatives
-  - [x] **math**: `Float` `sin`/`cos`/`tan`/`asin`/`acos`/`sqrt`/`floor`/`abs`
-    and `atan2`, wrapping libm (math programs link `-lm`; the compiler does not)
+  - [x] **math**: `Float` `sin`/`cos`/`tan`/`asin`/`acos`/`atan`/`sqrt`/`floor`/`ceil`/`round`/`abs`/`ln`/`exp`,
+    `atan2`, `pow` and `%`, wrapping libm (math programs link `-lm`; the compiler does not)
   - [x] **composition**: uniform function call, `x.f` is `f(x)`, so a chain of
     your own words (`data.parse.normalize.render`) is the nested call form and
     packages into a single word; functions and methods are one kind of brick

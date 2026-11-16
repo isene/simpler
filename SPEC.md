@@ -299,7 +299,9 @@ arguments. Dispatch is by the receiver's static type.
 trimmed, so `5.0` is `5` and a Julian date prints in full), `x.toInt` (`Int`,
 truncates), arithmetic and ordering. Math (all
 `Float`): `x.sin`, `x.cos`, `x.tan`, `x.asin`, `x.acos`, `x.sqrt`, `x.floor`,
-`x.abs`, and `x.atan2(y)`. These wrap the C math library, so a program that uses
+`x.ceil`, `x.round` (half away from zero), `x.abs`, `x.atan`, `x.ln`, `x.exp`, `y.atan2(x)` (the
+angle of the point x, y) and `x.pow(y)`. `x % y` on two `Float` gives the remainder with the sign of
+`x`, so `-10.0 % 360.0` is `-10`. These wrap the C math library, so a program that uses
 them must link it: `cc out.c -o out -lm`.
 
 **`Bool`**: `b.not`, `b.and(c)`, `b.or(c)` (all `Bool`).

@@ -7,7 +7,7 @@
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
 #   simpler prompt [part ...]            print the one page to give an AI, with the parts named
-#                                        (regex json bytes net screen, or all) and modules (crust opts)
+#                                        (regex json bytes net screen, or all) and modules (crust opts astro)
 set -e
 
 self=$0
@@ -68,7 +68,7 @@ to_c() {
     rm -rf "$work"
 }
 
-# The page for one module: its comments, types and function heads.
+# The page for one module: its types, and each function that has a comment above it.
 mod_page() {
     progdir=.
     f=$(find_mod "$1")
@@ -80,7 +80,7 @@ mod_page() {
          /^[A-Za-z_][A-Za-z0-9_]* = type \{/ { printf "%s", c; t = 1 }
          t { print; if ($0 ~ /^\}/) t = 0; c = ""; next }
          /^test_/ { c = ""; next }
-         /^[A-Za-z_][A-Za-z0-9_]*\(.*\{[ \t]*$/ { sub(/[ \t]*\{[ \t]*$/, ""); printf "%s%s\n", c, $0 }
+         /^[A-Za-z_][A-Za-z0-9_]*\(.*\{[ \t]*$/ { sub(/[ \t]*\{[ \t]*$/, ""); if (c != "") printf "%s%s\n", c, $0 }
          { c = "" }' "$f"
 }
 
@@ -95,7 +95,7 @@ case $cmd in
     help|-h|--help) usage ;;
     prompt)
         # The one page, then each part (regex json bytes net screen, or all) or
-        # module page (crust opts) that is named.
+        # module page (crust opts astro) that is named.
         [ "$1" = all ] && set -- regex json bytes net screen
         cat "$home/PROMPT.md"
         for p in "$@"; do

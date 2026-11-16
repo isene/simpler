@@ -1,0 +1,898 @@
+// astro: where the sun, the moon and the planets are, when they rise and set, moon phases,
+// twilight, equinoxes and solstices. A port of the orbit library (Schlyter's elements for
+// the planets, Meeus chapter 47 for the moon). Angles are in degrees, hours are local clock
+// hours, lat is north-positive, lon is east-positive, tz is hours ahead of UT (Oslo in
+// winter: 1.0). A body is named "sun", "moon", "mercury", "venus", "mars", "jupiter",
+// "saturn", "uranus" or "neptune". Good to about a minute of arc for the moon and a few
+// for the planets, between 1900 and 2100.
+
+// The sky for one place and one instant. Make it with sky or sky_at, hand it to the rest.
+Sky = type {
+  lat : Float
+  lon : Float
+  tz : Float
+  d : Float
+  ecl : Float
+  ls : Float
+  xs : Float
+  ys : Float
+  sidtime : Float
+  sun_ra : Float
+  sun_dec : Float
+  mj : Float
+  ms : Float
+}
+
+// A place in the sky: ra and dec as seen from the observer, dist (AU; earth radii for the
+// moon), and gra, gdec as seen from the centre of the earth.
+Pos = type {
+  ra : Float
+  dec : Float
+  dist : Float
+  gra : Float
+  gdec : Float
+}
+
+// Height above the horizon and compass direction (0 north, 90 east).
+Hor = type {
+  alt : Float
+  az : Float
+}
+
+// Rise, transit and set as "HH:MM" local time. A body that never sets has rise "always"
+// and set "never"; one that never rises has rise "never" and set "always".
+Times = type {
+  rise : Str
+  transit : Str
+  set : Str
+}
+
+// All about one body for one day.
+Body = type {
+  name : Str
+  ra : Float
+  dec : Float
+  dist : Float
+  rise : Str
+  transit : Str
+  set : Str
+}
+
+// The moon's phase: lit is the lit part (0 to 1), age the part of the month gone (0 to 1),
+// index 0 new, 2 first quarter, 4 full, 6 last quarter.
+Phase = type {
+  lit : Float
+  age : Float
+  index : Int
+  name : Str
+  symbol : Str
+}
+
+pi() : Float {
+  3.141592653589793
+}
+
+rad(d : Float) : Float {
+  d * 3.141592653589793 / 180.0
+}
+
+to_deg(r : Float) : Float {
+  r * 180.0 / 3.141592653589793
+}
+
+turn(x : Float) : Float {
+  // An angle brought into 0 to 360.
+  r = x % 360.0
+  if r < 0.0 {
+    r = r + 360.0
+  }
+  r
+}
+
+two(n : Int) : Str {
+  s = n.toStr
+  if n < 10 {
+    s = "0" + s
+  }
+  s
+}
+
+// Hours as "HH:MM".
+hhmm(hours : Float) : Str {
+  h = hours % 24.0
+  if h < 0.0 {
+    h = h + 24.0
+  }
+  hh = h.floor.toInt
+  mm = ((h - hh.toFloat) * 60.0).round.toInt
+  if mm >= 60 {
+    hh = (hh + 1) % 24
+    mm = 0
+  }
+  two(hh) + ":" + two(mm)
+}
+
+// "HH:MM" as hours, or -1.0 for "always" and "never".
+hours_of(s : Str) : Float {
+  if s.length < 5 || !s.slice(0, 2).isInt {
+    return -1.0
+  }
+  s.slice(0, 2).toInt.toFloat + s.slice(3, 5).toInt.toFloat / 60.0
+}
+
+// A right ascension as "05h 12m".
+ra_text(ra : Float) : Str {
+  h = ra / 15.0
+  if h < 0.0 {
+    h = h + 24.0
+  }
+  hh = h.floor.toInt
+  mm = ((h - hh.toFloat) * 60.0).round.toInt
+  if mm >= 60 {
+    hh = (hh + 1) % 24
+    mm = 0
+  }
+  two(hh) + "h " + two(mm) + "m"
+}
+
+// A declination as "+19° 05′".
+dec_text(dec : Float) : Str {
+  sign = "+"
+  if dec < 0.0 {
+    sign = "-"
+  }
+  a = dec.abs
+  dd = a.floor.toInt
+  mm = ((a - dd.toFloat) * 60.0).round.toInt
+  if mm >= 60 {
+    dd = dd + 1
+    mm = 0
+  }
+  sign + two(dd) + "° " + two(mm) + "′"
+}
+
+is_leap(year : Int) : Bool {
+  (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+days_in_month(year : Int, month : Int) : Int {
+  n = 31
+  if month == 4 || month == 6 || month == 9 || month == 11 {
+    n = 30
+  }
+  if month == 2 {
+    n = 28
+    if is_leap(year) {
+      n = 29
+    }
+  }
+  n
+}
+
+// The Julian date at 0h UT of a day.
+jd(year : Int, month : Int, day : Int) : Float {
+  y = year.toFloat
+  m = month.toFloat
+  (367.0 * y) - ((7.0 * (y + ((m + 9.0) / 12.0).floor)) / 4.0).floor + ((275.0 * m) / 9.0).floor + day.toFloat + 1721013.5
+}
+
+// The Julian date of a day and a time of day (UT).
+jd_at(year : Int, month : Int, day : Int, hour : Int, minute : Int, sec : Int) : Float {
+  jd(year, month, day) + (hour * 3600 + minute * 60 + sec).toFloat / 86400.0
+}
+
+// A Julian date as "2026-03-20 14:46" (UT).
+jd_text(j : Float) : Str {
+  z = (j + 0.5).floor
+  f = j + 0.5 - z
+  a = z
+  if z >= 2299161.0 {
+    al = ((z - 1867216.25) / 36524.25).floor
+    a = z + 1.0 + al - (al / 4.0).floor
+  }
+  b = a + 1524.0
+  c = ((b - 122.1) / 365.25).floor
+  dd = (365.25 * c).floor
+  e = ((b - dd) / 30.6001).floor
+  day = (b - dd - (30.6001 * e).floor).toInt
+  month = e.toInt - 1
+  if month > 12 {
+    month = month - 12
+  }
+  year = c.toInt - 4716
+  if month <= 2 {
+    year = year + 1
+  }
+  mins = (f * 1440.0).round.toInt
+  if mins >= 1440 {
+    mins = 1439
+  }
+  year.toStr + "-" + two(month) + "-" + two(day) + " " + two(mins / 60) + ":" + two(mins % 60)
+}
+
+phase_name(i : Int) : Str {
+  ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous", "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"].at(i)
+}
+
+phase_symbol(i : Int) : Str {
+  ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"].at(i)
+}
+
+// The moon's phase on a day (at 0h UT), from the mean length of the month.
+moon_phase(year : Int, month : Int, day : Int) : Phase {
+  since = jd(year, month, day) - 2451550.1
+  p = (since / 29.530588853) % 1.0
+  if p < 0.0 {
+    p = p + 1.0
+  }
+  lit = (1.0 - (p * 2.0 * pi()).cos) / 2.0
+  idx = (p * 8.0).floor.toInt % 8
+  Phase(lit = (lit * 10000.0).round / 10000.0, age = (p * 10000.0).round / 10000.0, index = idx, name = phase_name(idx), symbol = phase_symbol(idx))
+}
+
+// Is this the day the moon turns new, first quarter, full or last quarter?
+notable_phase(year : Int, month : Int, day : Int) : Bool {
+  t = moon_phase(year, month, day)
+  if t.index % 2 != 0 {
+    return false
+  }
+  py = year
+  pm = month
+  pd = day - 1
+  if pd < 1 {
+    pm = month - 1
+    if pm < 1 {
+      pm = 12
+      py = year - 1
+    }
+    pd = days_in_month(py, pm)
+  }
+  moon_phase(py, pm, pd).index != t.index
+}
+
+// The days of a month with a notable phase, each as "14 🌕 Full Moon".
+phases_in_month(year : Int, month : Int) : List[Str] {
+  out : List[Str] = []
+  for d in 1..=days_in_month(year, month) {
+    if notable_phase(year, month, d) {
+      p = moon_phase(year, month, d)
+      out.push(d.toStr + " " + p.symbol + " " + p.name)
+    }
+  }
+  out
+}
+
+// When a season starts, as a Julian date (UT, good to a few minutes). which is 0 for the
+// March equinox, 1 the June solstice, 2 the September equinox, 3 the December solstice.
+season(year : Int, which : Int) : Float {
+  y = (year - 2000).toFloat / 1000.0
+  j = 2451623.80984 + 365242.37404 * y + 0.05169 * y * y - 0.00411 * y * y * y - 0.00057 * y * y * y * y
+  if which == 1 {
+    j = 2451716.56767 + 365241.62603 * y + 0.00325 * y * y + 0.00888 * y * y * y - 0.0003 * y * y * y * y
+  }
+  if which == 2 {
+    j = 2451810.21715 + 365242.01767 * y - 0.11575 * y * y + 0.00337 * y * y * y + 0.00078 * y * y * y * y
+  }
+  if which == 3 {
+    j = 2451900.05952 + 365242.74049 * y - 0.06223 * y * y - 0.00823 * y * y * y + 0.00032 * y * y * y * y
+  }
+  t = (j - 2451545.0) / 36525.0
+  w = 35999.373 * t - 2.47
+  dl = 1.0 + 0.0334 * rad(w).cos + 0.0007 * rad(2.0 * w).cos
+  a = [485.0, 203.0, 199.0, 182.0, 156.0, 136.0, 77.0, 74.0, 70.0, 58.0, 52.0, 50.0, 45.0, 44.0, 29.0, 18.0, 17.0, 16.0, 14.0, 12.0, 12.0, 12.0, 9.0, 8.0]
+  b = [324.96, 337.23, 342.08, 27.85, 73.14, 171.52, 222.54, 296.72, 243.58, 119.81, 297.17, 21.02, 247.54, 325.15, 60.93, 155.12, 288.79, 198.04, 199.76, 95.39, 287.11, 320.81, 227.73, 15.45]
+  c = [1934.136, 32964.467, 20.186, 445267.112, 45036.886, 22518.443, 65928.934, 3034.906, 9037.513, 33718.147, 150.678, 2281.226, 29929.562, 31555.956, 4443.417, 67555.328, 4562.452, 62894.029, 31436.921, 14577.848, 31931.756, 34777.259, 1222.114, 16859.074]
+  s = 0.0
+  for i in 0..24 {
+    s = s + a.at(i) * rad(b.at(i) + c.at(i) * t).cos
+  }
+  // Dynamical time runs about 70 seconds ahead of UT in this century.
+  j + 0.00001 * s / dl - 70.0 / 86400.0
+}
+
+// What a day is known for: a notable moon phase, a season's start, a meteor shower's peak.
+events(year : Int, month : Int, day : Int) : List[Str] {
+  out : List[Str] = []
+  if notable_phase(year, month, day) {
+    p = moon_phase(year, month, day)
+    out.push(p.symbol + " " + p.name)
+  }
+  names = ["☀ Vernal Equinox", "☀ Summer Solstice", "☀ Autumnal Equinox", "❄ Winter Solstice"]
+  stamp = year.toStr + "-" + two(month) + "-" + two(day)
+  for w in 0..4 {
+    when = jd_text(season(year, w))
+    if when.slice(0, 10) == stamp {
+      out.push(names.at(w) + " " + when.slice(11, 16) + " UT")
+    }
+  }
+  key = month * 100 + day
+  days = [103, 422, 506, 730, 812, 1008, 1021, 1105, 1117, 1214, 1222]
+  showers = ["Quadrantids", "Lyrids", "Eta Aquariids", "Delta Aquariids", "Perseids", "Draconids", "Orionids", "Taurids", "Leonids", "Geminids", "Ursids"]
+  for i in 0..days.length {
+    if days.at(i) == key {
+      out.push("☄ " + showers.at(i) + " peak")
+    }
+  }
+  out
+}
+
+// The sky over a place at an hour of Universal Time on a day.
+sky_ut(year : Int, month : Int, day : Int, ut : Float, lat : Float, lon : Float, tz : Float) : Sky {
+  d = (367 * year - 7 * (year + (month + 9) / 12) / 4 + 275 * month / 9 + day - 730530).toFloat + ut / 24.0
+  t = d / 36525.0
+  ecl = 23.439279444 - 46.815 / 3600.0 * t - 0.00059 / 3600.0 * t * t + 0.001813 / 3600.0 * t * t * t
+  sw = 282.9404 + 4.70935e-5 * d
+  se = 0.016709 - 1.151e-9 * d
+  sm = 356.047 + 0.9856002585 * d
+  ws = (sw + 360.0) % 360.0
+  ms = sm % 360.0
+  es = ms + (180.0 / pi()) * se * rad(ms).sin * (1.0 + se * rad(ms).cos)
+  x = rad(es).cos - se
+  y = rad(es).sin * (1.0 - se * se).sqrt
+  v = to_deg(y.atan2(x))
+  r = (x * x + y * y).sqrt
+  tlon = (v + ws) % 360.0
+  xs = r * rad(tlon).cos
+  ys = r * rad(tlon).sin
+  ye = ys * rad(ecl).cos
+  ze = ys * rad(ecl).sin
+  sun_ra = (to_deg(ye.atan2(xs)) + 360.0) % 360.0
+  sun_dec = to_deg(ze.atan2((xs * xs + ye * ye).sqrt))
+  ls = (ws + ms) % 360.0
+  gmst0 = (ls + 180.0) / 15.0 % 24.0
+  Sky(lat = lat, lon = lon, tz = tz, d = d, ecl = ecl, ls = ls, xs = xs, ys = ys, sidtime = gmst0 + ut + lon / 15.0, sun_ra = sun_ra, sun_dec = sun_dec, mj = (19.895 + 0.0830853001 * d) % 360.0, ms = (316.967 + 0.0334442282 * d) % 360.0)
+}
+
+// The sky over a place for a day (at 0h UT): right for rise and set times.
+sky(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Sky {
+  sky_ut(year, month, day, 0.0, lat, lon, tz)
+}
+
+// The sky over a place at a local clock hour (17.5 is half past five): right for where
+// things are at that moment.
+sky_at(year : Int, month : Int, day : Int, hour : Float, lat : Float, lon : Float, tz : Float) : Sky {
+  sky_ut(year, month, day, hour - tz, lat, lon, tz)
+}
+
+// The local sidereal time of a sky, in degrees.
+sidereal(s : Sky) : Float {
+  ((s.sidtime % 24.0 + 24.0) % 24.0) * 15.0
+}
+
+elements(name : Str, d : Float) : List[Float] {
+  // The six orbit numbers of a body: n, i, w, a, e, m.
+  out = [0.0, 0.0, 282.9404 + 4.70935e-5 * d, 1.0, 0.016709 - 1.151e-9 * d, 356.047 + 0.9856002585 * d]
+  if name == "mercury" {
+    out = [48.3313 + 3.24587e-5 * d, 7.0047 + 5.0e-8 * d, 29.1241 + 1.01444e-5 * d, 0.387098, 0.205635 + 5.59e-10 * d, 168.6562 + 4.0923344368 * d]
+  }
+  if name == "venus" {
+    out = [76.6799 + 2.4659e-5 * d, 3.3946 + 2.75e-8 * d, 54.891 + 1.38374e-5 * d, 0.72333, 0.006773 - 1.302e-9 * d, 48.0052 + 1.6021302244 * d]
+  }
+  if name == "mars" {
+    out = [49.5574 + 2.11081e-5 * d, 1.8497 - 1.78e-8 * d, 286.5016 + 2.92961e-5 * d, 1.523688, 0.093405 + 2.516e-9 * d, 18.6021 + 0.5240207766 * d]
+  }
+  if name == "jupiter" {
+    out = [100.4542 + 2.76854e-5 * d, 1.303 - 1.557e-7 * d, 273.8777 + 1.64505e-5 * d, 5.20256, 0.048498 + 4.469e-9 * d, 19.895 + 0.0830853001 * d]
+  }
+  if name == "saturn" {
+    out = [113.6634 + 2.3898e-5 * d, 2.4886 - 1.081e-7 * d, 339.3939 + 2.97661e-5 * d, 9.55475, 0.055546 - 9.499e-9 * d, 316.967 + 0.0334442282 * d]
+  }
+  if name == "uranus" {
+    out = [74.0005 + 1.3978e-5 * d, 0.7733 + 1.9e-8 * d, 96.6612 + 3.0565e-5 * d, 19.18171 - 1.55e-8 * d, 0.047318 + 7.45e-9 * d, 142.5905 + 0.011725806 * d]
+  }
+  if name == "neptune" {
+    out = [131.7806 + 3.0173e-5 * d, 1.77 - 2.55e-7 * d, 272.8461 - 6.027e-6 * d, 30.05826 + 3.313e-8 * d, 0.008606 + 2.15e-9 * d, 260.2471 + 0.005995147 * d]
+  }
+  out
+}
+
+moon_lr() : List[Int] {
+  // Meeus table 47.A, six numbers a row: D, M, M', F, the longitude term, the distance term.
+  [
+    0, 0, 1, 0, 6288774, -20905355, 2, 0, -1, 0, 1274027, -3699111, 2, 0, 0, 0, 658314, -2955968, 0, 0, 2, 0, 213618, -569925,
+    0, 1, 0, 0, -185116, 48888, 0, 0, 0, 2, -114332, -3149, 2, 0, -2, 0, 58793, 246158, 2, -1, -1, 0, 57066, -152138,
+    2, 0, 1, 0, 53322, -170733, 2, -1, 0, 0, 45758, -204586, 0, 1, -1, 0, -40923, -129620, 1, 0, 0, 0, -34720, 108743,
+    0, 1, 1, 0, -30383, 104755, 2, 0, 0, -2, 15327, 10321, 0, 0, 1, 2, -12528, 0, 0, 0, 1, -2, 10980, 79661,
+    4, 0, -1, 0, 10675, -34782, 0, 0, 3, 0, 10034, -23210, 4, 0, -2, 0, 8548, -21636, 2, 1, -1, 0, -7888, 24208,
+    2, 1, 0, 0, -6766, 30824, 1, 0, -1, 0, -5163, -8379, 1, 1, 0, 0, 4987, -16675, 2, -1, 1, 0, 4036, -12831,
+    2, 0, 2, 0, 3994, -10445, 4, 0, 0, 0, 3861, -11650, 2, 0, -3, 0, 3665, 14403, 0, 1, -2, 0, -2689, -7003,
+    2, 0, -1, 2, -2602, 0, 2, -1, -2, 0, 2390, 10056, 1, 0, 1, 0, -2348, 6322, 2, -2, 0, 0, 2236, -9884,
+    0, 1, 2, 0, -2120, 5751, 0, 2, 0, 0, -2069, 0, 2, -2, -1, 0, 2048, -4950, 2, 0, 1, -2, -1773, 4130,
+    2, 0, 0, 2, -1595, 0, 4, -1, -1, 0, 1215, -3958, 0, 0, 2, 2, -1110, 0, 3, 0, -1, 0, -892, 3258,
+    2, 1, 1, 0, -810, 2616, 4, -1, -2, 0, 759, -1897, 0, 2, -1, 0, -713, -2117, 2, 2, -1, 0, -700, 2354,
+    2, 1, -2, 0, 691, 0, 2, -1, 0, -2, 596, 0, 4, 0, 1, 0, 549, -1423, 0, 0, 4, 0, 537, -1117,
+    4, -1, 0, 0, 520, -1571, 1, 0, -2, 0, -487, -1739, 2, 1, 0, -2, -399, 0, 0, 0, 2, -2, -381, -4421,
+    1, 1, 1, 0, 351, 0, 3, 0, -2, 0, -340, 0, 4, 0, -3, 0, 330, 0, 2, -1, 2, 0, 327, 0,
+    0, 2, 1, 0, -323, 1165, 1, 1, -1, 0, 299, 0, 2, 0, 3, 0, 294, 0, 2, 0, -1, -2, 0, 8752
+  ]
+}
+
+moon_b() : List[Int] {
+  // Meeus table 47.B, five numbers a row: D, M, M', F, the latitude term.
+  [
+    0, 0, 0, 1, 5128122, 0, 0, 1, 1, 280602, 0, 0, 1, -1, 277693, 2, 0, 0, -1, 173237,
+    2, 0, -1, 1, 55413, 2, 0, -1, -1, 46271, 2, 0, 0, 1, 32573, 0, 0, 2, 1, 17198,
+    2, 0, 1, -1, 9266, 0, 0, 2, -1, 8822, 2, -1, 0, -1, 8216, 2, 0, -2, -1, 4324,
+    2, 0, 1, 1, 4200, 2, 1, 0, -1, -3359, 2, -1, -1, 1, 2463, 2, -1, 0, 1, 2211,
+    2, -1, -1, -1, 2065, 0, 1, -1, -1, -1870, 4, 0, -1, -1, 1828, 0, 1, 0, 1, -1794,
+    0, 0, 0, 3, -1749, 0, 1, -1, 1, -1565, 1, 0, 0, 1, -1491, 0, 1, 1, 1, -1475,
+    0, 1, 1, -1, -1410, 0, 1, 0, -1, -1344, 1, 0, 0, -1, -1335, 0, 0, 3, 1, 1107,
+    4, 0, 0, -1, 1021, 4, 0, -1, 1, 833, 0, 0, 1, -3, 777, 4, 0, -2, 1, 671,
+    2, 0, 0, -3, 607, 2, 0, 2, -1, 596, 2, -1, 1, -1, 491, 2, 0, -2, 1, -451,
+    0, 0, 3, -1, 439, 2, 0, 2, 1, 422, 2, 0, -3, -1, 421, 2, 1, -1, 1, -366,
+    2, 1, 0, 1, -351, 4, 0, 0, 1, 331, 2, -1, 1, 1, 315, 2, -2, 0, -1, 302,
+    0, 0, 1, 3, -283, 2, 1, 1, -1, -229, 1, 1, 0, -1, 223, 1, 1, 0, 1, 223,
+    0, 1, -2, -1, -220, 2, 1, -1, -1, -220, 1, 0, 1, 1, -185, 2, -1, -2, -1, 181,
+    0, 1, 2, 1, -177, 4, 0, -2, -1, 176, 4, -1, -1, -1, 166, 1, 0, 1, -1, -164,
+    4, 0, 1, -1, 132, 1, 0, -1, -1, -119, 4, -1, 0, -1, 115, 2, -2, 0, 1, 107
+  ]
+}
+
+moon_centre(s : Sky) : List[Float] {
+  // The moon seen from the centre of the earth: ra, dec, and its distance in earth radii.
+  t = (s.d - 1.5) / 36525.0
+  t2 = t * t
+  t3 = t2 * t
+  t4 = t3 * t
+  lp = 218.3164477 + 481267.88123421 * t - 0.0015786 * t2 + t3 / 538841.0 - t4 / 65194000.0
+  dm = 297.8501921 + 445267.1114034 * t - 0.0018819 * t2 + t3 / 545868.0 - t4 / 113065000.0
+  m = 357.5291092 + 35999.0502909 * t - 0.0001536 * t2 + t3 / 24490000.0
+  mp = 134.9633964 + 477198.8675055 * t + 0.0087414 * t2 + t3 / 69699.0 - t4 / 14712000.0
+  f = 93.272095 + 483202.0175233 * t - 0.0036539 * t2 - t3 / 3526000.0 + t4 / 863310000.0
+  a1 = 119.75 + 131.849 * t
+  a2 = 53.09 + 479264.29 * t
+  a3 = 313.45 + 481266.484 * t
+  e = 1.0 - 0.002516 * t - 0.0000074 * t2
+  dr = rad(dm)
+  mr = rad(m)
+  mpr = rad(mp)
+  fr = rad(f)
+  sl = 0.0
+  sr = 0.0
+  lr = moon_lr()
+  k = 0
+  while k < lr.length {
+    arg = lr.at(k).toFloat * dr + lr.at(k + 1).toFloat * mr + lr.at(k + 2).toFloat * mpr + lr.at(k + 3).toFloat * fr
+    scale = 1.0
+    mi = lr.at(k + 1)
+    if mi == 1 || mi == -1 {
+      scale = e
+    }
+    if mi > 1 || mi < -1 {
+      scale = e * e
+    }
+    sl = sl + lr.at(k + 4).toFloat * scale * arg.sin
+    sr = sr + lr.at(k + 5).toFloat * scale * arg.cos
+    k = k + 6
+  }
+  sb = 0.0
+  bt = moon_b()
+  k = 0
+  while k < bt.length {
+    argb = bt.at(k).toFloat * dr + bt.at(k + 1).toFloat * mr + bt.at(k + 2).toFloat * mpr + bt.at(k + 3).toFloat * fr
+    scaleb = 1.0
+    mb = bt.at(k + 1)
+    if mb == 1 || mb == -1 {
+      scaleb = e
+    }
+    if mb > 1 || mb < -1 {
+      scaleb = e * e
+    }
+    sb = sb + bt.at(k + 4).toFloat * scaleb * argb.sin
+    k = k + 5
+  }
+  sl = sl + 3958.0 * rad(a1).sin + 1962.0 * rad(lp - f).sin + 318.0 * rad(a2).sin
+  sb = sb - 2235.0 * rad(lp).sin + 382.0 * rad(a3).sin + 175.0 * rad(a1 - f).sin + 175.0 * rad(a1 + f).sin + 127.0 * rad(lp - mp).sin - 115.0 * rad(lp + mp).sin
+  lam = rad(turn(lp + sl / 1000000.0))
+  bet = rad(sb / 1000000.0)
+  eps = rad(s.ecl)
+  ra = to_deg((lam.sin * eps.cos - bet.tan * eps.sin).atan2(lam.cos))
+  if ra < 0.0 {
+    ra = ra + 360.0
+  }
+  sd = bet.sin * eps.cos + bet.cos * eps.sin * lam.sin
+  if sd > 1.0 {
+    sd = 1.0
+  }
+  if sd < -1.0 {
+    sd = -1.0
+  }
+  [ra, to_deg(sd.asin), (385000.56 + sr / 1000.0) / 6378.14]
+}
+
+observed(s : Sky, ra : Float, dec : Float, dist : Float, par : Float) : Pos {
+  // From the centre of the earth to the observer: par is the parallax in degrees.
+  gclat = s.lat - 0.1924 * rad(2.0 * s.lat).sin
+  rho = 0.99833 + 0.00167 * rad(2.0 * s.lat).cos
+  ha = (s.sidtime * 15.0 - ra + 360.0) % 360.0
+  cd = rad(dec).cos
+  tra = ra
+  if cd.abs >= 1.0e-9 {
+    tra = ra - par * rho * rad(gclat).cos * rad(ha).sin / cd
+  }
+  tdec = dec - par * rho * (rad(gclat).sin * cd - rad(gclat).cos * rad(ha).cos * rad(dec).sin)
+  Pos(ra = tra, dec = tdec, dist = dist, gra = ra, gdec = dec)
+}
+
+// Where a body is in a sky.
+pos(s : Sky, name : Str) : Pos {
+  if name == "moon" {
+    mc = moon_centre(s)
+    return observed(s, mc.at(0), mc.at(1), mc.at(2), to_deg((1.0 / mc.at(2)).asin))
+  }
+  el = elements(name, s.d)
+  nb = el.at(0)
+  ib = el.at(1)
+  wb = (el.at(2) + 360.0) % 360.0
+  ab = el.at(3)
+  eb = el.at(4)
+  mb = el.at(5) % 360.0
+  e1 = mb + (180.0 / pi()) * eb * rad(mb).sin * (1.0 + eb * rad(mb).cos)
+  going = true
+  while going {
+    e0 = e1
+    e1 = e0 - (e0 - (180.0 / pi()) * eb * rad(e0).sin - mb) / (1.0 - eb * rad(e0).cos)
+    going = (e1 - e0).abs > 0.0005
+  }
+  x = ab * (rad(e1).cos - eb)
+  y = ab * (1.0 - eb * eb).sqrt * rad(e1).sin
+  r = (x * x + y * y).sqrt
+  v = (to_deg(y.atan2(x)) + 360.0) % 360.0
+  xe = r * (rad(nb).cos * rad(v + wb).cos - rad(nb).sin * rad(v + wb).sin * rad(ib).cos)
+  ye = r * (rad(nb).sin * rad(v + wb).cos + rad(nb).cos * rad(v + wb).sin * rad(ib).cos)
+  ze = r * rad(v + wb).sin * rad(ib).sin
+  lon = (to_deg(ye.atan2(xe)) + 360.0) % 360.0
+  lat = to_deg(ze.atan2((xe * xe + ye * ye).sqrt))
+  rb = (xe * xe + ye * ye + ze * ze).sqrt
+  mj = s.mj
+  ms = s.ms
+  if name == "jupiter" {
+    lon = lon - 0.332 * rad(2.0 * mj - 5.0 * ms - 67.6).sin - 0.056 * rad(2.0 * mj - 2.0 * ms + 21.0).sin + 0.042 * rad(3.0 * mj - 5.0 * ms + 21.0).sin - 0.036 * rad(mj - 2.0 * ms).sin + 0.022 * rad(mj - ms).cos + 0.023 * rad(2.0 * mj - 3.0 * ms + 52.0).sin - 0.016 * rad(mj - 5.0 * ms - 69.0).sin
+  }
+  if name == "saturn" {
+    lon = lon + 0.812 * rad(2.0 * mj - 5.0 * ms - 67.6).sin - 0.229 * rad(2.0 * mj - 4.0 * ms - 2.0).cos + 0.119 * rad(mj - 2.0 * ms - 3.0).sin + 0.046 * rad(2.0 * mj - 6.0 * ms - 69.0).sin + 0.014 * rad(mj - 3.0 * ms + 32.0).sin
+    lat = lat - 0.02 * rad(2.0 * mj - 4.0 * ms - 2.0).cos + 0.018 * rad(2.0 * mj - 6.0 * ms - 49.0).sin
+  }
+  xh = rb * rad(lon).cos * rad(lat).cos
+  yh = rb * rad(lon).sin * rad(lat).cos
+  zh = rb * rad(lat).sin
+  if name != "sun" {
+    xh = xh + s.xs
+    yh = yh + s.ys
+  }
+  xq = xh
+  yq = yh * rad(s.ecl).cos - zh * rad(s.ecl).sin
+  zq = yh * rad(s.ecl).sin + zh * rad(s.ecl).cos
+  ra = (to_deg(yq.atan2(xq)) + 360.0) % 360.0
+  dec = to_deg(zq.atan2((xq * xq + yq * yq).sqrt))
+  dist = (xq * xq + yq * yq + zq * zq).sqrt
+  observed(s, ra, dec, dist, (8.794 / 3600.0) / rb)
+}
+
+// Height and direction of a place in the sky (ra, dec). Use a sky made with sky_at.
+horizon(s : Sky, ra : Float, dec : Float) : Hor {
+  ha = rad(s.sidtime * 15.0 - ra)
+  x = ha.cos * rad(dec).cos
+  y = ha.sin * rad(dec).cos
+  z = rad(dec).sin
+  xh = x * rad(s.lat).sin - z * rad(s.lat).cos
+  zh = x * rad(s.lat).cos + z * rad(s.lat).sin
+  Hor(alt = to_deg(zh.asin), az = (to_deg(y.atan2(xh)) + 180.0) % 360.0)
+}
+
+// Height and direction of a body. Use a sky made with sky_at.
+where(s : Sky, name : Str) : Hor {
+  p = pos(s, name)
+  horizon(s, p.ra, p.dec)
+}
+
+// The height a body's centre has when it is seen to rise or set.
+rise_height(name : Str) : Float {
+  h = -0.5667
+  if name == "sun" {
+    h = -0.8333
+  }
+  if name == "moon" {
+    h = 0.125
+  }
+  h
+}
+
+// Rise, transit and set of a place in the sky (ra, dec) for the day of a sky made with
+// sky. h0 is the height that counts as rising: rise_height(name), or -6.0, -12.0 and
+// -18.0 with the sun's place for civil, nautical and astronomical twilight.
+times(s : Sky, ra : Float, dec : Float, h0 : Float) : Times {
+  tr = ((ra - s.ls - s.lon) / 15.0 + 12.0 + s.tz + 24.0) % 24.0
+  phi = rad(s.lat)
+  del = rad(dec)
+  den = phi.cos * del.cos
+  if den.abs < 1.0e-12 {
+    return Times(rise = "never", transit = hhmm(tr), set = "always")
+  }
+  c = (rad(h0).sin - phi.sin * del.sin) / den
+  if c < -1.0 {
+    return Times(rise = "always", transit = hhmm(tr), set = "never")
+  }
+  if c > 1.0 {
+    return Times(rise = "never", transit = hhmm(tr), set = "always")
+  }
+  lha = to_deg(c.acos) / 15.0
+  Times(rise = hhmm((tr - lha + 24.0) % 24.0), transit = hhmm(tr), set = hhmm((tr + lha + 24.0) % 24.0))
+}
+
+// Rise, transit and set of a body on a day.
+body_times(year : Int, month : Int, day : Int, name : Str, lat : Float, lon : Float, tz : Float) : Times {
+  s = sky(year, month, day, lat, lon, tz)
+  p = pos(s, name)
+  times(s, p.ra, p.dec, rise_height(name))
+}
+
+// Sunrise, noon and sunset on a day.
+sun_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times {
+  s = sky(year, month, day, lat, lon, tz)
+  times(s, s.sun_ra, s.sun_dec, rise_height("sun"))
+}
+
+// Moonrise and moonset on a day.
+moon_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times {
+  body_times(year, month, day, "moon", lat, lon, tz)
+}
+
+// Dawn and dusk: rise is when the sun climbs past depth degrees below the horizon, set
+// when it sinks past it. depth is 6.0 (civil), 12.0 (nautical) or 18.0 (astronomical).
+twilight(year : Int, month : Int, day : Int, depth : Float, lat : Float, lon : Float, tz : Float) : Times {
+  s = sky(year, month, day, lat, lon, tz)
+  times(s, s.sun_ra, s.sun_dec, 0.0 - depth)
+}
+
+// Hours of daylight on a day: 24.0 in the midnight sun, 0.0 in the polar night.
+day_length(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Float {
+  t = sun_times(year, month, day, lat, lon, tz)
+  if t.rise == "always" {
+    return 24.0
+  }
+  if t.rise == "never" {
+    return 0.0
+  }
+  (hours_of(t.set) - hours_of(t.rise) + 24.0) % 24.0
+}
+
+// The angle between two places in the sky.
+separation(ra1 : Float, dec1 : Float, ra2 : Float, dec2 : Float) : Float {
+  c = rad(dec1).sin * rad(dec2).sin + rad(dec1).cos * rad(dec2).cos * rad(ra1 - ra2).cos
+  if c > 1.0 {
+    c = 1.0
+  }
+  if c < -1.0 {
+    c = -1.0
+  }
+  to_deg(c.acos)
+}
+
+// How far a body stands from the sun in the sky.
+elongation(s : Sky, name : Str) : Float {
+  p = pos(s, name)
+  separation(p.gra, p.gdec, s.sun_ra, s.sun_dec)
+}
+
+// The lit part of the moon (0 to 1) from where the sun and the moon really are.
+moon_lit(s : Sky) : Float {
+  (1.0 - rad(elongation(s, "moon")).cos) / 2.0
+}
+
+// The nine body names, in the order bodies gives them.
+names() : List[Str] {
+  ["sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"]
+}
+
+index_of(name : Str) : Int {
+  all = names()
+  for i in 0..all.length {
+    if all.at(i) == name {
+      return i
+    }
+  }
+  -1
+}
+
+// The sign of a body, as text and not as a wide picture.
+sign(name : Str) : Str {
+  i = index_of(name)
+  if i < 0 {
+    return "?"
+  }
+  ["☀", "☾", "☿", "♀", "♂", "♃", "♄", "♅", "♆"].at(i) + 65038.char
+}
+
+// The colour number (0 to 255) a body is drawn in, as a style word for a terminal.
+colour(name : Str) : Str {
+  i = index_of(name)
+  if i < 0 {
+    return "255"
+  }
+  ["220", "248", "137", "216", "196", "208", "229", "117", "33"].at(i)
+}
+
+// "sun" as "Sun".
+title(name : Str) : Str {
+  if name.length == 0 {
+    return name
+  }
+  name.slice(0, 1).upper + name.slice(1, name.length)
+}
+
+// Every body for one day: where it is and when it rises, transits and sets.
+bodies(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : List[Body] {
+  s = sky(year, month, day, lat, lon, tz)
+  out : List[Body] = []
+  for n in names() {
+    p = pos(s, n)
+    t = times(s, p.ra, p.dec, rise_height(n))
+    out.push(Body(name = n, ra = p.ra, dec = p.dec, dist = p.dist, rise = t.rise, transit = t.transit, set = t.set))
+  }
+  out
+}
+
+// Is a body up at a local clock hour, going by its rise and set?
+is_up(b : Body, hour : Float) : Bool {
+  if b.rise == "always" {
+    return true
+  }
+  if b.rise == "never" {
+    return false
+  }
+  r = hours_of(b.rise)
+  st = hours_of(b.set)
+  if r > st {
+    return hour >= r || hour <= st
+  }
+  hour >= r && hour <= st
+}
+
+// The planets (Mercury to Saturn) that stand more than 5 degrees up at some full hour
+// between 20:00 and 04:00.
+visible_planets(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : List[Body] {
+  s = sky(year, month, day, lat, lon, tz)
+  out : List[Body] = []
+  for n in ["mercury", "venus", "mars", "jupiter", "saturn"] {
+    p = pos(s, n)
+    seen = false
+    for h in [20.0, 21.0, 22.0, 23.0, 0.0, 1.0, 2.0, 3.0, 4.0] {
+      ha = rad((h - p.ra / 15.0) * 15.0)
+      zh = ha.cos * rad(p.dec).cos * rad(lat).cos + rad(p.dec).sin * rad(lat).sin
+      if to_deg(zh.asin) > 5.0 {
+        seen = true
+      }
+    }
+    if seen {
+      t = times(s, p.ra, p.dec, rise_height(n))
+      out.push(Body(name = n, ra = p.ra, dec = p.dec, dist = p.dist, rise = t.rise, transit = t.transit, set = t.set))
+    }
+  }
+  out
+}
+
+pad(s : Str, n : Int) : Str {
+  out = s
+  while out.length < n {
+    out = out + " "
+  }
+  out
+}
+
+// A table of bodies as lines of text: name, RA, Dec, distance, rise, transit, set.
+table(list : List[Body]) : List[Str] {
+  out = ["Planet    │ RA      │ Dec      │ d=AU    │ Rise  │ Trans │ Set", "──────────┼─────────┼──────────┼─────────┼───────┼───────┼──────"]
+  for b in list {
+    dist = ((b.dist * 10000.0).round / 10000.0).toStr
+    if !dist.contains(".") {
+      dist = dist + ".0"
+    }
+    while dist.length - dist.find(".") < 5 {
+      dist = dist + "0"
+    }
+    out.push(pad(title(b.name), 9) + " │ " + ra_text(b.ra) + " │ " + dec_text(b.dec) + " │ " + dist.padLeft(7) + " │ " + pad(b.rise.slice(0, 5), 5) + " │ " + pad(b.transit, 5) + " │ " + b.set.slice(0, 5))
+  }
+  out
+}
+
+// The star pictures high in the evening sky in a month (the south gets the other half-year).
+overhead(month : Int, lat : Float) : List[Str] {
+  m = month
+  if lat < 0.0 {
+    m = (month + 5) % 12 + 1
+  }
+  all = ["Orion, Taurus, Auriga, Gemini", "Orion, Canis Major, Gemini, Auriga", "Leo, Cancer, Gemini, Hydra", "Leo, Virgo, Ursa Major", "Virgo, Boötes, Coma Berenices", "Boötes, Hercules, Corona Borealis", "Lyra, Cygnus, Hercules, Scorpius", "Cygnus, Lyra, Aquila, Sagittarius", "Pegasus, Andromeda, Cygnus, Capricornus", "Pegasus, Andromeda, Pisces, Aquarius", "Andromeda, Triangulum, Aries, Perseus", "Taurus, Orion, Perseus, Auriga"]
+  if m < 1 || m > 12 {
+    return []
+  }
+  all.at(m - 1).split(", ")
+}
+
+// Tonight in a few lines: the moon, the planets to see, what is overhead.
+tonight(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : List[Str] {
+  out : List[Str] = []
+  mp = moon_phase(year, month, day)
+  mt = moon_times(year, month, day, lat, lon, tz)
+  line = "Tonight: " + mp.symbol + " " + mp.name + " " + (mp.lit * 100.0).round.toInt.toStr + "%"
+  if mt.rise != "never" && mt.rise != "always" {
+    line = line + ", rises " + mt.rise + " sets " + mt.set
+  }
+  out.push(line)
+  parts : List[Str] = []
+  for p in visible_planets(year, month, day, lat, lon, tz) {
+    parts.push(sign(p.name) + " " + title(p.name) + " (rises " + p.rise.slice(0, 5) + " sets " + p.set.slice(0, 5) + ")")
+  }
+  if parts.length == 0 {
+    out.push("Planets: none above 5° between 20:00 and 04:00")
+  } else {
+    out.push("Planets: " + parts.join(", "))
+  }
+  out.push("Near zenith: " + overhead(month, lat).join(", "))
+  out
+}
+
+near(a : Float, b : Float, by : Float) : Bool {
+  (a - b).abs <= by
+}
+
+test_dates() {
+  assert(jd(2000, 1, 1) == 2451544.5)
+  assert(jd_text(jd_at(2026, 11, 16, 9, 30, 0)) == "2026-11-16 09:30")
+  assert(days_in_month(2024, 2) == 29 && days_in_month(2100, 2) == 28)
+  assert(hhmm(7.999) == "08:00" && hhmm(-0.5) == "23:30")
+  assert(hours_of("06:30") == 6.5 && hours_of("never") == -1.0)
+  assert(ra_text(77.9) == "05h 12m" && dec_text(-19.08) == "-19° 05′")
+}
+
+test_moon_phase() {
+  p = moon_phase(2026, 11, 16)
+  assert(p.name == "Waxing Crescent" && p.index == 1)
+  assert(near(p.lit, 0.3801, 0.0001))
+  assert(phases_in_month(2026, 11).length == 4)
+  assert(notable_phase(2026, 11, 25) && !notable_phase(2026, 11, 26))
+}
+
+test_seasons() {
+  assert(jd_text(season(2026, 0)) == "2026-03-20 14:46")
+  assert(jd_text(season(2026, 2)) == "2026-09-23 00:05")
+  assert(jd_text(season(2026, 3)) == "2026-12-21 20:50")
+  assert(events(2026, 8, 12).at(0) == "☄ Perseids peak")
+}
+
+// Oslo on 2026-11-16, as the orbit library in Rust gives it.
+test_positions() {
+  s = sky(2026, 11, 16, 59.9139, 10.7522, 1.0)
+  sun = pos(s, "sun")
+  assert(near(sun.ra, 231.2561, 0.0001) && near(sun.dec, -18.6816, 0.0001) && near(sun.dist, 0.9891, 0.0001))
+  moon = pos(s, "moon")
+  assert(near(moon.ra, 309.5835, 0.0001) && near(moon.dec, -20.6417, 0.0001) && near(moon.dist, 63.1437, 0.0001))
+  sat = pos(s, "saturn")
+  assert(near(sat.ra, 8.8257, 0.0001) && near(sat.dec, 0.9333, 0.0001) && near(sat.dist, 8.7202, 0.0001))
+  nep = pos(s, "neptune")
+  assert(near(nep.ra, 2.2173, 0.0001) && near(nep.dist, 29.2424, 0.0001))
+}
+
+test_times() {
+  t = sun_times(2026, 11, 16, 59.9139, 10.7522, 1.0)
+  assert(t.rise == "08:16" && t.transit == "12:02" && t.set == "15:47")
+  m = moon_times(2026, 11, 16, 59.9139, 10.7522, 1.0)
+  assert(m.rise == "13:59" && m.set == "20:31")
+  assert(sun_times(2026, 6, 21, 69.6492, 18.9553, 2.0).rise == "always")
+  assert(sun_times(2026, 12, 21, 69.6492, 18.9553, 1.0).rise == "never")
+  assert(day_length(2026, 6, 21, 69.6492, 18.9553, 2.0) == 24.0)
+  c = twilight(2026, 11, 16, 6.0, 59.9139, 10.7522, 1.0)
+  assert(hours_of(c.rise) < hours_of(t.rise) && hours_of(c.set) > hours_of(t.set))
+}
+
+test_sky_now() {
+  s = sky_at(2026, 11, 16, 18.0, 59.9139, 10.7522, 1.0)
+  assert(where(s, "sun").alt < -10.0)
+  assert(where(s, "saturn").alt > 15.0)
+  assert(near(elongation(s, "sun"), 0.0, 0.01))
+  assert(near(separation(0.0, 0.0, 90.0, 0.0), 90.0, 0.000001))
+  v = visible_planets(2026, 11, 16, 59.9139, 10.7522, 1.0)
+  assert(v.length == 3 && v.at(0).name == "mars")
+  assert(table(bodies(2026, 11, 16, 59.9139, 10.7522, 1.0)).length == 11)
+  assert(is_up(v.at(0), 23.0) && !is_up(v.at(0), 18.0))
+}

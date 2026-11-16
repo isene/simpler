@@ -3663,6 +3663,9 @@ emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   if exprType(a, ctx) == "Float" {
     inner = "(l2d(".concat(ca).concat(") ").concat(op).concat(" l2d(").concat(cb).concat(")) ")
     r = inner
+    if op == "%" {
+      inner = "fmod(l2d(".concat(ca).concat("), l2d(").concat(cb).concat("))")
+    }
     if isFloatArith(op) {
       r = "d2l(".concat(inner).concat(")")
     }
@@ -3701,7 +3704,7 @@ textOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Bool !Mut {
 
 // `+ - * /` produce a Float; `< > ==` produce a Bool (no d2l re-wrap).
 isFloatArith(op : Str) : Bool {
-  (op == "+").or(op == "-").or(op == "*").or(op == "/")
+  (op == "+").or(op == "-").or(op == "*").or(op == "/").or(op == "%")
 }
 
 // Arithmetic and ordering need numeric operands (Int or Float), and the two
@@ -3725,9 +3728,6 @@ checkBinOp(op : Str, a : Expr, b : Expr, ctx : Ctx) : Int !Mut {
     }
     if notInt(tb, ctx) {
       failAt("operator ".concat(op).concat(" needs Int operands"), ctx)
-    }
-    if (op == "%").and(ta == "Float") {
-      failAt("operator % needs Int operands", ctx)
     }
     if mixedFloat(ta, tb) {
       failAt("operator ".concat(op).concat(" mixes Int and Float; convert with .toFloat or .toInt"), ctx)
@@ -4090,6 +4090,21 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "abs" {
       r = "d2l(fabs(l2d(".concat(recvC).concat(")))")
     }
+    if fld == "atan" {
+      r = "d2l(atan(l2d(".concat(recvC).concat(")))")
+    }
+    if (fld == "ceil") || (fld == "ceil_c") {
+      r = "d2l(ceil(l2d(".concat(recvC).concat(")))")
+    }
+    if (fld == "round") || (fld == "round_c") {
+      r = "d2l(round(l2d(".concat(recvC).concat(")))")
+    }
+    if fld == "ln" {
+      r = "d2l(log(l2d(".concat(recvC).concat(")))")
+    }
+    if fld == "exp" {
+      r = "d2l(exp(l2d(".concat(recvC).concat(")))")
+    }
     if fld == "not" {
       r = "(!".concat(recvC).concat(")")
     }
@@ -4159,7 +4174,7 @@ isBuiltinField(fld : Str) : Bool {
 // The unary Float math fields, wrappers over libm (programs that use them link
 // with -lm). Each is Float -> Float.
 isMathField(fld : Str) : Bool {
-  (fld == "sin").or(fld == "cos").or(fld == "tan").or(fld == "asin").or(fld == "acos").or(fld == "sqrt").or(fld == "floor").or(fld == "abs")
+  (fld == "sin").or(fld == "cos").or(fld == "tan").or(fld == "asin").or(fld == "acos").or(fld == "atan").or(fld == "sqrt").or(fld == "floor").or(fld == "ceil").or(fld == "round").or(fld == "ceil_c").or(fld == "round_c").or(fld == "ln").or(fld == "exp").or(fld == "abs")
 }
 
 // Does record type `t` declare a field named `fld`?
@@ -4402,7 +4417,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
@@ -4569,6 +4584,16 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     if t == "Bytes" {
       r = "y_int(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
     }
+  }
+  if (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") {
+    if (t != "Float") || (exprType(args.at(0), ctx) != "Float") {
+      failAt("atan2 and pow work on two Float numbers: y.atan2(x), x.pow(y)", ctx)
+    }
+    cf = "pow"
+    if name.startsWith("atan2") {
+      cf = "atan2"
+    }
+    r = "d2l(".concat(cf).concat("(l2d(").concat(recvC).concat("), l2d(").concat(emitExpr(args.at(0), ctx)).concat(")))")
   }
   if name == "floatAt" {
     r = "b_float(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
@@ -4940,7 +4965,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if (name == "intAt") || (name == "findByte") {
     r = "Int"
   }
-  if name == "floatAt" {
+  if (name == "floatAt") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") {
     r = "Float"
   }
   if name == "exists" {
