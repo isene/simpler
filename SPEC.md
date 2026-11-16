@@ -259,7 +259,7 @@ arguments. Dispatch is by the receiver's static type.
 
 | Send | Result | Meaning |
 |------|--------|---------|
-| `s.length` | `Int` | number of bytes |
+| `s.length` | `Int` | number of letters (`"blå".length` is 3); `at`, `slice`, `find` and the pads count the same way |
 | `s.at(i)` | `Str` | one-character string at `i` |
 | `s.code` | `Int` | number of the first character (its Unicode number when the text starts with a whole UTF-8 character, else the byte) |
 | `s.slice(a, b)` | `Str` | substring `[a, b)` |

@@ -129,7 +129,7 @@ main(sys) {
   text in one loop, a later counter needs another name. After `s = "12"` write `n = s.toInt`.
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()`.
 - Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
-  anything else stays as it is. A character is a one-letter text: `s.at(i)`. Compare characters as text:
+  anything else stays as it is. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!x` for not.
 - `+` adds two numbers or joins two texts, never one of each: write `"n = " + n.toStr`.

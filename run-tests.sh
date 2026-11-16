@@ -1761,6 +1761,35 @@ rc=1
 echo script
 hi" ]; then ok; else nope "build keeps a file that is not a built program (got: $keepout)"; fi
 
+# A text is counted in letters, never in bytes: length, at, slice, find, the
+# pads, capitals, the loop and the regex all agree with what a reader sees.
+cat > "$TMP/mod/letters.smplr" <<'SMPLR'
+main(sys) {
+  s = "blå × bær·c"
+  sys.screen.print(s.length.toStr + " " + s.at(2) + s.at(4) + " " + s.slice(1, 3) + " " + s.find("bær").toStr + " " + s.find("q").toStr)
+  n = 0
+  for c in s {
+    if c == "å" || c == "æ" {
+      n = n + 1
+    }
+  }
+  sys.screen.print(n.toStr + " " + s.upper + " " + "ÆØÅ".lower + " [" + "å".padLeft(3) + "] [" + "å".padRight(3) + "]")
+  sys.screen.print("⌂ blå·bær x2".reAll("\w+").length.toStr + " " + "så⌂".reFind("\bså\b").length.toStr)
+  r = ""
+  i = s.length - 1
+  while i >= 0 {
+    r = r + s.at(i)
+    i = i - 1
+  }
+  sys.screen.print(r + " " + s.slice(4, 11).slice(2, 5) + s.slice(11, 11) + "|")
+}
+SMPLR
+letout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run letters.smplr 2>&1 | tr '\n' '~' )"
+if [ "$letout" = '11 å× lå 6 -1~2 BLÅ × BÆR·C æøå [  å] [å  ]~3 1~c·ræb × ålb bær|~' ]; then ok; else nope "a text is counted in letters (got: $letout)"; fi
+printf 'main(sys) {\n  sys.screen.print("blå".at(3))\n}\n' > "$TMP/mod/letend.smplr"
+letend="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run letend.smplr 2>&1 )"
+if [ "$letend" = 'letend.smplr:2: text index 3, but the text has 3 characters' ]; then ok; else nope "index past the last letter (got: $letend)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
