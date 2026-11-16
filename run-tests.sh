@@ -1830,6 +1830,24 @@ printf 'limits "soon"\nmain(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/ex/bad
 limout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; for f in spin eat badl; do "$OLDPWD/simpler" run $f.smplr >/dev/null 2>&1; printf '%s ' $?; done )"
 if [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
 
+# simpler undo puts back what the last run wrote, appended to, deleted and renamed.
+mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
+cat > "$TMP/un/und.smplr" <<'UNT'
+writes "box/", "one.txt"
+main(sys) {
+  sys.files.write("box/a.txt", "new a\n")
+  sys.files.write("box/a.txt", "newer a\n")
+  sys.files.write("box/fresh.txt", "made\n")
+  sys.files.append("box/log.txt", "more\n")
+  sys.files.delete("box/del.txt")
+  sys.files.rename("box/mv.txt", "box/moved.txt")
+  sys.files.write("one.txt", "single\n")
+}
+UNT
+unout="$( cd "$TMP/un" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" XDG_STATE_HOME="$TMP/state"; "$OLDPWD/simpler" run und.smplr; cat box/a.txt box/log.txt | tr '\n' '|'; ls box | tr '\n' ' '; "$OLDPWD/simpler" undo und.smplr | wc -l; cat box/a.txt box/log.txt box/del.txt box/mv.txt | tr '\n' '|'; ls box . | tr '\n' ' '; "$OLDPWD/simpler" undo und.smplr )"
+if [ "$unout" = "newer a|old log|more|a.txt fresh.txt log.txt moved.txt 7
+old a|old log|gone|move|.: box und.smplr  box: a.txt del.txt log.txt mv.txt nothing to undo" ]; then ok; else nope "simpler undo (got: $unout)"; fi
+
 # Print with no line end, date texts, the home folder, and a fetch with headers.
 mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"
 printf '#!/bin/sh\nfor a in "$@"; do printf "%%s," "$a"; done\nprintf "\\n200"\n' > "$TMP/fakebin/curl"; chmod +x "$TMP/fakebin/curl"

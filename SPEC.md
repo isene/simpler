@@ -464,6 +464,17 @@ limits "2s", "50MB"
 memory. A program that passes one stops with a line that says so (status 124
 for time, 125 for memory). Each program it starts gets the same caps.
 
+**Undo.** Before a program writes, appends to, renames or deletes a file, the
+old file is copied aside (the first time in that run). `simpler undo prog.smplr`
+puts every such file back and removes the ones the run made; with a built
+program it is `SIMPLER_UNDO=1 ./prog`. One run is kept per program, the last
+one that changed a file, under `~/.local/state/simpler/undo/`.
+
+- A file over 16 MB is not copied; undo names it and leaves it.
+- What a started program wrote is not kept, only what the program wrote itself.
+- The copies are made by a helper outside the kernel lock, so a started
+  program cannot change them.
+
 **A dry run.** `simpler run --dry prog.smplr` (or `SIMPLER_DRY=1` with a built
 program) runs the program but does nothing that leaves a mark. Each write,
 append, delete, rename, started program, fetch and mail prints a line such as

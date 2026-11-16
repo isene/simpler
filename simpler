@@ -3,6 +3,7 @@
 #
 #   simpler run prog.smplr [arguments]   compile and run it
 #   simpler run --dry prog.smplr [args]  run it, but only say what it would write, delete, start, fetch or mail
+#   simpler undo prog.smplr              put back the files its last run wrote, changed or deleted
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
 #   simpler trusted prog.smplr [args]    succeed when all it can touch is inside ~/.config/simpler/trust
@@ -19,7 +20,7 @@ while [ -L "$self" ]; do
 done
 home=$(cd "$(dirname "$self")" && pwd)
 
-usage() { sed -n '2,11p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,12p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The compiler: next to this script after an install, or built in the repo.
 compiler() {
@@ -161,6 +162,7 @@ case $cmd in
             if [ -f "$home/prompt/$p.md" ]; then cat "$home/prompt/$p.md"; else mod_page "$p"; fi
         done
         exit ;;
+    undo) SIMPLER_UNDO=1; export SIMPLER_UNDO; cmd=run ;;
     run|build|what|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
