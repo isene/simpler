@@ -55,6 +55,7 @@ check_run m5b   "$(printf 'hello\n42\ndot')"
 check_run m5c   "$(printf '5\ne\nell\nhello world\n42!\ntrue\nfalse\n1\nfalse\ntrue')"
 check_run m5e   "20"
 check_run m6    "15"
+check_run emptylist "$(printf '1\n0')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
 lout="$(run_smplr selfhost/lexer.smplr)"

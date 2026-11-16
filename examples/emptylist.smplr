@@ -1,0 +1,9 @@
+main(sys) {
+  nb = [1, 2, 3]
+  nb = []
+  nb.push(7)
+  sys.screen.print(nb.length)
+  names : List[Str] = ["a"]
+  names = []
+  sys.screen.print(names.length)
+}

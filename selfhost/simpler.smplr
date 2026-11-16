@@ -2297,7 +2297,12 @@ seedStmt(s : Stmt, ctx : Ctx) : Int !Mut {
 
 // A name keeps one type through a function. Binding it again with another
 // type is refused here, since every later use would be read with the wrong one.
-seedLet(name : Str, ty : Str, ctx : Ctx) : Int !Mut {
+seedLet(name : Str, ty0 : Str, ctx : Ctx) : Int !Mut {
+  ty = ty0
+  // `xs = []` on a list that already has a type empties it
+  if (ty0 == "List") && envOld(ctx.env, name).startsWith("List[") {
+    ty = envOld(ctx.env, name)
+  }
   if ty == "List" {
     failAt("an empty [] needs a type, as in ".concat(name).concat(" : List[Int] = []"), ctx)
   }
