@@ -193,7 +193,7 @@ main(sys) {
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
 - Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
-- List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
+- List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.slice(a, b)` (a new list; `xs.slice(a)` runs to the end), `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
   `xs.join(sep)` (a list of texts as one text)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent; a map of lists or of your own types has no empty

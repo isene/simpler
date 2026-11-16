@@ -1,0 +1,15 @@
+// A part of a list is a new list; adding to it leaves the first one alone.
+tail(rows : List[List[Str]]) : Int {
+  ks = rows.slice(1)
+  ks.push(["own"])
+  ks.length
+}
+
+main(sys) {
+  a = [1, 2, 3, 4]
+  b = a.slice(1, 3)
+  b.push(9)
+  sys.screen.print(b.length + a.length)
+  sys.screen.print(tail([["a"], ["b"]]))
+  sys.screen.print(a.slice(2).length)
+}

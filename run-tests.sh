@@ -59,6 +59,7 @@ check_run emptylist "$(printf '1\n0')"
 check_run retype    "$(printf 'abc\n4\n2\n1\na=1\n11\n99\nb:22\nplain\nin1\nin2\nouter\n42\nv1\nv2')"
 check_run ownrecord "$(printf '3\n1')"
 check_run earlyret  "$(printf '2\n1')"
+check_run listslice "$(printf '7\n2\n2')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
@@ -414,6 +415,14 @@ mk(toks : List[Str]) : Int {
 }
 main(sys) {
   sys.screen.print(mk(["a"]))
+}'
+refused "a part of a handed list still holds the caller rows" "bad changes a list or map it was handed" 'bad(rows : List[List[Str]]) : Int {
+  ks = rows.slice(0, 1)
+  ks.at(0).push("x")
+  1
+}
+main(sys) {
+  sys.screen.print(bad([["a"]]))
 }'
 refused "sys outside main" "exists only on main" 'peek() : Str !IO !Fail {
   sys.files.read("s.txt")

@@ -328,6 +328,7 @@ main(sys) {
   sys.screen.print("long s_toint(long s) { return atol((const char*)(intptr_t)s); }")
   sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)malloc(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }")
   sys.screen.print("long l_range(long a, long b) { long l = l_new(); for (long k = a; k < b; k++) l_push(l, k); return l; }")
+  sys.screen.print("long l_slicec(long lp, long a, long b, long line) { SList* s = (SList*)(intptr_t)lp; if (a < 0 || b > s->len) { fprintf(stderr, \"%s: slice %ld to %ld, but the list has %ld items\\n\", simpler_at(line), a, b, s->len); exit(1); } long l = l_new(); for (long k = a; k < b; k++) l_push(l, s->data[k]); return l; }")
   sys.screen.print("long s_starts(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; return strncmp(p, q, strlen(q)) == 0; }")
   sys.screen.print("long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }")
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
@@ -3174,12 +3175,26 @@ retKeeps(e : Expr, ctx : Ctx) : Bool !Mut {
   r
 }
 
+// A part of a list is a new list of the same items: it holds what the list held.
+holdMethod(recv : Expr, name : Str, ctx : Ctx) : Int !Mut {
+  if (name == "slice") && isListType(exprType(recv, ctx)) {
+    if plainType(elemOf(exprType(recv, ctx))) {
+      return 0
+    }
+    if handed(recv, ctx) {
+      return 1
+    }
+    return holdDepth(recv, ctx)
+  }
+  oneLess(holdDepth(recv, ctx))
+}
+
 // 0: holds nothing of the caller's (or is the caller's itself, which handed() answers).
 holdDepth(e : Expr, ctx : Ctx) : Int !Mut {
   e.match {
     Var(s) -> holdOf(s, ctx)
     Field(recv, fld) -> oneLess(holdDepth(recv, ctx))
-    Method(recv, name, args) -> oneLess(holdDepth(recv, ctx))
+    Method(recv, name, args) -> holdMethod(recv, name, ctx)
     ListLit(es) -> 1 + minLevel(es, ctx)
     Call(name, args) -> makerDepth(name, args, ctx)
     Match(scrut, arms) -> 0
@@ -5014,7 +5029,13 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     r = "s_concat(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
   }
   if name == "slice" {
-    r = "s_slicec(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
+    cut = "s_slicec("
+    if isListType(t) {
+      cut = "l_slicec("
+    }
+    wantType(args.at(0), "Int", name, ctx)
+    wantType(args.at(1), "Int", name, ctx)
+    r = cut.concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "at" {
     r = "s_atc(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
@@ -5511,6 +5532,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   }
   if name == "slice" {
     r = "Str"
+    if isListType(exprType(recv, ctx)) {
+      r = exprType(recv, ctx)
+    }
   }
   if (name == "read") || (name == "textAt") {
     r = "Str"
