@@ -1,0 +1,18 @@
+groups(kept : List[List[Str]], grp : Str) : List[List[List[Str]]] {
+  gs : List[List[List[Str]]] = []
+  if grp == "" {
+    gs.push(kept)
+    return gs
+  }
+  for row in kept {
+    fresh : List[List[Str]] = []
+    gs.push(fresh)
+    g = gs.at(gs.length - 1)
+    g.push(row)
+  }
+  gs
+}
+main(sys) {
+  sys.screen.print(groups([["a"], ["b"]], "x").length)
+  sys.screen.print(groups([["a"], ["b"]], "").length)
+}

@@ -3510,7 +3510,7 @@ lastStmt(s : Stmt, prev : Bool, ctx : Ctx) : Bool !Mut {
     Jump(w) -> prev
     Bare(e) -> retKeeps(e, ctx)
     Ret(e) -> retKeeps(e, ctx)
-    If(c, t, el) -> lastHanded(t, ctx).or(lastHanded(el, ctx))
+    If(c, t, el) -> lastBlock(t, ctx).or(lastBlock(el, ctx))
     Let(name, ty, e) -> false
     While(c, b) -> false
   }
@@ -3529,7 +3529,7 @@ anyRets(body : List[Stmt], ctx : Ctx) : Bool !Mut {
 stmtRets(s : Stmt, ctx : Ctx) : Bool !Mut {
   s.match {
     Ret(e) -> retKeeps(e, ctx)
-    If(c, t, el) -> anyRets(t, ctx).or(anyRets(el, ctx))
+    If(c, t, el) -> retsBlock(t, ctx).or(retsBlock(el, ctx))
     While(c, b) -> anyRets(b, ctx)
     Bare(e) -> eachRets(e, ctx)
     Let(name, ty, e) -> false
@@ -3616,12 +3616,99 @@ markStmt(s : Stmt, ctx : Ctx) : Int !Mut {
   s.match {
     Let(name, ty, e) -> markLet(name, e, ctx)
     Bare(e) -> markExpr(e, ctx)
-    If(c, t, el) -> markExpr(c, ctx) + markBody(t, ctx) + markBody(el, ctx)
+    If(c, t, el) -> markExpr(c, ctx) + markBlock(t, ctx) + markBlock(el, ctx)
     While(c, b) -> markExpr(c, ctx) + markBody(b, ctx)
     Ret(e) -> markExpr(e, ctx)
     Line(n) -> 0
     Jump(w) -> 0
   }
+}
+
+// A block that ends in return: what it put into the function's own lists
+// cannot reach the code after it. So what such a block learned about them
+// is dropped at its end, and read again when the block itself is checked.
+endsRet(b : List[Stmt]) : Bool {
+  r = false
+  b.each { s in
+    r = s.match {
+      Ret(e) -> true
+      Line(n) -> r
+      Let(name, ty, e) -> false
+      Bare(e) -> false
+      If(c, t, el) -> false
+      While(c, w) -> false
+      Jump(w) -> false
+    }
+  }
+  r
+}
+
+dropHeld(n0 : Int, ctx : Ctx) : Int !Mut {
+  n1 = ctx.env.names.length
+  j = n0
+  while j < n1 {
+    key = ctx.env.names.at(j)
+    if key.startsWith("__i__") {
+      was = "0"
+      i = 0
+      while i < n0 {
+        if ctx.env.names.at(i) == key {
+          was = ctx.env.tys.at(i)
+        }
+        i = i + 1
+      }
+      envPut(ctx.env, key, was)
+    }
+    j = j + 1
+  }
+  0
+}
+
+markBlock(b : List[Stmt], ctx : Ctx) : Int !Mut {
+  n0 = ctx.env.names.length
+  markBody(b, ctx)
+  if endsRet(b) {
+    dropHeld(n0, ctx)
+  }
+  0
+}
+
+// Before a returning block is checked, it is read again for what it holds.
+reMark(b : List[Stmt], ctx : Ctx) : Int !Mut {
+  n0 = ctx.env.names.length
+  if endsRet(b) {
+    markBody(b, ctx)
+    markBody(b, ctx)
+    markBody(b, ctx)
+  }
+  n0
+}
+
+unMark(b : List[Stmt], n0 : Int, ctx : Ctx) : Int !Mut {
+  if endsRet(b) {
+    dropHeld(n0, ctx)
+  }
+  0
+}
+
+lastBlock(b : List[Stmt], ctx : Ctx) : Bool !Mut {
+  n0 = reMark(b, ctx)
+  r = lastHanded(b, ctx)
+  unMark(b, n0, ctx)
+  r
+}
+
+retsBlock(b : List[Stmt], ctx : Ctx) : Bool !Mut {
+  n0 = reMark(b, ctx)
+  r = anyRets(b, ctx)
+  unMark(b, n0, ctx)
+  r
+}
+
+effBlock(b : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
+  n0 = reMark(b, ctx)
+  effBody(b, used, ctx)
+  unMark(b, n0, ctx)
 }
 
 markLet(name : Str, e : Expr, ctx : Ctx) : Int !Mut {
@@ -3754,8 +3841,8 @@ effStmt(s : Stmt, used : List[Str], ctx : Ctx) : Int !Mut {
 
 effIf(c : Expr, t : List[Stmt], el : List[Stmt], used : List[Str], ctx : Ctx) : Int !Mut {
   effExpr(c, used, ctx)
-  effBody(t, used, ctx)
-  effBody(el, used, ctx)
+  effBlock(t, used, ctx)
+  effBlock(el, used, ctx)
   0
 }
 
