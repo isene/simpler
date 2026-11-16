@@ -127,6 +127,14 @@ case $cmd in
     build)
         name=$(basename "$file" .smplr)
         [ "$1" = "-o" ] && name=$2
+        # Never write over a file that is not a built program: a script
+        # with the same name as the source would be gone.
+        if [ -e "$name" ]; then
+            case $(head -c 4 "$name" | od -An -tx1 | tr -d ' \n') in
+                7f454c46|cffaedfe|cafebabe) ;;
+                *) echo "simpler build: $name exists and is not a built program; pick another name with -o" >&2; exit 1 ;;
+            esac
+        fi
         dir=$(mktemp -d); prep "$file"; to_c "" "$dir/p.c"
         ${CC:-cc} -O2 -w "$dir/p.c" -o "$name" -lm
         rm -rf "$dir" ;;

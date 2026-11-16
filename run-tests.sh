@@ -1750,6 +1750,17 @@ printf 'runs "sh"\nmain(sys) {\n  sys.screen.print(sys.env.self.reFind("[^/]+$")
 envout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run envset.smplr 2>&1 | tr '\n' '~' )"
 if [ "$envout" = 'envset.smplr~hi there0~hi there []~' ]; then ok; else nope "setVar and self (got: $envout)"; fi
 
+# build never writes over a file that is not a built program (it ate a
+# script named like the source, 2026-11-16), but does replace its own output.
+printf 'main(sys) {\n  sys.screen.print("hi")\n}\n' > "$TMP/mod/keep.smplr"
+printf '#!/bin/sh\necho script\n' > "$TMP/mod/keep"
+keepout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build keep.smplr 2>&1; echo "rc=$?"; cat keep; SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build keep.smplr -o keep2 && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build keep.smplr -o keep2 && ./keep2 )"
+if [ "$keepout" = "simpler build: keep exists and is not a built program; pick another name with -o
+rc=1
+#!/bin/sh
+echo script
+hi" ]; then ok; else nope "build keeps a file that is not a built program (got: $keepout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
