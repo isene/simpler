@@ -126,7 +126,8 @@ main(sys) {
 - Functions may stand in any order and may call each other.
 - The value of a function is its last line, written alone: `out`. Use `return x` only to leave early.
 - Only the LAST line of a block may be a value alone. Every other line is `name = value`, `if`, `while`,
-  a `for`, a `.push`, a `.set` or a `.print`.
+  a `for`, a `.push`, a `.set`, a `.print` or a call that stands alone: `save(state, line)`. A call may
+  drop the value the function gives; no `x = save(...)` is needed.
 - A name keeps one type through the whole function, also in another block or loop: if `k` was a
   text in one loop, a later counter needs another name. After `s = "12"` write `n = s.toInt`.
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()` (text to Int), `Map[Str]()`
