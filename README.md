@@ -63,7 +63,7 @@ measure:
 |------|---------|---------------|
 | Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; five fault types stop |
 | Nothing is touched unseen | one command lists every file, program, host, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, the programs it may run and the hosts it may reach, and anything else is refused |
-| As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, and 16 of 100 to 250 lines | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust |
+| As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, 16 of 100 to 250 lines, and 10 of 200 to 900 lines that are then changed | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust; big: 5 of 10 on the first try in Simpler, 7 in Rust, 9 in Python, all 10 within three tries; the change: 9, 10 and 10 on the first try |
 | No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, all of it the model thinking |
 | The whole language fits in a prompt | size of `PROMPT.md`, the page a model gets | about 2,000 tokens |
 
