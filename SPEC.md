@@ -384,7 +384,7 @@ nothing at runtime.
 | `sys.clock.dateAs(secs, pattern)` | `Str` | — | the time as text in a `strftime` pattern, such as `"%a %d %b %H:%M"`, in local time |
 | `sys.clock.secsOf(text)` | `Int` | — | seconds from a date text: `2026-01-31`, `2026-01-31 12:00`, `2026-01-31T12:00:00Z` or with `+01:00`; local time when no zone is given; `0` when the text is no date |
 | `sys.term.put(row, col, text, style)` | `Int` | — | write `text` at a place on the whole terminal, both counted from 0; `style` is `""` or words from bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255 (`"208"`), and `on` with a number for the background (`"on52"`); text past the right edge is cut, and control characters in it are shown as `?` |
-| `sys.term.key` | `Str` | — | wait for one key: a character, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`, `ctrl-x`, `resize`, `eof`, `other` |
+| `sys.term.key` | `Str` | — | wait for one key: a character, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`, `pgdn`, `ctrl-x`, `resize`, `eof`, `other`. What `put` and `clear` did is shown here, and only the places that changed are sent, so a program may clear and draw the whole screen for each key |
 | `sys.term.rows`, `sys.term.cols` | `Int` | — | the size of the terminal |
 | `sys.term.clear`, `sys.term.stop` | `Int` | — | empty the terminal; give it back (also done when the program ends, and an error message is shown after that) |
 | `sys.env.var(name)` | `Str` | — | an environment variable (`""` if not set) |
