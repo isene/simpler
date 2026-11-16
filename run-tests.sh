@@ -1781,6 +1781,48 @@ LOCKT
     if [ "$trout" = "ynnnnnnynn" ]; then ok; else nope "simpler trusted (got: $trout)"; fi
 else ok; fi
 
+# Example lines at the top: the build runs each one and gives no program when one differs.
+mkdir -p "$TMP/ex/box"
+cat > "$TMP/ex/sum.smplr" <<'EXT'
+example "3 4", "7"
+example "10 -2\n", "8\n"
+example "", "sum 11", "5", "6"
+main(sys) {
+  if sys.args.length == 2 {
+    sys.screen.print("sum " + (sys.args.at(0).toInt + sys.args.at(1).toInt).toStr)
+  } else {
+    p = sys.stdin.trim.split(" ")
+    sys.screen.print((p.at(0).toInt + p.at(1).toInt).toStr)
+  }
+}
+EXT
+sed 's/"7"/"9"/' "$TMP/ex/sum.smplr" > "$TMP/ex/bad.smplr"
+exout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; echo "1 2" | "$OLDPWD/simpler" run sum.smplr 2>&1; echo "1 2" | "$OLDPWD/simpler" run bad.smplr 2>&1 | tr '\n' '|'; "$OLDPWD/simpler" build bad.smplr -o bad >/dev/null 2>&1; [ -e bad ] && echo built )"
+if [ "$exout" = "$(printf '3\nexample 1 fails. Wanted:|9|Got:|7|1 of 3 examples fail|simpler: not run|')" ]; then ok; else nope "example lines (got: $exout)"; fi
+
+# A dry run says what the program would do and does none of it; an example runs dry.
+cat > "$TMP/ex/dry.smplr" <<'EXT'
+example "", "would write \"box/a.txt\"\nwould run sh -c echo hi\ndone"
+writes "box/"
+runs "sh"
+fetches "example.com"
+mails "me@example.com"
+main(sys) {
+  sys.files.write("box/a.txt", "x")
+  out = sys.programs.run("sh", ["-c", "echo hi"])
+  sys.screen.print("done" + out)
+  if sys.args.length > 0 {
+    sys.files.append("box/a.txt", "y")
+    sys.files.delete("box/a.txt")
+    sys.files.rename("box/a.txt", "box/b.txt")
+    x = sys.net.fetch("https://example.com/")
+    sys.mail.send("me@example.com", "hello", "body")
+  }
+}
+EXT
+dryout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run --dry dry.smplr all 2>&1 | tr '\n' '|'; ls box | wc -l )"
+if [ "$dryout" = 'would write "box/a.txt"|would run sh -c echo hi|done|would append to "box/a.txt"|would delete "box/a.txt"|would rename "box/a.txt" to "box/b.txt"|would fetch "https://example.com/"|would mail "me@example.com" with subject "hello"|0' ]; then ok; else nope "dry run (got: $dryout)"; fi
+
 # Print with no line end, date texts, the home folder, and a fetch with headers.
 mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"
 printf '#!/bin/sh\nfor a in "$@"; do printf "%%s," "$a"; done\nprintf "\\n200"\n' > "$TMP/fakebin/curl"; chmod +x "$TMP/fakebin/curl"

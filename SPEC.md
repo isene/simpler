@@ -442,6 +442,24 @@ it is used, and the program stops if the line does not allow it (a path with
 the program stops with `a link leads out of "data/"`. A path that starts with `~/` is under the home folder, in a top line and in the program alike. A file named one by one at the top is opened as it is. Under `/sys` and `/proc` a link may lead elsewhere in the same tree, since the kernel makes those links. A program with no `reads` and no
 `writes` line cannot touch any file.
 
+**Examples at the top.** An `example` line gives the input, the output wanted,
+and then any arguments:
+
+```
+example "3 4", "7"
+example "", "sum 11", "5", "6"
+```
+
+`simpler build` and `simpler run` run each example before the program is used,
+and give no program when one differs or stops with an error. A line end at the
+very end does not count. An example runs dry, so it cannot change a file.
+
+**A dry run.** `simpler run --dry prog.smplr` (or `SIMPLER_DRY=1` with a built
+program) runs the program but does nothing that leaves a mark. Each write,
+append, delete, rename, started program, fetch and mail prints a line such as
+`would write "out/a.txt"` and is skipped; a skipped program or fetch gives `""`.
+The kernel also gets no `writes` names and no net, so nothing slips past.
+
 **The kernel keeps the same list.** On Linux 5.13 or newer a built program hands
 its top lines to the kernel (Landlock) before `main` starts. From then on the
 kernel refuses any other file, for the program and for every program it starts.

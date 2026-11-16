@@ -2,6 +2,7 @@
 # The simpler command: run, build and inspect a Simpler program.
 #
 #   simpler run prog.smplr [arguments]   compile and run it
+#   simpler run --dry prog.smplr [args]  run it, but only say what it would write, delete, start, fetch or mail
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
 #   simpler trusted prog.smplr [args]    succeed when all it can touch is inside ~/.config/simpler/trust
@@ -18,7 +19,7 @@ while [ -L "$self" ]; do
 done
 home=$(cd "$(dirname "$self")" && pwd)
 
-usage() { sed -n '2,10p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,11p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The compiler: next to this script after an install, or built in the repo.
 compiler() {
@@ -163,6 +164,7 @@ case $cmd in
     run|build|what|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
+if [ "$cmd" = run ] && [ "$1" = --dry ]; then SIMPLER_DRY=1; export SIMPLER_DRY; shift; fi
 [ $# -gt 0 ] || usage 2 >&2
 file=$1
 shift
@@ -205,7 +207,10 @@ case $cmd in
             esac
         fi
         dir=$(mktemp -d); prep "$file"; to_c "" "$dir/p.c"
-        ${CC:-cc} -O2 -w "$dir/p.c" -o "$name" -lm
+        ${CC:-cc} -O2 -w "$dir/p.c" -o "$dir/p" -lm
+        # The example lines at the top: no program unless each gives its output.
+        if ! SIMPLER_EXAMPLES=1 "$dir/p"; then rm -rf "$dir"; echo "simpler: not built" >&2; exit 1; fi
+        mv "$dir/p" "$name"
         rm -rf "$dir" ;;
     run)
         # The built program is kept under a name made from the source and the
@@ -217,6 +222,7 @@ case $cmd in
             mkdir -p "$cache"
             dir=$(mktemp -d); to_c "" "$dir/p.c"
             ${CC:-cc} -O1 -w "$dir/p.c" -o "$dir/p" -lm
+            if ! SIMPLER_EXAMPLES=1 "$dir/p"; then rm -rf "$dir"; echo "simpler: not run" >&2; exit 1; fi
             mv "$dir/p" "$cache/$sum"; rm -rf "$dir"
         else
             rm -rf "$work"
