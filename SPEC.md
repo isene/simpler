@@ -454,6 +454,16 @@ example "", "sum 11", "5", "6"
 and give no program when one differs or stops with an error. A line end at the
 very end does not count. An example runs dry, so it cannot change a file.
 
+**Limits.** A `limits` line caps what the program may use:
+
+```
+limits "2s", "50MB"
+```
+
+`"2s"` is seconds of processor time (waiting does not count), `"50MB"` is
+memory. A program that passes one stops with a line that says so (status 124
+for time, 125 for memory). Each program it starts gets the same caps.
+
 **A dry run.** `simpler run --dry prog.smplr` (or `SIMPLER_DRY=1` with a built
 program) runs the program but does nothing that leaves a mark. Each write,
 append, delete, rename, started program, fetch and mail prints a line such as

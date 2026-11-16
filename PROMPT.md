@@ -185,6 +185,7 @@ main(sys) {
   A program you run is held to your `reads` and `writes` lines too: name each file or folder it reads or writes.
 - When the task shows input with the output it wants, put it at the top: `example "3 4", "7"` (the input, the output,
   then any arguments). The build runs each example and gives no program when one differs. A last line end does not count.
+- `limits "2s", "50MB"` at the top caps processor time and memory; the program stops when it passes one.
 - A program that stays running waits: with `sys.stdinLine`, `sys.files.wait(path)` or `sys.clock.sleep(ms)`. Never loop to check for a change without one of them.
 - Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.sleep(ms)` (waits that long), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`

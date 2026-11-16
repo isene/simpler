@@ -1823,6 +1823,13 @@ EXT
 dryout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run --dry dry.smplr all 2>&1 | tr '\n' '|'; ls box | wc -l )"
 if [ "$dryout" = 'would write "box/a.txt"|would run sh -c echo hi|done|would append to "box/a.txt"|would delete "box/a.txt"|would rename "box/a.txt" to "box/b.txt"|would fetch "https://example.com/"|would mail "me@example.com" with subject "hello"|0' ]; then ok; else nope "dry run (got: $dryout)"; fi
 
+# A limits line stops a program that spins or eats memory.
+printf 'limits "1s", "64MB"\nmain(sys) {\n  n = 0\n  while true {\n    n = n + 1\n  }\n}\n' > "$TMP/ex/spin.smplr"
+printf 'limits "5s", "64MB"\nmain(sys) {\n  xs : List[Str] = []\n  while true {\n    xs.push("0123456789012345678901234567890123456789".concat(xs.length.toStr))\n  }\n}\n' > "$TMP/ex/eat.smplr"
+printf 'limits "soon"\nmain(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/ex/badl.smplr"
+limout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; for f in spin eat badl; do "$OLDPWD/simpler" run $f.smplr >/dev/null 2>&1; printf '%s ' $?; done )"
+if [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
+
 # Print with no line end, date texts, the home folder, and a fetch with headers.
 mkdir -p "$TMP/home/notes" "$TMP/fakebin"; echo secret > "$TMP/home/notes/a.txt"; echo no > "$TMP/home/other.txt"
 printf '#!/bin/sh\nfor a in "$@"; do printf "%%s," "$a"; done\nprintf "\\n200"\n' > "$TMP/fakebin/curl"; chmod +x "$TMP/fakebin/curl"

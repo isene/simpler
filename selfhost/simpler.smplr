@@ -107,6 +107,7 @@ Prog = type {
   fetches : List[Str]
   mails : List[Str]
   examples : List[Str]
+  limits : List[Str]
   files : List[Str]
 }
 
@@ -503,6 +504,9 @@ main(sys) {
   sys.screen.print(mayTable("simpler_ft", prog.fetches))
   sys.screen.print(mayTable("simpler_ml", prog.mails))
   sys.screen.print(exTable(prog.examples))
+  sys.screen.print(mayTable("simpler_lm", prog.limits))
+  sys.screen.print("static long simpler_lmb = 0; static void simpler_over(int sig) { const char* m = sig == SIGXCPU ? \"simpler: stopped, the program used more processor time than its limits line allows\\n\" : \"simpler: stopped, most likely out of memory: its limits line allows less than it asked for\\n\"; if (write(2, m, strlen(m)) < 0) _exit(125); _exit(sig == SIGXCPU ? 124 : 125); }")
+  sys.screen.print("static void simpler_limits(void) { for (int k = 0; simpler_lm[k]; k++) { char* end = 0; long n = strtol(simpler_lm[k], &end, 10); struct rlimit r; if (n > 0 && strcmp(end, \"s\") == 0) { r.rlim_cur = (rlim_t)n; r.rlim_max = (rlim_t)n + 1; setrlimit(RLIMIT_CPU, &r); signal(SIGXCPU, simpler_over); } else if (n > 0 && strcmp(end, \"MB\") == 0) { r.rlim_cur = r.rlim_max = (rlim_t)n << 20; setrlimit(RLIMIT_AS, &r); signal(SIGSEGV, simpler_over); simpler_lmb = n; } else { fprintf(stderr, \"simpler: a limit is a time like \\\"2s\\\" or a size like \\\"50MB\\\", got \\\"%s\\\"\\n\", simpler_lm[k]); exit(1); } } }")
   sys.screen.print("#if defined(__linux__) && defined(__has_include) && __has_include(<linux/landlock.h>)")
   sys.screen.print("#include <linux/landlock.h>")
   sys.screen.print("#include <sys/syscall.h>")
@@ -648,6 +652,28 @@ strAt(toks : Lexed, i : Int) : Str {
     Punct(p) -> "?"
     Eof -> "?"
   }
+}
+
+// A limits line at the top caps processor time and memory:   limits "2s", "50MB"
+isLimitsLine(toks : Lexed, i : Int) : Bool {
+  isWord(toks, i, "limits") && isStrTok(toks, i + 1)
+}
+
+parseLimits(toks : Lexed, i : Int, limits : List[Str]) : Int !Mut {
+  j = i + 1
+  more = true
+  while more {
+    if isStrTok(toks, j).not {
+      failTok(toks, j, "a limit is a text in quotes, as in: limits \"2s\", \"50MB\"")
+    }
+    limits.push(strAt(toks, j))
+    j = j + 1
+    more = isPunct(toks, j, ",")
+    if more {
+      j = j + 1
+    }
+  }
+  j
 }
 
 // A line at the top gives an example: the input, the output wanted, then any
@@ -960,6 +986,9 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   }
   if prog.mails.length > 0 {
     out = out.concat("may mail   ").concat(mayText(prog.mails)).concat("\n")
+  }
+  if prog.limits.length > 0 {
+    out = out.concat("limits     ").concat(mayText(prog.limits)).concat("\n")
   }
   // a full-screen program draws through term, so say that on the screen row
   if out.contains("term    takes") {
@@ -1400,11 +1429,14 @@ parse(toks : Lexed) : Prog {
   fetches : List[Str] = []
   mails : List[Str] = []
   examples : List[Str] = []
+  limits : List[Str] = []
   while notEof(toks, i) {
     if isMayLine(toks, i) {
       i = parseMay(toks, i, reads, writes, runs, fetches, mails)
     } else if isExampleLine(toks, i) {
       i = parseExample(toks, i, examples)
+    } else if isLimitsLine(toks, i) {
+      i = parseLimits(toks, i, limits)
     } else {
       if isIdent(toks, i) {
         once(seen, identAt(toks, i), toks, i)
@@ -1433,7 +1465,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, examples = examples, files = toks.files)
+  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, examples = examples, limits = limits, files = toks.files)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -2245,7 +2277,7 @@ emitFn(f : Fn, sigs : Sigs) : Str !Mut {
   }
   out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
   if isMain(f.name) {
-    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); argc = simpler_argc; argv = simpler_argv; simpler_lock();")
+    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_lock();")
   }
   ctx = fnCtx(f, sigs)
   checkReturn(f, ctx)
