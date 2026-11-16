@@ -1,0 +1,26 @@
+// A record made in a function is the function's own, also when it holds a
+// list the caller handed in. Setting its fields needs no !Mut.
+Ps = type { t : List[Str], p : Int, bad : Bool }
+
+step(ps : Ps) : Int !Mut {
+  ps.p = ps.p + 1
+  0
+}
+
+viaSet(toks : List[Str]) : Int {
+  ps = Ps(t = toks, p = 0, bad = false)
+  ps.bad = true
+  ps.p = 3
+  ps.p
+}
+
+viaCall(toks : List[Str]) : Int {
+  ps = Ps(t = toks, p = 0, bad = false)
+  step(ps)
+  ps.p
+}
+
+main(sys) {
+  sys.screen.print(viaSet(["a"]))
+  sys.screen.print(viaCall(["a"]))
+}

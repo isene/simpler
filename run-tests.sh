@@ -57,6 +57,7 @@ check_run m5e   "20"
 check_run m6    "15"
 check_run emptylist "$(printf '1\n0')"
 check_run retype    "$(printf 'abc\n4\n2\n1\na=1\n11\n99\nb:22\nplain\nin1\nin2\nouter\n42\nv1\nv2')"
+check_run ownrecord "$(printf '3\n1')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
@@ -326,6 +327,53 @@ refused "own function named write, dotted call on an Int" "write needs a Files" 
 main(sys) {
   x = 5
   x.write("o.txt", "hi")
+}'
+refused "a made record passed to a function that changes what it holds" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+step(ps : Ps) : Int !Mut {
+  ps.t.push("x")
+  0
+}
+mk(toks : List[Str]) : Int {
+  ps = Ps(t = toks, p = 0)
+  step(ps)
+  ps.p
+}
+main(sys) {
+  sys.screen.print(mk(["a"]))
+}'
+refused "a made record whose held list is changed" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+mk(toks : List[Str]) : Int {
+  ps = Ps(t = toks, p = 0)
+  ps.t.push("x")
+  ps.p
+}
+main(sys) {
+  sys.screen.print(mk(["a"]))
+}'
+refused "a returned record still holds the caller list" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+wrap(toks : List[Str]) : Ps {
+  Ps(t = toks, p = 0)
+}
+mk(toks : List[Str]) : Int {
+  p = wrap(toks)
+  p.t.push("x")
+  p.p
+}
+main(sys) {
+  sys.screen.print(mk(["a"]))
+}'
+refused "an own list of handed rows passed to a function that changes the rows" "b changes a list or map it was handed" 'deep(g : List[List[Str]]) : Int !Mut {
+  g.at(0).push("x")
+  0
+}
+b(rows : List[List[Str]]) : Int {
+  g : List[List[Str]] = []
+  g.push(rows.at(0))
+  deep(g)
+  g.length
+}
+main(sys) {
+  sys.screen.print(b([["a"]]))
 }'
 refused "sys outside main" "exists only on main" 'peek() : Str !IO !Fail {
   sys.files.read("s.txt")

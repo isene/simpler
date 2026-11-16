@@ -3150,6 +3150,30 @@ oneLess(d : Int) : Int {
   r
 }
 
+// A record or a variant case made here is the function's own, like a list
+// written out: it holds what it was given, one step in.
+isMaker(name : Str, ctx : Ctx) : Bool {
+  hasName(ctx.sigs.fnNames, name).not && (hasName(ctx.sigs.recNames, name) || (variantOf(name, ctx) != ""))
+}
+
+makerDepth(name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
+  r = 0
+  if isMaker(name, ctx) {
+    r = 1 + minLevel(args, ctx)
+  }
+  r
+}
+
+// A returned record that holds the caller's values passes them on.
+retKeeps(e : Expr, ctx : Ctx) : Bool !Mut {
+  r = handed(e, ctx)
+  if r.not && (holdDepth(e, ctx) > 0) {
+    t = exprType(e, ctx)
+    r = isRec(t, ctx) || isVariant(t, ctx)
+  }
+  r
+}
+
 // 0: holds nothing of the caller's (or is the caller's itself, which handed() answers).
 holdDepth(e : Expr, ctx : Ctx) : Int !Mut {
   e.match {
@@ -3157,7 +3181,7 @@ holdDepth(e : Expr, ctx : Ctx) : Int !Mut {
     Field(recv, fld) -> oneLess(holdDepth(recv, ctx))
     Method(recv, name, args) -> oneLess(holdDepth(recv, ctx))
     ListLit(es) -> 1 + minLevel(es, ctx)
-    Call(name, args) -> 0
+    Call(name, args) -> makerDepth(name, args, ctx)
     Match(scrut, arms) -> 0
     Bin(op, a, b) -> 0
     Each(recv, param, body) -> 0
@@ -3256,6 +3280,9 @@ handedField(recv : Expr, fld : Str, ctx : Ctx) : Bool !Mut {
 // A call gives back something handed only when it passes a handed value in
 // a position the function can return (found by retPass). A record or variant made here keeps it.
 callHanded(name : Str, args : List[Expr], ctx : Ctx) : Bool !Mut {
+  if isMaker(name, ctx) {
+    return false
+  }
   if hasName(ctx.sigs.fnNames, name).not {
     return anyHanded(args, ctx)
   }
@@ -3314,6 +3341,18 @@ paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
         found = true
       }
     }
+    // does it change what the value holds, and not only the value itself?
+    if plainType(f.ptypes.at(k)).not && hasName(f.effs, "Mut") && hasName(sigs.mutP, "deep:".concat(key)).not {
+      ctx2 = fnCtx(f, sigs)
+      setHolding(f.params.at(k), 1, ctx2)
+      markAgain(f, ctx2)
+      used2 : List[Str] = []
+      effBody(f.body, used2, ctx2)
+      if hasName(used2, "Mut") {
+        sigs.mutP.push("deep:".concat(key))
+        found = true
+      }
+    }
     k = k + 1
   }
   found
@@ -3346,15 +3385,20 @@ typeKnown(t : Str, sigs : Sigs) : Bool {
   r
 }
 
-noType(t : Str) : Str {
-  b = typeBase(t)
-  // show the name as the program wrote it, without the "_c" the lexer added
+// A name as the program wrote it, without the "_c" the lexer added.
+asWritten(n : Str) : Str {
+  b = n
   if b.length > 2 {
     cut = b.slice(0, b.length - 2)
     if safeName(cut, cTaken()) == b {
       b = cut
     }
   }
+  b
+}
+
+noType(t : Str) : Str {
+  b = asWritten(typeBase(t))
   "no type named ".concat(b).concat("; the types are Int, Float, Str, Bool, List[T], Map, Map[T] and the ones the program declares")
 }
 
@@ -3464,8 +3508,8 @@ lastStmt(s : Stmt, prev : Bool, ctx : Ctx) : Bool !Mut {
   s.match {
     Line(n) -> prev
     Jump(w) -> prev
-    Bare(e) -> handed(e, ctx)
-    Ret(e) -> handed(e, ctx)
+    Bare(e) -> retKeeps(e, ctx)
+    Ret(e) -> retKeeps(e, ctx)
     If(c, t, el) -> lastHanded(t, ctx).or(lastHanded(el, ctx))
     Let(name, ty, e) -> false
     While(c, b) -> false
@@ -3484,7 +3528,7 @@ anyRets(body : List[Stmt], ctx : Ctx) : Bool !Mut {
 
 stmtRets(s : Stmt, ctx : Ctx) : Bool !Mut {
   s.match {
-    Ret(e) -> handed(e, ctx)
+    Ret(e) -> retKeeps(e, ctx)
     If(c, t, el) -> anyRets(t, ctx).or(anyRets(el, ctx))
     While(c, b) -> anyRets(b, ctx)
     Bare(e) -> eachRets(e, ctx)
@@ -3676,7 +3720,7 @@ checkEffects(f : Fn, ctx : Ctx) : Int !Mut {
       // !Fail may be written, but nothing asks for it: the compiler knows it.
       if hasName(f.effs, e).not && e != "Fail" {
         if e == "Mut" {
-          failAt(f.name.concat(" changes a list or map it was handed; add !Mut after its return type"), ctx)
+          failAt(asWritten(f.name).concat(" changes a list or map it was handed; add !Mut after its return type"), ctx)
         }
         failAt("uses !".concat(e).concat(" but does not declare it"), ctx)
       }
@@ -3788,6 +3832,9 @@ effCallE(name : Str, args : List[Expr], used : List[Str], ctx : Ctx) : Int !Mut 
         j = 0
         while j < args.length {
           if hasName(ctx.sigs.mutP, name.concat(":").concat(j.toStr)) && handed(args.at(j), ctx) {
+            used.push("Mut")
+          }
+          if hasName(ctx.sigs.mutP, "deep:".concat(name).concat(":").concat(j.toStr)) && (holdDepth(args.at(j), ctx) > 0) {
             used.push("Mut")
           }
           j = j + 1
