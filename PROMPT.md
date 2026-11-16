@@ -168,7 +168,7 @@ main(sys) {
 - A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
   `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
   module only when you were given its page. Three come with simpler: `crust` (panes on a full
-  screen), `astro` (sun, moon and planets: where they are, when they rise and set) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
+  screen), `astro` (sun, moon, planets, stars, eclipses: where, when, how bright) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
   read them by hand; when you were not given its page, answer `NEED: opts`.
 - No function of yours may be named `run`, `try`, `feed`, `status`, `fetch`, `fetchWith`, `reach`, `post`, `readBytes`, `writeBytes`, `date`, `dateAs`, `secsOf` or `var`.
 - `fail("message")` prints to stderr and stops the program with exit status 1. `exit(2)` stops it with

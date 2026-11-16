@@ -2834,8 +2834,38 @@ setHanded(s : Str, ctx : Ctx) : Int !Mut {
   0
 }
 
+// A type whose values cannot be changed in place: a plain one, or a record of only such.
+// Putting such a value from a handed list into a new list changes nothing the caller has.
+fixedType(t : Str, ctx : Ctx, depth : Int) : Bool {
+  if plainType(t) {
+    return true
+  }
+  if depth > 8 {
+    return false
+  }
+  r = false
+  recs = ctx.sigs.records
+  k = 0
+  m = recs.length
+  while k < m {
+    rec = recs.at(k)
+    if rec.name == t {
+      r = true
+      j = 0
+      while j < rec.ftypes.length {
+        if fixedType(rec.ftypes.at(j), ctx, depth + 1).not {
+          r = false
+        }
+        j = j + 1
+      }
+    }
+    k = k + 1
+  }
+  r
+}
+
 handed(e : Expr, ctx : Ctx) : Bool !Mut {
-  if plainType(exprType(e, ctx)) {
+  if fixedType(exprType(e, ctx), ctx, 0) {
     return false
   }
   e.match {
@@ -4790,14 +4820,19 @@ binType(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
     r = "Bool"
   }
   if op == "u-" {
-    r = exprType(b, ctx)
+    return exprType(b, ctx)
   }
+  if r == "Bool" {
+    return r
+  }
+  // Ask for the left side's type once: asking twice doubles the work at each + of a chain.
+  ta = exprType(a, ctx)
   if op == "+" {
-    if exprType(a, ctx) == "Str" {
+    if ta == "Str" {
       r = "Str"
     }
   }
-  if exprType(a, ctx) == "Float" {
+  if ta == "Float" {
     if isFloatArith(op) {
       r = "Float"
     }

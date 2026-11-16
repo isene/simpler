@@ -1505,6 +1505,39 @@ main(sys) {
   put(xs, 1)
   sys.screen.print(xs.length)
 }'
+accepts "plain records copied from a handed list into a new list need no !Mut" \
+    'Ev = type {
+  when : Float
+}
+copy(raw : List[Ev]) : List[Ev] {
+  out : List[Ev] = []
+  for e in raw {
+    out.push(e)
+  }
+  out
+}
+main(sys) {
+  sys.screen.print(copy([Ev(when = 2.0), Ev(when = 1.0)]).length.toStr)
+}'
+printf '%s' 'Bag = type {
+  items : List[Int]
+}
+keep(raw : List[Bag]) : List[Bag] {
+  out : List[Bag] = []
+  for e in raw {
+    out.push(e)
+  }
+  out.at(0).items.push(1)
+  out
+}
+main(sys) {
+  sys.screen.print(keep([Bag(items = [1])]).length.toStr)
+}' > "$TMP/input.smplr"
+if ( cd "$TMP" && ./seedc 2>&1 >/dev/null ) | grep -qF 'changes a list or map it was handed'; then ok; else nope "a record with a list in it, copied from a handed list, still needs !Mut"; fi
+# A long line of + took twice as long for each part more: 24 parts took five seconds.
+{ printf 'main(sys) {\n  a = "x"\n  sys.screen.print(a'; for i in $(seq 23); do printf ' + " " + a'; done; printf ')\n}\n'; } > "$TMP/input.smplr"
+T0=$(date +%s%N); ( cd "$TMP" && ./seedc >/dev/null 2>&1 ); T1=$(date +%s%N)
+if [ $(( (T1 - T0) / 1000000 )) -lt 1000 ]; then ok; else nope "a line of 47 parts joined with + compiles in under a second"; fi
 printf '%s' 'put(xs : List[Int], n : Int) !Mut {
   xs.push(n)
 }
@@ -1557,8 +1590,8 @@ if [ "$errout" = 'a~c~b
 nouses.smplr:2: no variable named opts; if it is a module, put  uses "opts"  at the top' ]; then ok; else nope "screen.error and the uses hint (got: $errout)"; fi
 # opts, the module for options on the command line: its own tests, and the page with a part and a module.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/opts.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt regex opts | grep -qF 'parse(argv : List[Str]' ) && ( ./simpler prompt regex opts | grep -qF 's.reTest(p)' ); then ok; else nope "the opts module and its page"; fi
-# astro, the module for the sky: its own tests (numbers from the Rust orbit library), and its page without the helpers.
-if ( SIMPLERC="$TMP/seedc" ./simpler test lib/astro.smplr 2>&1 | grep -q '^6/6 passed' ) && ( ./simpler prompt astro | grep -qF 'sun_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times' ) && ! ( ./simpler prompt astro | grep -q '^moon_lr' ); then ok; else nope "astro: tests and page"; fi
+# astro, the module for the sky: its own tests (numbers checked against PyEphem), and its page without the helpers.
+if ( SIMPLERC="$TMP/seedc" ./simpler test lib/astro.smplr 2>&1 | grep -q '^9/9 passed' ) && ( ./simpler prompt astro | grep -qF 'sun_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times' ) && ! ( ./simpler prompt astro | grep -q '^moon_centre\|^near\|^test_dates' ); then ok; else nope "astro: tests and page"; fi
 # crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi
 printf 'uses "crust"\nmain(sys) {\n  t = sys.term\n  p = crust.top(crust.full(t), 3)\n  crust.frame(t, p, "Hi", "")\n  crust.line(t, crust.inner(p), 0, "in " + crust.inner(p).cols.toStr, "")\n  k = t.key\n  t.stop\n  sys.screen.print("key " + k)\n}\n' > "$TMP/mod/pane.smplr"
