@@ -2316,7 +2316,7 @@ emitFn(f : Fn, sigs : Sigs) : Str !Mut {
   }
   out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
   if isMain(f.name) {
-    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); simpler_lock();")
+    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); tzset(); simpler_lock();")
   }
   ctx = fnCtx(f, sigs)
   checkReturn(f, ctx)

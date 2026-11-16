@@ -739,7 +739,7 @@ long u_isAlpha(long c);
 long u_isAlnum(long c);
 long u_isSpace(long c);
 int main(int argc, char** argv) {
-  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv("SIMPLER_DRY") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); simpler_lock();
+  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv("SIMPLER_DRY") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); tzset(); simpler_lock();
   long src = 0;
   long files = 0;
   long queue = 0;
@@ -4492,7 +4492,7 @@ long u_emitFn(long f, long sigs) {
 
   if (u_isMain(((R_Fn*)(intptr_t)f)->name)) {
 
-  out = s_concat(out, (long)(intptr_t)"\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); simpler_lock();");
+  out = s_concat(out, (long)(intptr_t)"\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); tzset(); simpler_lock();");
   }
 
   ctx = u_fnCtx(f, sigs);

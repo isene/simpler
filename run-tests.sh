@@ -1823,6 +1823,10 @@ EXT
 dryout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run --dry dry.smplr all 2>&1 | tr '\n' '|'; ls box | wc -l )"
 if [ "$dryout" = 'would write "box/a.txt"|would run sh -c echo hi|done|would append to "box/a.txt"|would delete "box/a.txt"|would rename "box/a.txt" to "box/b.txt"|would fetch "https://example.com/"|would mail "me@example.com" with subject "hello"|0' ]; then ok; else nope "dry run (got: $dryout)"; fi
 
+# The lock leaves the clock in local time: the time zone is read before the lock closes /etc.
+printf 'main(sys) {\n  sys.screen.print(sys.clock.dateAs(86400 * 200, "%%H:%%M"))\n}\n' > "$TMP/ex/tz.smplr"
+tzout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; TZ=Asia/Tokyo "$OLDPWD/simpler" run tz.smplr 2>&1 )"
+if [ "$tzout" = "09:00" ]; then ok; else nope "local time under the lock (got: $tzout)"; fi
 # A limits line stops a program that spins or eats memory.
 printf 'limits "1s", "64MB"\nmain(sys) {\n  n = 0\n  while n >= 0 {\n    n = n + 1\n    if n > 1000 {\n      n = 0\n    }\n  }\n}\n' > "$TMP/ex/spin.smplr"
 printf 'limits "5s", "64MB"\nmain(sys) {\n  xs : List[Str] = []\n  while xs.length >= 0 {\n    xs.push("0123456789012345678901234567890123456789".concat(xs.length.toStr))\n  }\n}\n' > "$TMP/ex/eat.smplr"
