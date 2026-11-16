@@ -63,6 +63,10 @@ check_run listslice "$(printf '7\n2\n2')"
 check_run numsmaps  "$(printf '6\n2.5\nfalse\na,c\n4\n9\n572\n1152\n-4')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 check_run cnames    "45"
+check_run booltext  "$(printf 'true\nfalse\ntrue!\ntrue')"
+# sleep, a wait for a file change, and input read line by line
+out="$(printf 'a\nb\n' | run_smplr examples/waits.smplr)"
+if [ "$out" = "$(printf 'true\nsimpler-waits-test\n[a]\n[b]')" ]; then ok; else nope "run waits: got $(printf '%q' "$out")"; fi
 
 # the self-hosted lexer (written in Simpler) scans the full token set
 lout="$(run_smplr selfhost/lexer.smplr)"
@@ -1856,7 +1860,7 @@ rc=7" ]; then ok; else nope "exit with a status (got: $exitout)"; fi
 # start (no waiting), millis and char.
 printf 'runs "sleep", "sh"\nmain(sys) {\n  sys.screen.print(65.char + 229.char + 8364.char + 128512.char + "|" + 0.char + "|" + "€".code.toStr + " " + "a".code.toStr)\n  a = sys.clock.millis\n  pid = sys.programs.start("sleep", ["0.3"])\n  b = sys.clock.millis\n  sys.screen.print((pid > 1).toStr + " " + (b - a < 200).toStr + " " + (a > sys.clock.now * 1000 - 2000).toStr)\n  sys.screen.print(sys.programs.status("sh", ["-c", "kill -0 " + pid.toStr]))\n  p = "s" + "h"\n  q = "ech" + "o"\n  sys.programs.start(p, [])\n  sys.programs.start(q, [])\n}\n' > "$TMP/mod/start.smplr"
 stout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run start.smplr 2>&1 | tr '\n' '~' )"
-if [ "$stout" = 'Aå€😀||8364 97~1 1 1~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
+if [ "$stout" = 'Aå€😀||8364 97~true true true~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
 
 # setVar reaches a started program; self is the source under run.
 printf 'runs "sh"\nmain(sys) {\n  sys.screen.print(sys.env.self.reFind("[^/]+$").at(0))\n  sys.env.setVar("GREETING", "hi there")\n  sys.screen.print(sys.env.var("GREETING") + sys.env.setVar("A=B", "x").toStr)\n  sys.screen.print(sys.programs.run("sh", ["-c", "echo $GREETING [$SIMPLER_SELF]"]).trim)\n}\n' > "$TMP/mod/envset.smplr"

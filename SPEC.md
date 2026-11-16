@@ -378,6 +378,7 @@ nothing at runtime.
 | `sys.files.append(path, text)` | — | `!IO` | add `text` to the end of `path` |
 | `sys.files.list(dir)` | `List[Str]` | `!IO` | the names in a folder, sorted; a folder's name ends in `/`; empty if it cannot be listed |
 | `sys.files.exists(path)` | `Bool` | `!IO` | is there a file or folder at `path` |
+| `sys.files.wait(path)` | `Str` | `!IO` | waits until the file or folder at `path` changes; the changed name in a folder, `""` for a file; stops the program if `path` is not there |
 | `sys.files.rename(from, to)` | — | `!IO` | rename or move; the program stops if it cannot |
 | `sys.files.delete(path)` | — | `!IO` | delete a file or an empty folder; the program stops if it cannot |
 | `sys.programs.run(name, args)` | `Str` | `!IO` | run another program with a `List[Str]` of arguments and give what it printed; the program stops if it fails |

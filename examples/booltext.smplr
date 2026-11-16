@@ -1,0 +1,9 @@
+// A Bool as text is "true" or "false".
+main(sys) {
+  t = 5
+  ok = t >= 3
+  sys.screen.print(ok.toStr)
+  sys.screen.print((t - 2 >= 4).toStr)
+  sys.screen.print((t == 5 && t > 1).toStr + "!")
+  sys.screen.print("abc".contains("b").toStr)
+}

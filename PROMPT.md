@@ -148,7 +148,7 @@ main(sys) {
   at any depth of `if` inside a loop.
 - `if a { } else if b { } else { }`. No parentheses needed, braces always. `if` is never a value:
   write `x = 0` and then `if c { x = 1 }`. A `match` is a value.
-- Input is `sys.stdin` (all of it, one text). Output is `sys.screen.print(text)`, one line per call.
+- Input is `sys.stdin` (all of it, one text), or `sys.stdinLine`: the next line with its newline, waiting until one comes; `""` when the input has ended. Output is `sys.screen.print(text)`, one line per call.
   Only `main(sys)` has `sys`.
 - A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter, or sets a field of
   a record it got, says `!Mut` after its return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
@@ -168,7 +168,7 @@ main(sys) {
 - A function that prints or touches files says `!IO` after its return type and gets what it needs as a
   parameter: `out : Screen` or `files : Files`, handed over as `sys.screen` or `sys.files`.
 - Files: `sys.files.read(path)?` (the `?` is required; "" if it cannot be read), `.write(path, text)`,
-  `.append(path, text)`, `.list(dir)` (names, sorted; a folder's ends in `/`, a link to a folder too, so no other check is needed), `.exists(path)`, `.rename(from, to)`,
+  `.append(path, text)`, `.list(dir)` (names, sorted; a folder's ends in `/`, a link to a folder too, so no other check is needed), `.exists(path)`, `.wait(path)` (waits until the file or folder changes; gives the changed name in a folder, `""` for a file; needs a `reads` line), `.rename(from, to)`,
   `.delete(path)`. Arguments are `sys.args` (a `List[Str]`).
 - A program that touches files says which, at the top: `reads "a.txt", "data/", "logs/*.log", args` and
   `writes "out/"` (a `*` is any run of characters without a `/`).
@@ -182,7 +182,8 @@ main(sys) {
   and gives its process number;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
-- Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.date(secs)` (text),
+- A program that stays running waits: with `sys.stdinLine`, `sys.files.wait(path)` or `sys.clock.sleep(ms)`. Never loop to check for a change without one of them.
+- Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.sleep(ms)` (waits that long), `sys.clock.date(secs)` (text),
   `sys.clock.dateAs(secs, "%a %d %b %H:%M")` (text in that pattern), `sys.clock.secsOf("2026-01-31T12:00:00Z")`
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`; `sys.env.setVar("LANG", "C")` sets one for this program and the
@@ -203,6 +204,7 @@ main(sys) {
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)` (from `a` up to `b`, not counting `b`; `s.slice(a)` runs to the end), `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
   `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt` (takes `"-12"` and `"08"`; stops the program on other text, so ask `s.isInt` first), `s.isInt`, `s.toFloat`
+- Bool: `b.toStr` is `"true"` or `"false"`, `b.not`.
 - Int: `n.toStr`, `n.toFloat`, `n.abs`, bits: `a.bitAnd(b)`, `a.bitOr(b)`, `a.bitXor(b)`, `a.shl(n)`, `a.shr(n)`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.slice(a, b)` (a new list; `xs.slice(a)` runs to the end), `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),

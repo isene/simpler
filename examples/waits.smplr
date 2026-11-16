@@ -1,0 +1,20 @@
+reads "/tmp/"
+runs "sh"
+
+// A program waits in the kernel: for a time, for a file change, for a line.
+main(sys) {
+  t = sys.clock.millis
+  sys.clock.sleep(30)
+  sys.screen.print((sys.clock.millis - t >= 30).toStr)
+  sys.programs.start("sh", ["-c", "sleep 0.2; echo x > /tmp/simpler-waits-test"])
+  name = sys.files.wait("/tmp/")
+  while name != "simpler-waits-test" {
+    name = sys.files.wait("/tmp/")
+  }
+  sys.screen.print(name)
+  line = sys.stdinLine
+  while line != "" {
+    sys.screen.print("[" + line.trim + "]")
+    line = sys.stdinLine
+  }
+}

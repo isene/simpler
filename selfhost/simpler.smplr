@@ -272,6 +272,7 @@ main(sys) {
   sys.screen.print("#include <sys/ioctl.h>")
   sys.screen.print("#include <signal.h>")
   sys.screen.print("#include <poll.h>")
+  sys.screen.print("#include <sys/inotify.h>")
   sys.screen.print("#include <sys/resource.h>")
   fl = "static const char* simpler_fl[] = {"
   q = 0
@@ -507,6 +508,9 @@ main(sys) {
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
   sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }")
   sys.screen.print("long i_char(long n) { char* o = (char*)malloc(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }")
+  sys.screen.print("long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }")
+  sys.screen.print("long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); if (getline(&buf, &cap, stdin) < 0) { free(buf); return (long)(intptr_t)\"\"; } return (long)(intptr_t)buf; }")
+  sys.screen.print("long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, \"line %ld: cannot wait for a change in %s: %s\\n\", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, \"line %ld: the wait for a change in %s failed\\n\", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : \"\"); } }")
   sys.screen.print("long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }")
   sys.screen.print("long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }")
   sys.screen.print("static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
@@ -985,6 +989,9 @@ whatField(recv : Expr, fld : Str, fn : Str, w : What, sigs : Sigs) : Int !Mut {
   if fld == "stdin" {
     whatAdd(w, "stdin", "reads all of standard input", fn)
   }
+  if fld == "stdinLine" {
+    whatAdd(w, "stdin", "reads standard input line by line", fn)
+  }
   if fld == "args" {
     whatAdd(w, "args", "reads the command line", fn)
   }
@@ -1025,6 +1032,12 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     }
     if name == "exists" {
       whatAdd(w, "files", "looks for ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "wait" {
+      whatAdd(w, "files", "waits for a change in ".concat(whatPath(args.at(0))), fn)
+    }
+    if name == "sleep" {
+      whatAdd(w, "clock", "waits", fn)
     }
     if name == "rename" {
       whatAdd(w, "files", "renames ".concat(whatPath(args.at(0))), fn)
@@ -3902,7 +3915,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if name == "write" {
     used.push("IO")
   }
-  if (name == "append") || (name == "list") || (name == "exists") || (name == "rename") || (name == "delete") {
+  if (name == "append") || (name == "list") || (name == "exists") || (name == "wait") || (name == "rename") || (name == "delete") {
     used.push("IO")
   }
   if (name == "push") || (name == "set") || (name == "remove") || isSetField(name) {
@@ -4586,6 +4599,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
       if t == "Float" {
         r = "f_tostr(".concat(recvC).concat(")")
       }
+      if t == "Bool" {
+        r = "(long)(intptr_t)((".concat(recvC).concat(") ? \"true\" : \"false\")")
+      }
     }
     if fld == "isInt" {
       r = "s_isint(".concat(recvC).concat(")")
@@ -4674,6 +4690,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "stdin" {
       r = "simpler_stdin()"
     }
+    if fld == "stdinLine" {
+      r = "simpler_stdinline()"
+    }
     if fld == "now" {
       if t != "Clock" {
         failAt(".now needs a Clock handed down from main, got ".concat(capShow(t)), ctx)
@@ -4725,7 +4744,7 @@ isCapField(fld : Str) : Bool {
 
 // The no-argument builtin fields, so UFCS never shadows one.
 isBuiltinField(fld : Str) : Bool {
-  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "bytes").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "now").or(fld == "millis").or(fld == "self").or(fld == "char").or(fld == "char_c").or(isMathField(fld)).or(isCapField(fld))
+  (fld == "length").or(fld == "code").or(fld == "toStr").or(fld == "toInt").or(fld == "isInt").or(fld == "toFloat").or(fld == "trim").or(fld == "upper").or(fld == "lower").or(fld == "jsonItems").or(fld == "jsonKeys").or(fld == "bytes").or(fld == "not").or(fld == "keys").or(fld == "byValue").or(fld == "sort").or(fld == "args").or(fld == "stdin").or(fld == "stdinLine").or(fld == "now").or(fld == "millis").or(fld == "self").or(fld == "char").or(fld == "char_c").or(isMathField(fld)).or(isCapField(fld))
 }
 
 // The unary Float math fields, wrappers over libm (programs that use them link
@@ -4777,7 +4796,7 @@ capNeed(name : Str) : Str {
   if (name == "print") || (name == "part") || (name == "error") {
     r = "Screen"
   }
-  if (name == "read").or(name == "write").or(name == "readBytes").or(name == "writeBytes").or(name == "append").or(name == "list").or(name == "exists").or(name == "rename").or(name == "delete") {
+  if (name == "read").or(name == "write").or(name == "readBytes").or(name == "writeBytes").or(name == "append").or(name == "list").or(name == "exists").or(name == "wait").or(name == "rename").or(name == "delete") {
     r = "Files"
   }
   if name == "send" {
@@ -4789,7 +4808,7 @@ capNeed(name : Str) : Str {
   if (name == "fetch") || (name == "post") || (name == "reach") || (name == "fetchWith") {
     r = "Net"
   }
-  if (name == "date") || (name == "dateAs") || (name == "secsOf") {
+  if (name == "date") || (name == "dateAs") || (name == "secsOf") || (name == "sleep") {
     r = "Clock"
   }
   if (name == "var") || (name == "setVar") {
@@ -4960,7 +4979,7 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
 }
 
 isSysField(fld : Str) : Bool {
-  isCapField(fld).or(fld == "args").or(fld == "stdin")
+  isCapField(fld).or(fld == "args").or(fld == "stdin").or(fld == "stdinLine")
 }
 
 checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
@@ -4977,7 +4996,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "wait") || (name == "sleep") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
@@ -5110,6 +5129,14 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     wantType(args.at(0), "Int", name, ctx)
     wantType(args.at(1), "Str", name, ctx)
     r = "simpler_stamp(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(")")
+  }
+  if name == "sleep" {
+    wantType(args.at(0), "Int", name, ctx)
+    r = "simpler_sleep(".concat(emitExpr(args.at(0), ctx)).concat(")")
+  }
+  if name == "wait" {
+    mayCheck(args.at(0), ctx.sigs.reads, "read", "reads", ctx)
+    r = "simpler_wait(simpler_may(".concat(emitExpr(args.at(0), ctx)).concat(", simpler_rd, ").concat(ln).concat(", \"read\"), ").concat(ln).concat(")")
   }
   if name == "secsOf" {
     wantType(args.at(0), "Str", name, ctx)
@@ -5510,7 +5537,7 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   if fld == "args" {
     r = "List[Str]"
   }
-  if fld == "stdin" {
+  if (fld == "stdin") || (fld == "stdinLine") {
     r = "Str"
   }
   if (fld == "keys") || (fld == "jsonItems") || (fld == "jsonKeys") {
@@ -5588,7 +5615,7 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   if name == "exists" {
     r = "Bool"
   }
-  if (name == "run") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "date") || (name == "var") {
+  if (name == "run") || (name == "try") || (name == "feed") || (name == "fetch") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "date") || (name == "var") || (name == "wait") {
     r = "Str"
   }
   if (name == "split") || (name == "list") {
