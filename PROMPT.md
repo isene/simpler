@@ -135,15 +135,23 @@ main(sys) {
 - Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
   anything else stays as it is. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
-- Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!x` for not.
+- Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, `!x` for not, and `-x`. `&&` and `||` stop as soon
+  as the answer is known, so `i < n && xs.at(i) == 0` is safe. Int `/` cuts toward zero and `%` takes the
+  sign of the left side. `true` and `false` are the two Bool values. Texts compare with `<` by character code.
+  `//` starts a comment.
 - `+` adds two numbers or joins two texts, never one of each: write `"n = " + n.toStr`.
 - Loops: `for x in xs { }`, `for i in 0..n { }` (0 up to n - 1), `for i in 1..=n { }` (1 up to n) and
-  `while cond { }`. `break` leaves the loop, `continue` starts its next round.
-- `if a { } else if b { } else { }`. No parentheses needed, braces always.
+  `while cond { }`. `break` leaves the loop, `continue` starts its next round; both, and `return`, work
+  at any depth of `if` inside a loop.
+- `if a { } else if b { } else { }`. No parentheses needed, braces always. `if` is never a value:
+  write `x = 0` and then `if c { x = 1 }`. A `match` is a value.
 - Input is `sys.stdin` (all of it, one text). Output is `sys.screen.print(text)`, one line per call.
   Only `main(sys)` has `sys`.
 - A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter, or sets a field of
   a record it got, says `!Mut` after its return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
+  So does a function that hands such a parameter (or a part of it) to a `!Mut` function. A list, map or
+  record the function made itself needs none, and a `!Mut` that turns out unneeded is no error. A function
+  may leave out the return type, and effects combine: `bump(out : Screen, xs : List[Int]) !Mut !IO { }`.
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
   `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value. An arm is
@@ -191,13 +199,13 @@ main(sys) {
 
 - Str: `s.length`, `s.at(i)`, `s.code`, `s.slice(a, b)` (from `a` up to `b`, not counting `b`; `s.slice(a)` runs to the end), `s.trim`, `s.concat(t)`, `s.split(d)`,
   `s.contains(t)`, `s.find(t)` (the place of `t`, or -1), `s.startsWith(t)`, `s.endsWith(t)`, `s.replace(a, b)`,
-  `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt`, `s.isInt`, `s.toFloat`
-- Int: `n.toStr`, `n.toFloat`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
+  `s.upper`, `s.lower`, `s.padLeft(n)`, `s.padRight(n)`, `s.toInt` (takes `"-12"` and `"08"`; stops the program on other text, so ask `s.isInt` first), `s.isInt`, `s.toFloat`
+- Int: `n.toStr`, `n.toFloat`, `n.abs`, bits: `a.bitAnd(b)`, `a.bitOr(b)`, `a.bitXor(b)`, `a.shl(n)`, `a.shr(n)`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.slice(a, b)` (a new list; `xs.slice(a)` runs to the end), `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
   `xs.join(sep)` (a list of texts as one text)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent; a map of lists or of your own types has no empty
-  value, so there the program stops: ask `m.has(k)` first), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
+  value, so there the program stops: ask `m.has(k)` first), `m.has(k)`, `m.remove(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 
 More exists, each on a page of its own: `regex` (patterns), `json`, `net` (the web, mail), `bytes` (files that are no text) and
 `screen` (full-screen programs). When the job needs one you were not given, answer with one

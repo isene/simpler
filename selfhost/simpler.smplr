@@ -474,6 +474,7 @@ main(sys) {
   sys.screen.print("long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }")
   sys.screen.print("long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }")
   sys.screen.print("long m_getp(long mp, long k, long line) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; fprintf(stderr, \"%s: the map has no key \\\"%s\\\"; ask .has(key) first\\n\", simpler_at(line), (const char*)(intptr_t)k); exit(1); return 0; }")
+  sys.screen.print("long m_remove(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i < 0) return 0; for (long q = i; q + 1 < m->len; q++) { m->keys[q] = m->keys[q + 1]; m->vals[q] = m->vals[q + 1]; m->hs[q] = m->hs[q + 1]; } m->len--; memset(m->tab, 0, sizeof(int) * m->tcap); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } return 1; }")
   sys.screen.print("long m_has(long mp, long k) { return m_find(mp, k) >= 0; }")
   sys.screen.print("long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }")
   sys.screen.print("long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }")
@@ -2913,6 +2914,10 @@ elemOf(t : Str) : Str {
 }
 
 // `Map[Str]` is a Str-valued map; a bare `Map` defaults to Int values.
+anyMap(t : Str) : Bool {
+  (t == "Map") || isMapType(t)
+}
+
 isMapType(t : Str) : Bool {
   r = false
   if t.length > 4 {
@@ -4638,6 +4643,9 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     }
     if fld == "abs" {
       r = "d2l(fabs(l2d(".concat(recvC).concat(")))")
+      if t == "Int" {
+        r = "labs(".concat(recvC).concat(")")
+      }
     }
     if fld == "atan" {
       r = "d2l(atan(l2d(".concat(recvC).concat(")))")
@@ -4934,9 +4942,14 @@ checkMethod(t : Str, name : Str, args : List[Expr], ctx : Ctx) : Int !Mut {
         failAt("find looks for a text in a text and gives its place, or -1", ctx)
       }
     }
-    if name == "remove" {
+    if (name == "remove") && anyMap(t) {
+      if exprType(args.at(0), ctx) != "Str" {
+        failAt("remove on a map expects the key as a Str, got ".concat(exprType(args.at(0), ctx)), ctx)
+      }
+    }
+    if (name == "remove") && anyMap(t).not {
       if isListType(t).not {
-        failAt("remove takes an item out of a list; ".concat(t).concat(" has no method remove"), ctx)
+        failAt("remove takes an item out of a list or a key out of a map; ".concat(t).concat(" has no method remove"), ctx)
       }
       if exprType(args.at(0), ctx) != "Int" {
         failAt("remove expects the place as an Int, got ".concat(exprType(args.at(0), ctx)), ctx)
@@ -4964,7 +4977,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
     r = 1
   }
   if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
@@ -5243,6 +5256,27 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   }
   if name == "remove" {
     r = "l_removec(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+    if anyMap(t) {
+      r = "m_remove(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    }
+  }
+  if (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") {
+    wantType(recv, "Int", name, ctx)
+    wantType(args.at(0), "Int", name, ctx)
+    bop = "&"
+    if name == "bitOr" {
+      bop = "|"
+    }
+    if name == "bitXor" {
+      bop = "^"
+    }
+    r = "(".concat(recvC).concat(" ").concat(bop).concat(" ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    if name == "shl" {
+      r = "(long)((unsigned long)".concat(recvC).concat(" << (").concat(emitExpr(args.at(0), ctx)).concat(" & 63))")
+    }
+    if name == "shr" {
+      r = "(".concat(recvC).concat(" >> (").concat(emitExpr(args.at(0), ctx)).concat(" & 63))")
+    }
   }
   if name == "get" {
     r = "m_get(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
@@ -5439,6 +5473,9 @@ fieldType(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
   }
   if isMathField(fld) {
     r = "Float"
+    if (fld == "abs") && (exprType(recv, ctx) == "Int") {
+      r = "Int"
+    }
   }
   if fld == "screen" {
     r = "Screen"
@@ -5595,6 +5632,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   }
   if name == "remove" {
     r = elemOf(exprType(recv, ctx))
+    if anyMap(exprType(recv, ctx)) {
+      r = "Int"
+    }
   }
   if name == "at" {
     r = "Str"

@@ -60,6 +60,7 @@ check_run retype    "$(printf 'abc\n4\n2\n1\na=1\n11\n99\nb:22\nplain\nin1\nin2\
 check_run ownrecord "$(printf '3\n1')"
 check_run earlyret  "$(printf '2\n1')"
 check_run listslice "$(printf '7\n2\n2')"
+check_run numsmaps  "$(printf '6\n2.5\nfalse\na,c\n4\n9\n572\n1152\n-4')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 
 # the self-hosted lexer (written in Simpler) scans the full token set
