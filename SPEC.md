@@ -127,8 +127,12 @@ nums.each { x in sys.screen.print(x.toStr) }
 sorted = nums.sort       // a new list, ascending
 ```
 
-**`Map`** is a `Str`-keyed map. Values are `Int` by default; annotate
-`Map[Str]` for string values. `Map[Int]` is the same type as `Map`.
+**`Map`** is a `Str`-keyed map. Values are `Int` by default; `Map[T]` holds
+any other type (`Map[Str]`, `Map[Point]`, `Map[List[Int]]`). `Map[Int]` is the
+same type as `Map`. A new map is `Map()`, `Map[Str]()` or `Map[Point]()`.
+`get` of an absent key gives 0 in a `Map` and "" in a `Map[Str]`; in a map of
+lists or own types it stops the program (`the map has no key "k"`), so ask
+`has` first. A lookup takes the same time in a map of ten keys and of a million.
 
 ```
 counts = Map()                       // Str -> Int

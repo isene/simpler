@@ -1790,6 +1790,47 @@ printf 'main(sys) {\n  sys.screen.print("blå".at(3))\n}\n' > "$TMP/mod/letend.s
 letend="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run letend.smplr 2>&1 )"
 if [ "$letend" = 'letend.smplr:2: text index 3, but the text has 3 characters' ]; then ok; else nope "index past the last letter (got: $letend)"; fi
 
+# A map finds a key by its hash, holds own types and lists, and stops with a
+# plain message on a key it does not have.
+cat > "$TMP/mod/maps.smplr" <<'SMPLR'
+P = type { x : Int, name : Str }
+V = type { I(Int) S(Str) L(List[V]) }
+show(v : V) : Str {
+  v.match {
+    I(n) -> n.toStr
+    S(s) -> s
+    L(xs) -> "list of " + xs.length.toStr
+  }
+}
+main(sys) {
+  m = Map()
+  for i in 0..50000 {
+    m.set("k" + i.toStr, i)
+  }
+  m.set("k7", 70)
+  t = 0
+  for i in 0..50000 {
+    t = t + m.get("k" + i.toStr)
+  }
+  sys.screen.print(t.toStr + " " + m.keys.length.toStr + " " + m.keys.at(49999) + " " + m.get("no").toStr + " " + m.byValue.at(0))
+  names = Map[Str]()
+  names.set("a", "b")
+  sys.screen.print(names.get("a") + "[" + names.get("q") + "]")
+  ps = Map[P]()
+  ps.set("one", P(x = 3, name = "n"))
+  e : Map[V] = Map()
+  e.set("k", S("text"))
+  e.set("k", L([I(1), S("x")]))
+  ls = Map[List[Int]]()
+  ls.set("q", [1, 2])
+  ls.get("q").push(3)
+  sys.screen.print(ps.get("one").x.toStr + " " + show(e.get("k")) + " " + ls.get("q").length.toStr)
+  sys.screen.print(ps.get("two").name)
+}
+SMPLR
+mapout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run maps.smplr 2>&1 | tr '\n' '~' )"
+if [ "$mapout" = 'maps.smplr:33: the map has no key "two"; ask .has(key) first~1249975063 50000 k49999 0 k49999~b[]~3 list of 2 3~' ]; then ok; else nope "maps: hash, own types, missing key (got: $mapout)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

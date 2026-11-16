@@ -463,12 +463,15 @@ main(sys) {
   sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)malloc(nb + pad + 1); memset(r, 32, pad); memcpy(r + pad, p, nb + 1); return (long)(intptr_t)r; }")
   sys.screen.print("long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)malloc(nb + pad + 1); memcpy(r, p, nb); memset(r + nb, 32, pad); r[nb + pad] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }")
-  sys.screen.print("typedef struct { long* keys; long* vals; long len; long cap; } SMap;")
-  sys.screen.print("long m_find(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; for (long i = 0; i < m->len; i++) { if (strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; } return -1; }")
-  sys.screen.print("long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); return (long)(intptr_t)m; }")
-  sys.screen.print("long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); } m->keys[m->len] = k; m->vals[m->len] = v; m->len = m->len + 1; return 0; }")
+  sys.screen.print("typedef struct { long* keys; long* vals; unsigned long* hs; int* tab; long len; long cap; long tcap; } SMap;")
+  sys.screen.print("static unsigned long m_hash(const char* s) { unsigned long h = 1469598103934665603UL; while (*s) { h ^= (unsigned char)*s++; h *= 1099511628211UL; } return h; }")
+  sys.screen.print("static long m_findh(SMap* m, const char* key, unsigned long h) { long mask = m->tcap - 1; long j = (long)(h & (unsigned long)mask); while (m->tab[j]) { long i = m->tab[j] - 1; if (m->hs[i] == h && strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; j = (j + 1) & mask; } return -1; }")
+  sys.screen.print("long m_find(long mp, long k) { const char* key = (const char*)(intptr_t)k; return m_findh((SMap*)(intptr_t)mp, key, m_hash(key)); }")
+  sys.screen.print("long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); m->hs = (unsigned long*)malloc(sizeof(unsigned long) * m->cap); m->tcap = 16; m->tab = (int*)calloc(m->tcap, sizeof(int)); return (long)(intptr_t)m; }")
+  sys.screen.print("long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; unsigned long h = m_hash(key); long i = m_findh(m, key, h); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); m->hs = (unsigned long*)realloc(m->hs, sizeof(unsigned long) * m->cap); } if ((m->len + 1) * 2 > m->tcap) { m->tcap = m->tcap * 2; free(m->tab); m->tab = (int*)calloc(m->tcap, sizeof(int)); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } } m->keys[m->len] = k; m->vals[m->len] = v; m->hs[m->len] = h; long j = (long)(h & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(m->len + 1); m->len = m->len + 1; return 0; }")
   sys.screen.print("long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }")
   sys.screen.print("long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }")
+  sys.screen.print("long m_getp(long mp, long k, long line) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; fprintf(stderr, \"%s: the map has no key \\\"%s\\\"; ask .has(key) first\\n\", simpler_at(line), (const char*)(intptr_t)k); exit(1); return 0; }")
   sys.screen.print("long m_has(long mp, long k) { return m_find(mp, k) >= 0; }")
   sys.screen.print("long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }")
   sys.screen.print("long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }")
@@ -1873,6 +1876,13 @@ parseList(toks : Lexed, pos : Int) : Parsed {
 
 parseIdentFactor(toks : Lexed, pos : Int) : Parsed {
   name = expectIdent(toks, pos, "a value")
+  // `Map[Str]()` is a new map with its type said
+  if (name == "Map") && isPunct(toks, pos + 1, "[") {
+    pt = parseType(toks, pos)
+    if isPunct(toks, pt.next, "(") && isPunct(toks, pt.next + 1, ")") {
+      return Parsed(node = Call(pt.ty, []), next = pt.next + 2)
+    }
+  }
   r = Parsed(node = Var(name), next = pos + 1)
   if isPunct(toks, pos + 1, "(") {
     pa = parseArgs(toks, pos + 1)
@@ -2297,6 +2307,9 @@ callRet(name : Str, ctx : Ctx) : Str {
   r = "Int"
   if name == "Map" {
     r = "Map"
+  }
+  if isMapType(name) {
+    r = name
   }
   if name == "l_range" {
     r = "List[Int]"
@@ -3015,7 +3028,7 @@ noType(t : Str) : Str {
       b = cut
     }
   }
-  "no type named ".concat(b).concat("; the types are Int, Float, Str, Bool, List[T], Map, Map[Str] and the ones the program declares")
+  "no type named ".concat(b).concat("; the types are Int, Float, Str, Bool, List[T], Map, Map[T] and the ones the program declares")
 }
 
 checkTypes(prog : Prog, sigs : Sigs) : Int {
@@ -3810,6 +3823,12 @@ knownCall(name : Str, ctx : Ctx) : Bool {
 }
 
 emitCall0(name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  if isMapType(name) {
+    if typeKnown(name, ctx.sigs).not {
+      failAt(noType(name), ctx)
+    }
+    return "Map()"
+  }
   if knownCall(name, ctx).not {
     failAt("no function named ".concat(name), ctx)
   }
@@ -4724,8 +4743,13 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
   if name == "get" {
     r = "m_get(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
     // a Str-valued map returns "" for an absent key, never a null pointer
-    if mapValueOf(t) == "Str" {
+    mv = mapValueOf(t)
+    if mv == "Str" {
       r = "m_gets(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(")")
+    }
+    // a map of lists or own types has no empty value to give: an absent key stops the program
+    if isMapType(t) && (plainType(mv).not) {
+      r = "m_getp(".concat(recvC).concat(", ").concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
     }
   }
   if name == "has" {

@@ -120,14 +120,17 @@ main(sys) {
 
 ## The rules
 
-- A function is `name(a : Int, b : Str) : Str { ... }`. Types: `Int`, `Float`, `Str`, `Bool`, `List[Int]`,
-  `List[Str]`, `Map` (text to Int), `Map[Str]` (text to text). Capital first letter.
+- A function is `name(a : Int, b : Str) : Str { ... }`. Types: `Int`, `Float`, `Str`, `Bool`, `List[T]`,
+  `Map` (text to Int), `Map[T]` (text to T). Capital first letter. `T` is any type, also one of your own or
+  another list: `List[Point]`, `List[List[Int]]`, `Map[Str]`, `Map[Shape]`, `Map[List[Str]]`.
+- Functions may stand in any order and may call each other.
 - The value of a function is its last line, written alone: `out`. Use `return x` only to leave early.
 - Only the LAST line of a block may be a value alone. Every other line is `name = value`, `if`, `while`,
   a `for`, a `.push`, a `.set` or a `.print`.
 - A name keeps one type through the whole function, also in another block or loop: if `k` was a
   text in one loop, a later counter needs another name. After `s = "12"` write `n = s.toInt`.
-- An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()`.
+- An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()` (text to Int), `Map[Str]()`
+  or `Map[Point]()`.
 - Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
   anything else stays as it is. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
@@ -142,7 +145,13 @@ main(sys) {
   return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
-  `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value.
+  `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value. An arm is
+  one expression; call a function when it needs more.
+- A type may hold lists, maps, other types and itself. A tree is a variant that holds itself:
+  `Expr = type { Num(Int) Name(Str) Add(Expr, Expr) Call(Str, List[Expr]) }`. Keep data with a shape
+  (a tree, a table, a list of things with several fields) in types such as these, never packed into texts.
+- A record never changes: there is no `p.x = 5`. Make a new one (`p = Point(x = 5, y = p.y)`, in a list
+  `ps.set(i, Point(x = 5, y = ps.at(i).y))`). A list or map inside a record can change: `b.items.push(3)`.
 - A function that prints or touches files says `!IO` after its return type and gets what it needs as a
   parameter: `out : Screen` or `files : Files`, handed over as `sys.screen` or `sys.files`.
 - Files: `sys.files.read(path)?` (the `?` is required; "" if it cannot be read), `.write(path, text)`,
@@ -185,7 +194,8 @@ main(sys) {
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
   `xs.join(sep)` (a list of texts as one text)
-- Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
+- Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent; a map of lists or of your own types has no empty
+  value, so there the program stops: ask `m.has(k)` first), `m.has(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 
 More exists, each on a page of its own: `regex` (patterns), `json`, `net` (the web, mail), `bytes` (files that are no text) and
 `screen` (full-screen programs). When the job needs one you were not given, answer with one
