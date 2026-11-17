@@ -62,7 +62,7 @@ prep() {
     cp "$1" "$work/input.smplr"
     # A module the program calls as name.thing with no uses line gets its line (at the end, so
     # no line number moves). Not when the name also stands alone: then it is a variable.
-    for m in $(grep -o '\b[a-z][a-z0-9_]*\.[A-Za-z]' "$work/input.smplr" | sort -u | sed 's/\..*//'); do
+    for m in $(grep -oE '(^|[^.A-Za-z0-9_])[a-z][a-z0-9_]*\.[A-Za-z]' "$work/input.smplr" | sed 's/^[^a-z]//; s/\..*//' | sort -u); do
         [ -n "$(find_mod "$m")" ] || continue
         grep -Eq "^uses \"$m\"|(^|[^.A-Za-z0-9_])$m([^.A-Za-z0-9_]|\$)" "$work/input.smplr" ||
             printf '\nuses "%s"\n' "$m" >> "$work/input.smplr"

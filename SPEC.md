@@ -668,7 +668,7 @@ A module is a file of functions and types that many programs share.
 uses "tui"
 
 main(sys) {
-  p = tui.screen(sys.term)
+  p = tui.open(sys.term)
   p.border = true
   p.title = "Hello"
   p.bg = "#232154"
@@ -708,6 +708,11 @@ it has properties that the program sets (`p.title`, `p.bg = "#232154"`,
 function that is handed a pane can draw in that pane and nowhere else it was
 not given. The older `crust` module (the terminal handed beside the pane)
 stays for programs written with it.
+
+Under `tui` is the module `screen`, a smaller castle: the whole terminal as
+one thing with properties (`rows`, `cols`, `fg`, `bg`). Every pane has it as
+`p.scr`. A pane whose `fg` or `bg` is `""` takes the screen's, so
+`p.scr.bg = "#232154"` colours all panes that set no colour of their own.
 
 ## 14. How it runs
 

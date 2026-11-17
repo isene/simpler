@@ -1,0 +1,66 @@
+// screen: the terminal as one thing with properties. tui builds its panes on it.
+// s = screen.open(sys.term), then set s.fg and s.bg, write with screen.put, and end with screen.close(s).
+
+// The whole terminal. rows and cols are its size. fg and bg are the colours used where a text gives
+// none: "" or a colour such as "#232154", "cyan" or a number 0 to 255.
+Scr = type {
+  t : Term
+  rows : Int
+  cols : Int
+  fg : Str
+  bg : Str
+}
+
+// Takes the terminal and gives the screen, with its size read.
+open(t : Term) : Scr {
+  Scr(t = t, rows = t.rows, cols = t.cols, fg = "", bg = "")
+}
+
+example look("", "#ffffff", "#232154") == "#ffffff on#232154"
+example look("bold", "#ffffff", "") == "bold"
+example look("", "", "") == ""
+example look("", "cyan", "") == "cyan"
+look(style : Str, f : Str, b : Str) : Str {
+  if style != "" {
+    return style
+  }
+  r = f
+  if b != "" {
+    r = (r + " on" + b).trim
+  }
+  r
+}
+
+// Writes text at a place (both from 0). The style is as for t.put; "" means the screen's own colours.
+put(s : Scr, row : Int, col : Int, text : Str, style : Str) {
+  s.t.put(row, col, text, look(style, s.fg, s.bg))
+}
+
+// Paints the whole screen in its background colour.
+fill(s : Scr) {
+  line = "".padRight(s.cols)
+  k = 0
+  while k < s.rows {
+    s.t.put(k, 0, line, look("", s.fg, s.bg))
+    k = k + 1
+  }
+}
+
+// Waits for one key and gives its name, as t.key does. After "resize" the screen has its new size.
+key(s : Scr) : Str !Mut {
+  k = s.t.key
+  if k == "resize" {
+    s.rows = s.t.rows
+    s.cols = s.t.cols
+  }
+  k
+}
+
+// Gives the terminal back. Call it before the program ends.
+close(s : Scr) {
+  s.t.stop
+}
+
+test_look() {
+  assert(look("", "1", "2") == "1 on2")
+}

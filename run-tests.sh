@@ -1710,14 +1710,20 @@ if ( SIMPLERC="$TMP/seedc" ./simpler test lib/opts.smplr 2>&1 | grep -q '^2/2 pa
 # astro, the module for the sky: its own tests (numbers checked against PyEphem), and its page without the helpers.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/astro.smplr 2>&1 | grep -q '^10/10 passed' ) && ( ./simpler prompt astro | grep -qF 'sun_times(year : Int, month : Int, day : Int, lat : Float, lon : Float, tz : Float) : Times' ) && ! ( ./simpler prompt astro | grep -q '^moon_centre\|^near\|^test_dates' ); then ok; else nope "astro: tests and page"; fi
 # tui: a pane owns the terminal and is drawn from its properties, in true colours.
-printf 'uses "tui"\nmain(sys) {\n  a = tui.left(tui.screen(sys.term), 12)\n  a.title = "Hi"\n  a.bg = "#232154"\n  a.items = ["one", "two"]\n  a.picked = 0\n  tui.move(a, 1)\n  tui.show(a)\n  k = tui.key(a)\n  tui.close(a)\n  sys.screen.print("key " + k + " " + tui.chosen(a))\n}\n' > "$TMP/mod/tp.smplr"
+printf 'uses "tui"\nmain(sys) {\n  a = tui.left(tui.open(sys.term), 12)\n  a.title = "Hi"\n  a.bg = "#232154"\n  a.items = ["one", "two"]\n  a.picked = 0\n  tui.move(a, 1)\n  tui.show(a)\n  k = tui.key(a)\n  tui.close(a)\n  sys.screen.print("key " + k + " " + tui.chosen(a))\n}\n' > "$TMP/mod/tp.smplr"
 ( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build tp.smplr -o tp 2>&1 )
 tuout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./tp' /dev/null 2>/dev/null | tr -d '\r' )"
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/tui.smplr 2>&1 | grep -q '^1/1 passed' ) && ( ./simpler prompt tui | grep -qF 'show(p : Pane) !Mut' ) && printf '%s' "$tuout" | grep -qF '┌─ Hi ──' && printf '%s' "$tuout" | grep -qF '48;2;35;33;84' && printf '%s' "$tuout" | grep -qF 'key x two'; then ok; else nope "tui draws a pane from its properties (got: $tuout)"; fi
 # A module called by name with no uses line is brought in; a variable of that name is left alone.
-printf 'main(sys) {\n  a = tui.screen(sys.term)\n  tui.close(a)\n  sys.screen.print("in")\n}\n' > "$TMP/mod/nouse.smplr"
+printf 'main(sys) {\n  a = tui.open(sys.term)\n  tui.close(a)\n  sys.screen.print("in")\n}\n' > "$TMP/mod/nouse.smplr"
 printf 'main(sys) {\n  opts = ["a"]\n  sys.screen.print(opts.length.toStr)\n}\n' > "$TMP/mod/novar.smplr"
 if [ "$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build nouse.smplr -o nouse 2>&1 && script -qec ./nouse /dev/null | tr -d '\r' | tail -c 3 )" = "in" ] && [ "$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" run novar.smplr 2>&1 )" = 1 ]; then ok; else nope "a missing uses line is added"; fi
+# screen, the castle under tui: a pane with no colour takes the screen's; sys.screen brings in no module.
+printf 'main(sys) {\n  a = tui.left(tui.open(sys.term), 12)\n  a.scr.bg = "#102030"\n  a.items = [a.scr.cols.toStr]\n  tui.show(a)\n  k = tui.key(a)\n  tui.close(a)\n}\n' > "$TMP/mod/sc.smplr"
+( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build sc.smplr -o sc 2>&1 )
+scout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./sc' /dev/null 2>/dev/null | tr -d '\r' )"
+printf 'main(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/mod/plain.smplr"
+if ( SIMPLERC="$TMP/seedc" ./simpler test lib/screen.smplr 2>&1 | grep -q '^1/1 passed' ) && printf '%s' "$scout" | grep -qF '48;2;16;32;48' && printf '%s' "$scout" | grep -qF '│20' && ! ( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" what plain.smplr | grep -q 'screen\.' ); then ok; else nope "screen under tui (got: $scout)"; fi
 
 # crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi

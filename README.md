@@ -134,6 +134,8 @@ and the program's top lines bind the module's code too.
 [`lib/tui.smplr`](lib/tui.smplr) is the first one: panes for full-screen
 terminal programs. A pane owns the terminal and has properties you set
 (`p.title = "Files"`, `p.bg = "#232154"`); `tui.show(p)` draws it.
+It is built on [`lib/screen.smplr`](lib/screen.smplr), the terminal as one
+thing with a size and colours (`p.scr.bg`), which every pane has under it.
 [`lib/opts.smplr`](lib/opts.smplr) is the second: options on the command line,
 such as `-v`, `-o file` and `--out=file`.
 [`lib/astro.smplr`](lib/astro.smplr) is the third, a full almanac: the sun, the

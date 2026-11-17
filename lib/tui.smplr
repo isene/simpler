@@ -1,14 +1,17 @@
-// tui: full-screen programs built from panes.
-// A pane owns the terminal: t = sys.term goes in once, with tui.screen(t). After that, hand a
+// tui: full-screen programs built from panes. A pane is built on the screen (the module screen).
+// A pane owns the terminal: t = sys.term goes in once, with tui.open(t). After that, hand a
 // function the pane only. Set a pane's properties, then call tui.show(pane) to draw it.
+uses "screen"
 
 // A box on the screen with its look and its lines. It owns the terminal: make the first one with
-// tui.screen(sys.term) and hand functions the pane only. Set its properties (a.title = "Files",
+// tui.open(sys.term) and hand functions the pane only. Set its properties (a.title = "Files",
 // a.bg = "#232154", a.items = names, a.picked = 0), then call tui.show(a) to draw it.
 // fg and bg are "" or a colour: "#232154", "cyan" or a number 0 to 255.
 // picked is the number of the marked line in items, or -1 for none; first is the top line shown.
+// scr is the screen under every pane: a pane with fg or bg "" takes p.scr.fg or p.scr.bg, and
+// p.scr.rows and p.scr.cols are the size of the terminal.
 Pane = type {
-  t : Term
+  scr : screen.Scr
   row : Int
   col : Int
   rows : Int
@@ -23,15 +26,15 @@ Pane = type {
 }
 
 // The whole screen as one pane, with no border.
-screen(t : Term) : Pane {
+open(t : Term) : Pane {
   none : List[Str] = []
-  Pane(t = t, row = 0, col = 0, rows = t.rows, cols = t.cols, title = "", fg = "", bg = "", border = false, items = none, picked = -1, first = 0)
+  Pane(scr = screen.open(t), row = 0, col = 0, rows = t.rows, cols = t.cols, title = "", fg = "", bg = "", border = false, items = none, picked = -1, first = 0)
 }
 
 // A new pane at a place inside p, with p's colours and no lines yet.
 part(p : Pane, r : Int, c : Int, h : Int, w : Int) : Pane {
   none : List[Str] = []
-  Pane(t = p.t, row = r, col = c, rows = h, cols = w, title = "", fg = p.fg, bg = p.bg, border = true, items = none, picked = -1, first = 0)
+  Pane(scr = p.scr, row = r, col = c, rows = h, cols = w, title = "", fg = p.fg, bg = p.bg, border = true, items = none, picked = -1, first = 0)
 }
 
 // The left part of a pane, n columns wide, as a new pane with a border.
@@ -119,23 +122,23 @@ room(p : Pane) : Int {
 // Draws the pane as its properties say: colours, border with title, and its lines, the picked one in
 // reverse. The lines scroll so the picked one is in view.
 show(p : Pane) !Mut {
-  st = style_of(p.fg, p.bg)
+  st = style_of(own(p.fg, p.scr.fg), own(p.bg, p.scr.bg))
   r0 = p.row
   c0 = p.col
   w = p.cols
   h = p.rows
   if p.border && p.rows >= 2 && p.cols >= 2 {
     bar = times("─", w - 2)
-    p.t.put(r0, c0, "┌" + bar + "┐", st)
+    screen.put(p.scr, r0, c0, "┌" + bar + "┐", st)
     k = 1
     while k < h - 1 {
-      p.t.put(r0 + k, c0, "│", st)
-      p.t.put(r0 + k, c0 + w - 1, "│", st)
+      screen.put(p.scr, r0 + k, c0, "│", st)
+      screen.put(p.scr, r0 + k, c0 + w - 1, "│", st)
       k = k + 1
     }
-    p.t.put(r0 + h - 1, c0, "└" + bar + "┘", st)
+    screen.put(p.scr, r0 + h - 1, c0, "└" + bar + "┘", st)
     if p.title != "" && w > 6 {
-      p.t.put(r0, c0 + 2, " " + fit(p.title, min(p.title.length, w - 6)) + " ", st)
+      screen.put(p.scr, r0, c0 + 2, " " + fit(p.title, min(p.title.length, w - 6)) + " ", st)
     }
     r0 = r0 + 1
     c0 = c0 + 1
@@ -155,10 +158,19 @@ show(p : Pane) !Mut {
       s = (st + " reverse").trim
     }
     if w > 0 {
-      p.t.put(r0 + k, c0, fit(text, w), s)
+      screen.put(p.scr, r0 + k, c0, fit(text, w), s)
     }
     k = k + 1
   }
+}
+
+example own("", "red") == "red"
+example own("blue", "red") == "blue"
+own(mine : Str, below : Str) : Str {
+  if mine == "" {
+    return below
+  }
+  mine
 }
 
 example min(3, 9) == 3
@@ -193,13 +205,13 @@ chosen(p : Pane) : Str {
 }
 
 // Waits for one key and gives its name, as t.key does.
-key(p : Pane) : Str {
-  p.t.key
+key(p : Pane) : Str !Mut {
+  screen.key(p.scr)
 }
 
 // Gives the terminal back. Call it before the program ends.
 close(p : Pane) {
-  p.t.stop
+  screen.close(p.scr)
 }
 
 test_split() {
