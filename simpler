@@ -8,6 +8,7 @@
 #   simpler replay [--show] prog.smplr   run its last failed run again with the same input (--show prints the input)
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
+#   simpler pieces prog.smplr            list each function: what it takes, what it touches, its examples
 #   simpler trusted prog.smplr [args]    succeed when all it can touch is inside ~/.config/simpler/trust
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
@@ -169,7 +170,7 @@ case $cmd in
         SIMPLER_REPLAY=1
         [ "$1" = --show ] && { SIMPLER_REPLAY=show; shift; }
         export SIMPLER_REPLAY; cmd=run ;;
-    run|build|what|test|c|trusted) ;;
+    run|build|what|pieces|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac
 if [ "$cmd" = run ] && [ "$1" = --dry ]; then SIMPLER_DRY=1; export SIMPLER_DRY; shift; fi
@@ -204,6 +205,12 @@ case $file in
     http://*) echo "simpler: only an https link is run" >&2; exit 2 ;;
 esac
 shown=$(show_name "$file")
+# Runs the examples of a built program; a failing one is named by the source file.
+examples_ok() {
+    SIMPLER_EXAMPLES=1 "$1" 2>"$1.err"; ex=$?
+    sed "s|^input\.smplr:|$shown:|" "$1.err" >&2
+    return $ex
+}
 
 case $cmd in
     trusted)
@@ -218,9 +225,9 @@ case $cmd in
         inside read reads "$@" && inside write writes "$@" && inside run runs \
             && inside fetch fetches && inside mail mails || exit 1
         exit 0 ;;
-    what)
+    what|pieces)
         prep "$file"
-        (cd "$work" && "$cc_simpler" what) 2>&1 | sed "s|^input\.smplr:|$shown:|"
+        (cd "$work" && "$cc_simpler" $cmd) 2>&1 | sed "s|^input\.smplr:|$shown:|"
         rm -rf "$work" ;;
     c)
         out=$(mktemp); prep "$file"; to_c "" "$out"; cat "$out"; rm -f "$out" ;;
@@ -243,7 +250,7 @@ case $cmd in
         dir=$(mktemp -d); prep "$file"; to_c "" "$dir/p.c"
         ${CC:-cc} -O2 -w "$dir/p.c" -o "$dir/p" -lm
         # The example lines at the top: no program unless each gives its output.
-        if ! SIMPLER_EXAMPLES=1 "$dir/p"; then rm -rf "$dir"; echo "simpler: not built" >&2; exit 1; fi
+        if ! examples_ok "$dir/p"; then rm -rf "$dir"; echo "simpler: not built" >&2; exit 1; fi
         mv "$dir/p" "$name"
         rm -rf "$dir" ;;
     run)
@@ -256,7 +263,7 @@ case $cmd in
             mkdir -p "$cache"
             dir=$(mktemp -d); to_c "" "$dir/p.c"
             ${CC:-cc} -O1 -w "$dir/p.c" -o "$dir/p" -lm
-            if ! SIMPLER_EXAMPLES=1 "$dir/p"; then rm -rf "$dir"; echo "simpler: not run" >&2; exit 1; fi
+            if ! examples_ok "$dir/p"; then rm -rf "$dir"; echo "simpler: not run" >&2; exit 1; fi
             mv "$dir/p" "$cache/$sum"; rm -rf "$dir"
         else
             rm -rf "$work"

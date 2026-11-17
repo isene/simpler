@@ -1781,6 +1781,48 @@ LOCKT
     if [ "$trout" = "ynnnnnnynn" ]; then ok; else nope "simpler trusted (got: $trout)"; fi
 else ok; fi
 
+# An example above a function checks that one function; `simpler pieces` lists each function's reach.
+mkdir -p "$TMP/ex/box"
+cat > "$TMP/ex/pc.smplr" <<'EXT'
+writes "box/"
+example twice(4) == 8
+example shout("hi") == "HI!"
+example half(3) == 1.5
+twice(n : Int) : Int {
+  n * 2
+}
+shout(s : Str) : Str {
+  s.upper + "!"
+}
+half(n : Int) : Float {
+  n.toFloat / 2.0
+}
+save(files : Files, text : Str) : Int !IO {
+  files.write("box/p.txt", text)
+  0
+}
+report(files : Files, out : Screen, n : Int) : Int !IO {
+  save(files, twice(n).toStr)
+  out.print("saved")
+  0
+}
+main(sys) {
+  report(sys.files, sys.screen, 4)
+}
+EXT
+sed 's/twice(4) == 8/twice(4) == 9/; s/== "HI!"/== "HI"/' "$TMP/ex/pc.smplr" > "$TMP/ex/pcbad.smplr"
+printf 'example twice(4)\ntwice(n : Int) : Int {\n  n * 2\n}\nmain(sys) {\n}\n' > "$TMP/ex/pcno.smplr"
+pcout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run --dry pc.smplr 2>&1; "$OLDPWD/simpler" run pcbad.smplr 2>&1; "$OLDPWD/simpler" run pcno.smplr 2>&1; "$OLDPWD/simpler" pieces pc.smplr 2>&1 | tr '\n' '|' )"
+pcwant='would write "box/p.txt"
+saved
+pcbad.smplr:2: example fails: the left side gave 8
+pcbad.smplr:3: example fails: the left side gave HI!
+2 of 3 examples fail
+simpler: not run
+pcno.smplr:1: an example for a function is a check that is true or false, as in: example double(4) == 8
+twice(n : Int) : Int|  touches nothing|  1 example|shout(s : Str) : Str|  touches nothing|  1 example|half(n : Int) : Float|  touches nothing|  1 example|save(files : Files, text : Str) : Int|  files   writes "box/p.txt"|  no example|report(files : Files, out : Screen, n : Int) : Int|  screen  prints|  files   writes "box/p.txt"|  no example|main(sys)|  screen  prints|  files   writes "box/p.txt"|  no example|each piece touches only what is listed under it|'
+if [ "$pcout" = "$pcwant" ]; then ok; else nope "pieces (got: $pcout)"; fi
+
 # Example lines at the top: the build runs each one and gives no program when one differs.
 mkdir -p "$TMP/ex/box"
 cat > "$TMP/ex/sum.smplr" <<'EXT'

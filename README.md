@@ -118,6 +118,7 @@ Then:
 ```bash
 simpler run hello.smplr        # compile and run
 simpler what hello.smplr       # list everything the program can touch
+simpler pieces hello.smplr     # list each function: what it takes, what it touches, its examples
 simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
@@ -321,6 +322,7 @@ first lexer to a compiler that compiles itself:
   - [x] **`mails`**: a program names at the top whom it may send mail to (`mails "me@example.com"`, or `"*@example.com"` for everyone there; a `*` works the same way in `reads`, `writes` and `fetches`); any other address is refused, at compile time when written out and when the mail is sent otherwise.
   - [x] **The kernel lock**: on Linux a built program hands its top lines to the kernel (Landlock) before it starts. The kernel then refuses every other file, for the program and for each program it runs, so `runs "sh"` no longer opens the whole machine. With no `fetches` line nothing in the tree reaches the net, and nothing in it can become root. It costs about 20 system calls at the start. Mail goes through a small helper outside the lock, which checks the address again.
   - [x] **Examples at the top**: `example "3 4", "7"` gives an input and the output wanted (then any arguments). A build runs each one and gives no program when one differs, so a program that runs has passed its examples.
+  - [x] **Pieces**: `example double(4) == 8` above a function is a check on that one function, run at every build. `simpler pieces` lists each function with what it takes, what it touches (also through the functions it calls) and how many examples it has.
   - [x] **Limits**: `limits "2s", "50MB"` at the top caps processor time and memory, for the program and each program it starts. A program that spins or eats memory stops with a line that says why, so it cannot drain the battery.
   - [x] **Undo**: `simpler undo prog.smplr` puts back every file the program's last run wrote, appended to, renamed or deleted, and removes the files it made. The old copy is taken the first time a run touches a file (files up to 16 MB).
   - [x] **Replay**: a run that ends with an error keeps its arguments and input. `simpler replay prog.smplr` runs it again, and `simpler replay --show prog.smplr` prints them for the AI that fixes the program.

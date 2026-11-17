@@ -454,6 +454,26 @@ example "", "sum 11", "5", "6"
 and give no program when one differs or stops with an error. A line end at the
 very end does not count. An example runs dry, so it cannot change a file.
 
+**Examples for one function.** An `example` line that does not start with a
+text is a check on a function, and stands above it:
+
+```
+example double(4) == 8
+double(n : Int) : Int {
+  n * 2
+}
+```
+
+The check must be true or false. A build runs each one before the program is
+used. A failing one names its line and the value the left side gave:
+`prog.smplr:1: example fails: the left side gave 9`. Such an example has no
+`sys` to hand over, so it fits a function that touches nothing.
+
+`simpler pieces prog.smplr` lists each function of the program: what it takes,
+what it touches, and how many examples it has. What a function touches counts
+the functions it calls too. A function with nothing under it but
+`touches nothing` can only work out a value.
+
 **Limits.** A `limits` line caps what the program may use:
 
 ```

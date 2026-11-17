@@ -97,7 +97,13 @@ RecDef = type {
   line : Int
 }
 
+PieceEx = type {
+  node : Expr
+  line : Int
+}
+
 Prog = type {
+  pieces : List[PieceEx]
   types : List[TyDef]
   records : List[RecDef]
   fns : List[Fn]
@@ -245,6 +251,18 @@ main(sys) {
   }
   prog = parse(lexed)
   sigs = buildSigs(prog)
+  if prog.pieces.length > 0 {
+    pieceFns(prog, sigs)
+    sigs = buildSigs(prog)
+  }
+  if sys.args.length > 0 && sys.args.at(0) == "pieces" {
+    retPass(prog, sigs)
+    prog.fns.each { f in
+      emitFn(f, sigs)
+    }
+    sys.screen.print(piecesProg(prog, sigs))
+    return
+  }
   // `simpler what` lists everything the program can touch, and writes no C.
   if sys.args.length > 0 && sys.args.at(0) == "what" {
     if hasName(sigs.fnNames, "main").not {
@@ -552,7 +570,7 @@ main(sys) {
   sys.screen.print("void simpler_leave(int c) { if (c != 0) simpler_rsave(); (exit)(c); }")
   sys.screen.print("static void simpler_rinit(void) { if (simpler_dry || getenv(\"SIMPLER_REPLAY\")) return; char f[PATH_MAX]; if (!simpler_rpath(f, sizeof f)) return; simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); if (simpler_rfd < 0 && errno == ENOENT) { for (char* c = f + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(f, 0700); *c = '/'; } simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); } }")
   sys.screen.print("static void simpler_replay(void) { const char* mode = getenv(\"SIMPLER_REPLAY\"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, \"rb\") : 0; int n = 0; if (!r || fscanf(r, \"simpler-replay 1\\nargs %d\", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, \"simpler: no failed run is kept for this program\\n\"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, \"show\") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, \"%ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)malloc(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf(\"argument %d: %s\\n\", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, \"stdin %ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)malloc(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf(\"input (%ld bytes):\\n%s\", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }")
-  sys.screen.print("static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; if (!simpler_ex[0]) exit(0); int bad = 0, n = 0; for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)malloc(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }")
+  sys.screen.print("extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, \"%sexample fails: the left side %s\\n\", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)malloc(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }")
   sys.screen.print("static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf(\"would run\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); *code = 0; return (long)(intptr_t)\"\"; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (simpler_quiet && !freopen(\"/dev/null\", \"w\", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
   sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"%s: this program may not run \\\"%s\\\"\\n\", simpler_at(line), p); exit(1); return 0; }")
@@ -625,9 +643,182 @@ main(sys) {
       sys.screen.print(emitFn(f, sigs))
     }
   }
+  sys.screen.print(pieceTable(prog))
   if testing {
     sys.screen.print(emitTests(prog.fns))
   }
+}
+
+// --- pieces: examples for one function, and the reach of each function ---
+// example double(4) == 8   is a check on one piece. Each becomes a hidden
+// function that gives "" when the check is true and "gave <value>" when not.
+
+exLeft(e : Expr) : Expr {
+  e.match {
+    Num(v) -> e
+    FloatLit(t) -> e
+    Var(t) -> e
+    StrLit(t) -> e
+    ListLit(es) -> e
+    Bin(op, a, b) -> a
+    Call(name, args) -> e
+    Match(scrut, arms) -> e
+    Field(recv, fld) -> e
+    Method(recv, name, args) -> e
+    Each(recv, param, body) -> e
+  }
+}
+
+// The function an example is about: the first one it calls.
+exPiece(e : Expr) : Str {
+  e.match {
+    Num(v) -> ""
+    FloatLit(t) -> ""
+    Var(t) -> ""
+    StrLit(t) -> ""
+    ListLit(es) -> ""
+    Bin(op, a, b) -> exPiece(a)
+    Call(name, args) -> name
+    Match(scrut, arms) -> ""
+    Field(recv, fld) -> exPiece(recv)
+    Method(recv, name, args) -> exPiece(recv)
+    Each(recv, param, body) -> ""
+  }
+}
+
+isPieceFn(name : Str) : Bool {
+  name.startsWith("simplerExample")
+}
+
+pieceFns(prog : Prog, sigs : Sigs) : Int !Mut {
+  k = 0
+  prog.pieces.each { p in
+    ps : List[Str] = []
+    pt : List[Str] = []
+    ef : List[Str] = []
+    b0 : List[Stmt] = []
+    probe = Fn(name = "simplerExample".concat(k.toStr), params = ps, ptypes = pt, ret = "Str", effs = ef, body = b0, line = p.line)
+    ctx = fnCtx(probe, sigs)
+    if exprType(p.node, ctx) != "Bool" {
+      fail(spot(prog.files, p.line).concat("an example for a function is a check that is true or false, as in: example double(4) == 8"))
+    }
+    left = exLeft(p.node)
+    t = exprType(left, ctx)
+    got = StrLit("another value")
+    if t == "Str" {
+      got = left
+    }
+    if (t == "Int") || (t == "Bool") || (t == "Float") {
+      got = Field(left, "toStr")
+    }
+    yes : List[Stmt] = [Ret(StrLit(""))]
+    no : List[Stmt] = []
+    body : List[Stmt] = [Line(p.line), If(p.node, yes, no), Ret(Method(StrLit("gave "), "concat", [got]))]
+    prog.fns.push(Fn(name = "simplerExample".concat(k.toStr), params = ps, ptypes = pt, ret = "Str", effs = ef, body = body, line = p.line))
+    k = k + 1
+  }
+  0
+}
+
+// The C table of the hidden functions, and where each example stands.
+pieceTable(prog : Prog) : Str {
+  a = "long (*simpler_px[])() = {"
+  b = "const char* simpler_pxw[] = {"
+  k = 0
+  prog.pieces.each { p in
+    a = a.concat(mangle("simplerExample".concat(k.toStr))).concat(", ")
+    b = b.concat("\"").concat(spot(prog.files, p.line)).concat("\", ")
+    k = k + 1
+  }
+  a.concat("0};\n").concat(b).concat("0};")
+}
+
+// Every function a function reaches through calls, itself first.
+pieceReach(name : Str, w : What) : List[Str] {
+  r : List[Str] = [name]
+  k = 0
+  while k < r.length {
+    j = 0
+    while j < w.acts.length {
+      if w.kinds.at(j) == "calls" && w.fns.at(j) == r.at(k) && hasName(r, w.acts.at(j)).not {
+        r.push(w.acts.at(j))
+      }
+      j = j + 1
+    }
+    k = k + 1
+  }
+  r
+}
+
+// `simpler pieces`: each function with what it takes, what it touches (also
+// through the functions it calls) and how many examples it has.
+piecesProg(prog : Prog, sigs : Sigs) : Str !Mut {
+  ks : List[Str] = []
+  as : List[Str] = []
+  fs : List[Str] = []
+  w = What(kinds = ks, acts = as, fns = fs)
+  prog.fns.each { f in
+    whatBody(f.body, f.name, w, sigs)
+  }
+  out = ""
+  prog.fns.each { f in
+    if isPieceFn(f.name).not && f.name.contains("__").not {
+      head = asWritten(f.name).concat("(")
+      k = 0
+      while k < f.params.length {
+        if k > 0 {
+          head = head.concat(", ")
+        }
+        head = head.concat(f.params.at(k))
+        if f.ptypes.at(k) != "" && f.ptypes.at(k) != "Sys" {
+          head = head.concat(" : ").concat(f.ptypes.at(k))
+        }
+        k = k + 1
+      }
+      head = head.concat(")")
+      if f.ret != "" && isMain(f.name).not {
+        head = head.concat(" : ").concat(f.ret)
+      }
+      out = out.concat(head).concat("\n")
+      reach = pieceReach(f.name, w)
+      seen : List[Str] = []
+      ["screen", "files", "program", "net", "clock", "env", "term", "mail", "stdin", "args"].each { kind in
+        j = 0
+        while j < w.acts.length {
+          line = kind.padRight(8).concat(w.acts.at(j))
+          if w.kinds.at(j) == kind && hasName(reach, w.fns.at(j)) && hasName(seen, line).not {
+            seen.push(line)
+            out = out.concat("  ").concat(line).concat("\n")
+          }
+          j = j + 1
+        }
+      }
+      if hasName(f.effs, "Mut") {
+        seen.push("lists")
+        out = out.concat("  lists   changes a list or map it was handed\n")
+      }
+      if seen.length == 0 {
+        out = out.concat("  touches nothing\n")
+      }
+      n = 0
+      prog.pieces.each { p in
+        if exPiece(p.node) == f.name {
+          n = n + 1
+        }
+      }
+      if isMain(f.name) {
+        n = prog.examples.length / 1
+      }
+      if n == 0 {
+        out = out.concat("  no example\n")
+      } else if n == 1 {
+        out = out.concat("  1 example\n")
+      } else {
+        out = out.concat("  ").concat(n.toStr).concat(" examples\n")
+      }
+    }
+  }
+  out.concat("each piece touches only what is listed under it")
 }
 
 // --- what: everything a program can touch -------------------------------
@@ -1083,7 +1274,7 @@ whatExpr(e : Expr, fn : Str, w : What, sigs : Sigs) : Int !Mut {
     StrLit(s) -> 0
     ListLit(es) -> whatAll(es, fn, w, sigs)
     Bin(op, a, b) -> whatExpr(a, fn, w, sigs) + whatExpr(b, fn, w, sigs)
-    Call(name, args) -> whatAll(args, fn, w, sigs)
+    Call(name, args) -> whatAdd(w, "calls", name, fn) + whatAll(args, fn, w, sigs)
     Match(scrut, arms) -> whatExpr(scrut, fn, w, sigs) + whatArms(arms, fn, w, sigs)
     Field(recv, fld) -> whatField(recv, fld, fn, w, sigs)
     Method(recv, name, args) -> whatMethod(recv, name, args, fn, w, sigs)
@@ -1444,12 +1635,18 @@ parse(toks : Lexed) : Prog {
   fetches : List[Str] = []
   mails : List[Str] = []
   examples : List[Str] = []
+  pieces : List[PieceEx] = []
   limits : List[Str] = []
   while notEof(toks, i) {
     if isMayLine(toks, i) {
       i = parseMay(toks, i, reads, writes, runs, fetches, mails)
     } else if isExampleLine(toks, i) {
       i = parseExample(toks, i, examples)
+    } else if isWord(toks, i, "example") {
+      // an example for one piece:   example double(4) == 8
+      px = parseExpr(toks, i + 1)
+      pieces.push(PieceEx(node = px.node, line = lineOf(toks, i)))
+      i = px.next
     } else if isLimitsLine(toks, i) {
       i = parseLimits(toks, i, limits)
     } else {
@@ -1480,7 +1677,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, examples = examples, limits = limits, files = toks.files)
+  Prog(pieces = pieces, types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, examples = examples, limits = limits, files = toks.files)
 }
 
 // --- parse errors: every one names the line and what stood there --------
