@@ -123,16 +123,17 @@ simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
 simpler prompt regex json      # the page with parts added: regex json bytes net screen, or all
-simpler prompt crust           # the page with a module added (crust, opts, astro)
+simpler prompt tui             # the page with a module added (tui, opts, astro)
 ```
 
-**Modules.** `uses "crust"` at the top of a program brings in `crust.smplr`:
+**Modules.** `uses "tui"` at the top of a program brings in `tui.smplr`:
 from next to the program, from `$SIMPLER_LIB`, or from the `lib` folder that
-came with simpler. Its functions are called as `crust.frame(...)`. A module is
+came with simpler. Its functions are called as `tui.show(...)`. A module is
 plain Simpler with no `main`, so it can touch only what the program hands it,
 and the program's top lines bind the module's code too.
-[`lib/crust.smplr`](lib/crust.smplr) is the first one: panes and borders for
-full-screen terminal programs.
+[`lib/tui.smplr`](lib/tui.smplr) is the first one: panes for full-screen
+terminal programs. A pane owns the terminal and has properties you set
+(`p.title = "Files"`, `p.bg = "#232154"`); `tui.show(p)` draws it.
 [`lib/opts.smplr`](lib/opts.smplr) is the second: options on the command line,
 such as `-v`, `-o file` and `--out=file`.
 [`lib/astro.smplr`](lib/astro.smplr) is the third, a full almanac: the sun, the

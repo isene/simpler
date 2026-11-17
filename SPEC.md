@@ -665,13 +665,16 @@ The last 16 patterns are kept ready, so a pattern used in a loop is read once.
 A module is a file of functions and types that many programs share.
 
 ```
-uses "crust"
+uses "tui"
 
 main(sys) {
-  t = sys.term
-  p = crust.full(t)
-  crust.frame(t, p, "Hello", "cyan")
-  k = t.key
+  p = tui.screen(sys.term)
+  p.border = true
+  p.title = "Hello"
+  p.bg = "#232154"
+  tui.show(p)
+  k = tui.key(p)
+  tui.close(p)
 }
 ```
 
@@ -688,16 +691,21 @@ main(sys) {
 - A module has no `reads`, `writes`, `runs`, `fetches` or `mails` line. Those
   stay at the top of the program, and they bind the module's code too.
   `simpler what` lists a module's reach with the program's, as
-  `(in crust.frame)`.
+  `(in tui.show)`.
 - A module may use other modules. Inside it, no function or type may have the
   name of one of its record fields.
-- A message names the file: `crust.smplr:57: ...`.
-- `simpler prompt crust` prints the module's page: its types and the head of
+- A message names the file: `tui.smplr:57: ...`.
+- `simpler prompt tui` prints the module's page: its types and the head of
   each function, with the comment above it. Give that page to the AI together
-  with the main page. `simpler test lib/crust.smplr` runs a module's tests.
+  with the main page. `simpler test lib/tui.smplr` runs a module's tests.
 
-`crust` comes with simpler: panes, borders and a list with a picked line, for
-full-screen terminal programs.
+`tui` comes with simpler: panes for full-screen terminal programs. A pane is
+built from smaller things, like a castle of bricks: it owns the terminal, and
+it has properties that the program sets (`p.title`, `p.bg = "#232154"`,
+`p.items`, `p.picked`). `tui.show(p)` then draws it as the properties say. A
+function that is handed a pane can draw in that pane and nowhere else it was
+not given. The older `crust` module (the terminal handed beside the pane)
+stays for programs written with it.
 
 ## 14. How it runs
 

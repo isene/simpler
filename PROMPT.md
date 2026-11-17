@@ -194,9 +194,9 @@ main(sys) {
   (seconds from a date text, also `2026-01-31T12:00:00.123+01:00`, or local time as `2026-01-31 12:00` or `2026-01-31`; 0 if it is none).
   Environment: `sys.env.var("HOME")`; `sys.env.setVar("LANG", "C")` sets one for this program and the
   programs it runs; `sys.env.self` is the path of the program itself. Their parameter types are `Programs`, `Clock`, `Env`.
-- A module: `uses "crust"` at the top brings in the file `crust.smplr`. Call its functions as
-  `crust.frame(...)` and write its types as `crust.Pane`. No variable may be named `crust` then. Use a
-  module only when you were given its page. Three come with simpler: `crust` (panes on a full
+- A module: `uses "tui"` at the top brings in the file `tui.smplr`. Call its functions as
+  `tui.show(...)` and write its types as `tui.Pane`. No variable may be named `tui` then. Use a
+  module only when you were given its page. Three come with simpler: `tui` (panes on a full
   screen), `astro` (sun, moon, planets, stars, eclipses: where, when, how bright) and `opts`. A program that takes options such as `-n 5` or `--quiet` uses `opts` and does not
   read them by hand; when you were not given its page, answer `NEED: opts`.
 - A function of yours may have the name of a built-in method (`run`, `print`, `setVar`); call it plainly, as `run(x)`. A call after a dot, `x.run(...)`, is always the built-in.

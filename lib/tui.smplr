@@ -1,0 +1,210 @@
+// tui: full-screen programs built from panes.
+// A pane owns the terminal: t = sys.term goes in once, with tui.screen(t). After that, hand a
+// function the pane only. Set a pane's properties, then call tui.show(pane) to draw it.
+
+// A box on the screen with its look and its lines. It owns the terminal: make the first one with
+// tui.screen(sys.term) and hand functions the pane only. Set its properties (a.title = "Files",
+// a.bg = "#232154", a.items = names, a.picked = 0), then call tui.show(a) to draw it.
+// fg and bg are "" or a colour: "#232154", "cyan" or a number 0 to 255.
+// picked is the number of the marked line in items, or -1 for none; first is the top line shown.
+Pane = type {
+  t : Term
+  row : Int
+  col : Int
+  rows : Int
+  cols : Int
+  title : Str
+  fg : Str
+  bg : Str
+  border : Bool
+  items : List[Str]
+  picked : Int
+  first : Int
+}
+
+// The whole screen as one pane, with no border.
+screen(t : Term) : Pane {
+  none : List[Str] = []
+  Pane(t = t, row = 0, col = 0, rows = t.rows, cols = t.cols, title = "", fg = "", bg = "", border = false, items = none, picked = -1, first = 0)
+}
+
+// A new pane at a place inside p, with p's colours and no lines yet.
+part(p : Pane, r : Int, c : Int, h : Int, w : Int) : Pane {
+  none : List[Str] = []
+  Pane(t = p.t, row = r, col = c, rows = h, cols = w, title = "", fg = p.fg, bg = p.bg, border = true, items = none, picked = -1, first = 0)
+}
+
+// The left part of a pane, n columns wide, as a new pane with a border.
+left(p : Pane, n : Int) : Pane {
+  part(p, p.row, p.col, p.rows, n)
+}
+
+// What is to the right of left(p, n).
+right(p : Pane, n : Int) : Pane {
+  part(p, p.row, p.col + n, p.rows, p.cols - n)
+}
+
+// The top part of a pane, n lines high, as a new pane with a border.
+top(p : Pane, n : Int) : Pane {
+  part(p, p.row, p.col, n, p.cols)
+}
+
+// What is below top(p, n).
+bottom(p : Pane, n : Int) : Pane {
+  part(p, p.row + n, p.col, p.rows - n, p.cols)
+}
+
+example style_of("#ffffff", "#232154") == "#ffffff on#232154"
+example style_of("", "") == ""
+example style_of("cyan", "") == "cyan"
+style_of(fg : Str, bg : Str) : Str {
+  s = fg
+  if bg != "" {
+    if s != "" {
+      s = s + " "
+    }
+    s = s + "on" + bg
+  }
+  s
+}
+
+example fit("abcdef", 4) == "abcd"
+example fit("ab", 4) == "ab  "
+example fit("ab", 0) == ""
+fit(text : Str, n : Int) : Str {
+  if n <= 0 {
+    return ""
+  }
+  if text.length > n {
+    return text.slice(0, n)
+  }
+  text.padRight(n)
+}
+
+example times("ab", 3) == "ababab"
+example times("x", 0) == ""
+times(s : Str, n : Int) : Str {
+  out = ""
+  k = 0
+  while k < n {
+    out = out + s
+    k = k + 1
+  }
+  out
+}
+
+example scroll(0, 3, 10) == 0
+example scroll(0, 12, 10) == 3
+example scroll(5, 2, 10) == 2
+example scroll(4, -1, 10) == 4
+scroll(top0 : Int, pick : Int, lines : Int) : Int {
+  r = top0
+  if pick >= 0 && pick < r {
+    r = pick
+  }
+  if pick >= r + lines {
+    r = pick - lines + 1
+  }
+  r
+}
+
+// How many lines of items the pane shows.
+room(p : Pane) : Int {
+  if p.border {
+    return p.rows - 2
+  }
+  p.rows
+}
+
+// Draws the pane as its properties say: colours, border with title, and its lines, the picked one in
+// reverse. The lines scroll so the picked one is in view.
+show(p : Pane) !Mut {
+  st = style_of(p.fg, p.bg)
+  r0 = p.row
+  c0 = p.col
+  w = p.cols
+  h = p.rows
+  if p.border && p.rows >= 2 && p.cols >= 2 {
+    bar = times("─", w - 2)
+    p.t.put(r0, c0, "┌" + bar + "┐", st)
+    k = 1
+    while k < h - 1 {
+      p.t.put(r0 + k, c0, "│", st)
+      p.t.put(r0 + k, c0 + w - 1, "│", st)
+      k = k + 1
+    }
+    p.t.put(r0 + h - 1, c0, "└" + bar + "┘", st)
+    if p.title != "" && w > 6 {
+      p.t.put(r0, c0 + 2, " " + fit(p.title, min(p.title.length, w - 6)) + " ", st)
+    }
+    r0 = r0 + 1
+    c0 = c0 + 1
+    w = w - 2
+    h = h - 2
+  }
+  p.first = scroll(p.first, p.picked, h)
+  k = 0
+  while k < h {
+    i = p.first + k
+    text = ""
+    if i < p.items.length {
+      text = p.items.at(i)
+    }
+    s = st
+    if i == p.picked && i < p.items.length {
+      s = (st + " reverse").trim
+    }
+    if w > 0 {
+      p.t.put(r0 + k, c0, fit(text, w), s)
+    }
+    k = k + 1
+  }
+}
+
+example min(3, 9) == 3
+min(a : Int, b : Int) : Int {
+  if b < a {
+    return b
+  }
+  a
+}
+
+// Moves the picked line by n (1 is down, -1 is up), staying inside the lines.
+move(p : Pane, n : Int) !Mut {
+  k = p.picked + n
+  if k >= p.items.length {
+    k = p.items.length - 1
+  }
+  if k < 0 {
+    k = 0
+  }
+  if p.items.length == 0 {
+    k = -1
+  }
+  p.picked = k
+}
+
+// The text of the picked line, or "" when none is picked.
+chosen(p : Pane) : Str {
+  if p.picked >= 0 && p.picked < p.items.length {
+    return p.items.at(p.picked)
+  }
+  ""
+}
+
+// Waits for one key and gives its name, as t.key does.
+key(p : Pane) : Str {
+  p.t.key
+}
+
+// Gives the terminal back. Call it before the program ends.
+close(p : Pane) {
+  p.t.stop
+}
+
+test_split() {
+  none : List[Str] = []
+  assert(scroll(0, 12, 10) == 3)
+  assert(fit("abc", 2) == "ab")
+  assert(none.length == 0)
+}
