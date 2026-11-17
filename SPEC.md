@@ -685,6 +685,8 @@ main(sys) {
   or a variant case is written `crust.Pane`. A name without the module in
   front never reaches into a module, so two modules may use the same names.
 - No variable may have the name of a module the file uses.
+- A program that calls `tui.show(...)` with no `uses "tui"` line gets the line added by
+  `simpler`, when a module of that name is found and the name is no variable in the program.
 - A module is plain Simpler. It has no `main`, so it never holds `sys`: what
   it may touch is handed to it as a parameter (`t : Term`, `fs : Files`), and
   its functions carry the same effect marks as any other.

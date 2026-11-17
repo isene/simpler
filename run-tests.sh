@@ -1701,10 +1701,10 @@ modbad="$( for m in m1 m2 m3; do moderr "uses \"$m\"\nmain(sys) {\n}\n"; done | 
 if [ "$modbad" = 'm1.smplr:1: a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it|m2.smplr:1: a module has no main; main belongs to the program that uses it|m3.smplr:3: expected a value, found }|' ]; then ok; else nope "what a module may not have (got: $modbad)"; fi
 # screen.error prints to stderr and goes on; a module used without its uses line gets a hint.
 printf 'main(sys) {\n  sys.screen.print("a")\n  sys.screen.error("b")\n  sys.screen.print("c")\n}\n' > "$TMP/mod/err.smplr"
-printf 'main(sys) {\n  o = opts.parse(sys.args, "v", "")\n}\n' > "$TMP/mod/nouses.smplr"
+printf 'main(sys) {\n  o = zork.parse(sys.args, "v", "")\n}\n' > "$TMP/mod/nouses.smplr"
 errout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run err.smplr 2>/dev/null | tr '\n' '~'; SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run err.smplr 2>&1 >/dev/null; SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run nouses.smplr 2>&1 )"
 if [ "$errout" = 'a~c~b
-nouses.smplr:2: no variable named opts; if it is a module, put  uses "opts"  at the top' ]; then ok; else nope "screen.error and the uses hint (got: $errout)"; fi
+nouses.smplr:2: no variable named zork; if it is a module, put  uses "zork"  at the top' ]; then ok; else nope "screen.error and the uses hint (got: $errout)"; fi
 # opts, the module for options on the command line: its own tests, and the page with a part and a module.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/opts.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt regex opts | grep -qF 'parse(argv : List[Str]' ) && ( ./simpler prompt regex opts | grep -qF 's.reTest(p)' ); then ok; else nope "the opts module and its page"; fi
 # astro, the module for the sky: its own tests (numbers checked against PyEphem), and its page without the helpers.
@@ -1714,6 +1714,10 @@ printf 'uses "tui"\nmain(sys) {\n  a = tui.left(tui.screen(sys.term), 12)\n  a.t
 ( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build tp.smplr -o tp 2>&1 )
 tuout="$( cd "$TMP/mod" && printf 'x' | script -qec 'stty rows 5 cols 20; ./tp' /dev/null 2>/dev/null | tr -d '\r' )"
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/tui.smplr 2>&1 | grep -q '^1/1 passed' ) && ( ./simpler prompt tui | grep -qF 'show(p : Pane) !Mut' ) && printf '%s' "$tuout" | grep -qF '┌─ Hi ──' && printf '%s' "$tuout" | grep -qF '48;2;35;33;84' && printf '%s' "$tuout" | grep -qF 'key x two'; then ok; else nope "tui draws a pane from its properties (got: $tuout)"; fi
+# A module called by name with no uses line is brought in; a variable of that name is left alone.
+printf 'main(sys) {\n  a = tui.screen(sys.term)\n  tui.close(a)\n  sys.screen.print("in")\n}\n' > "$TMP/mod/nouse.smplr"
+printf 'main(sys) {\n  opts = ["a"]\n  sys.screen.print(opts.length.toStr)\n}\n' > "$TMP/mod/novar.smplr"
+if [ "$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" build nouse.smplr -o nouse 2>&1 && script -qec ./nouse /dev/null | tr -d '\r' | tail -c 3 )" = "in" ] && [ "$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" "$OLDPWD/simpler" run novar.smplr 2>&1 )" = 1 ]; then ok; else nope "a missing uses line is added"; fi
 
 # crust, the module that comes with simpler: its own tests, its page, and a frame on a real terminal.
 if ( SIMPLERC="$TMP/seedc" ./simpler test lib/crust.smplr 2>&1 | grep -q '^2/2 passed' ) && ( ./simpler prompt crust | grep -qF 'frame(t : Term, p : Pane, title : Str, style : Str)' ); then ok; else nope "crust: tests and page"; fi
