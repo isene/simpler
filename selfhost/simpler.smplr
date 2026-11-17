@@ -251,6 +251,9 @@ main(sys) {
   }
   prog = parse(lexed)
   sigs = buildSigs(prog)
+  if sys.env.var("SIMPLER_PIECES") != "" {
+    pieceNeed(prog)
+  }
   if prog.pieces.length > 0 {
     pieceFns(prog, sigs)
     sigs = buildSigs(prog)
@@ -313,6 +316,8 @@ main(sys) {
   sys.screen.print("long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }")
   sys.screen.print("long l_with(long lp, long x) { l_push(lp, x); return lp; }")
   sys.screen.print("long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }")
+  sys.screen.print("long l_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (x->data[i] != y->data[i]) return 0; return 1; }")
+  sys.screen.print("long ls_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (strcmp((const char*)(intptr_t)x->data[i], (const char*)(intptr_t)y->data[i]) != 0) return 0; return 1; }")
   sys.screen.print("long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }")
   // A text never changes and is never freed, so its length is remembered by
   // address: a loop that reads one text character by character measures it once.
@@ -716,6 +721,32 @@ pieceFns(prog : Prog, sigs : Sigs) : Int !Mut {
     body : List[Stmt] = [Line(p.line), If(p.node, yes, no), Ret(Method(StrLit("gave "), "concat", [got]))]
     prog.fns.push(Fn(name = "simplerExample".concat(k.toStr), params = ps, ptypes = pt, ret = "Str", effs = ef, body = body, line = p.line))
     k = k + 1
+  }
+  0
+}
+
+// With SIMPLER_PIECES set, a function that touches nothing must have an example.
+// All that lack one are named in one message.
+pieceNeed(prog : Prog) : Int {
+  miss = ""
+  prog.fns.each { f in
+    if f.effs.length == 0 && f.ret != "" && isMain(f.name).not && isPieceFn(f.name).not && f.name.contains("__").not && f.name.startsWith("test_").not {
+      n = 0
+      prog.pieces.each { p in
+        if exPiece(p.node) == f.name {
+          n = n + 1
+        }
+      }
+      if n == 0 {
+        if miss != "" {
+          miss = miss.concat("\n")
+        }
+        miss = miss.concat(spot(prog.files, f.line)).concat("the function ").concat(asWritten(f.name)).concat(" touches nothing and has no example; put one above it, as in: example ").concat(asWritten(f.name)).concat("(...) == ...")
+      }
+    }
+  }
+  if miss != "" {
+    fail(miss)
   }
   0
 }
@@ -4564,8 +4595,17 @@ emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
     r = "i_mod(".concat(ca).concat(", ").concat(cb).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
   }
   if op == "==" {
-    if exprType(a, ctx) == "Str" {
+    ta = exprType(a, ctx)
+    if ta == "Str" {
       r = "s_eq(".concat(ca).concat(", ").concat(cb).concat(")")
+    }
+    // two lists are equal when they have the same items in the same order
+    if ta == "List[Str]" {
+      r = "ls_eq(".concat(ca).concat(", ").concat(cb).concat(")")
+    } else if (ta == "List[Int]") || (ta == "List[Bool]") || (ta == "List[Float]") {
+      r = "l_eq(".concat(ca).concat(", ").concat(cb).concat(")")
+    } else if ta.startsWith("List[") || ta.startsWith("Map") || hasName(ctx.sigs.recNames, ta) {
+      failAt("== cannot compare two values of type ".concat(ta).concat("; compare their fields or items one by one"), ctx)
     }
   }
   if exprType(a, ctx) == "Float" {

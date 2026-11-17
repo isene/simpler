@@ -207,7 +207,8 @@ true      false         // Bool
 Fourteen operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!` in front of a `Bool`. Arithmetic and
 ordering take **`Int` or `Float`**, and the two may **not be mixed** (convert
 with `.toFloat` / `.toInt`); `%` (remainder) takes `Int` only; `==` works on
-`Int`, `Float`, and `Str`. A leading `-` negates. `&&` and `||` join two `Bool`s.
+`Int`, `Float`, `Bool` and `Str`, and on two lists of those (equal when they have the same items in the same order); on a
+record, a map or a list of other things it is refused, so compare their fields or items. A leading `-` negates. `&&` and `||` join two `Bool`s.
 From tightest to loosest: `* / %`, then `+ -`, then the comparisons, then `&&`,
 then `||`. `a != b` and `!ok` mean the same as `(a == b).not` and `ok.not`.
 On two `Str`s, `+` joins them and `< > <= >=` compare them by byte order; a

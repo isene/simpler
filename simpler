@@ -257,7 +257,7 @@ case $cmd in
         # The built program is kept under a name made from the source and the
         # compiler, so a second run of the same program starts at once.
         prep "$file"
-        sum=$(cat "$work"/*.smplr "$cc_simpler" 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
+        sum=$({ cat "$work"/*.smplr "$cc_simpler" 2>/dev/null; echo "$SIMPLER_PIECES"; } | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-32)
         cache=${XDG_CACHE_HOME:-$HOME/.cache}/simpler
         if [ ! -x "$cache/$sum" ]; then
             mkdir -p "$cache"

@@ -186,7 +186,7 @@ main(sys) {
 - When the task shows input with the output it wants, put it at the top: `example "3 4", "7"` (the input, the output,
   then any arguments). The build runs each example and gives no program when one differs. A last line end does not count.
 - Build from small functions, and put a check above each one that takes no `sys` part: `example double(4) == 8`. The build runs
-  these too. Hand a function only the part it needs (`files : Files`, `out : Screen`), never the whole `sys`.
+  these too (`==` also compares two lists of `Int`, `Float`, `Bool` or `Str`; for a record, compare a field). Hand a function only the part it needs (`files : Files`, `out : Screen`), never the whole `sys`.
 - `limits "2s", "50MB"` at the top caps processor time and memory; the program stops when it passes one.
 - A program that stays running waits: with `sys.stdinLine`, `sys.files.wait(path)` or `sys.clock.sleep(ms)`. Never loop to check for a change without one of them.
 - Time: `sys.clock.now` (seconds), `sys.clock.millis` (thousandths of a second), `sys.clock.sleep(ms)` (waits that long), `sys.clock.date(secs)` (text),

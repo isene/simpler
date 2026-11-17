@@ -1823,6 +1823,35 @@ pcno.smplr:1: an example for a function is a check that is true or false, as in:
 twice(n : Int) : Int|  touches nothing|  1 example|shout(s : Str) : Str|  touches nothing|  1 example|half(n : Int) : Float|  touches nothing|  1 example|save(files : Files, text : Str) : Int|  files   writes "box/p.txt"|  no example|report(files : Files, out : Screen, n : Int) : Int|  screen  prints|  files   writes "box/p.txt"|  no example|main(sys)|  screen  prints|  files   writes "box/p.txt"|  no example|each piece touches only what is listed under it|'
 if [ "$pcout" = "$pcwant" ]; then ok; else nope "pieces (got: $pcout)"; fi
 
+# == compares two lists by their items and is refused on records. With SIMPLER_PIECES
+# set, a function that touches nothing must have an example.
+cat > "$TMP/ex/eq.smplr" <<'EXT'
+P = type {
+  x : Int
+  y : Int
+}
+example firstTwo([4, 5, 6]) == [4, 5]
+example words("a b") == ["a", "b"]
+firstTwo(xs : List[Int]) : List[Int] {
+  [xs.at(0), xs.at(1)]
+}
+words(s : Str) : List[Str] {
+  s.split(" ")
+}
+mk(a : Int) : P {
+  P(x = a, y = 2)
+}
+main(sys) {
+  sys.screen.print(([1, 2] == [1, 2]).toStr + " " + ([1, 2] == [1, 3]).toStr + " " + (["a"] != ["b"]).toStr + " " + mk(1).x.toStr)
+}
+EXT
+sed 's/mk(1).x.toStr/(mk(1) == mk(1)).toStr/' "$TMP/ex/eq.smplr" > "$TMP/ex/eqbad.smplr"
+eqout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run eq.smplr 2>&1; "$OLDPWD/simpler" run eqbad.smplr 2>&1; SIMPLER_PIECES=1 "$OLDPWD/simpler" run eq.smplr 2>&1 )"
+eqwant='true false true 1
+eqbad.smplr:17: == cannot compare two values of type P; compare their fields or items one by one
+eq.smplr:13: the function mk touches nothing and has no example; put one above it, as in: example mk(...) == ...'
+if [ "$eqout" = "$eqwant" ]; then ok; else nope "list equality and needed examples (got: $eqout)"; fi
+
 # Example lines at the top: the build runs each one and gives no program when one differs.
 mkdir -p "$TMP/ex/box"
 cat > "$TMP/ex/sum.smplr" <<'EXT'
