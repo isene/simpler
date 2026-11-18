@@ -4,7 +4,7 @@
 
 **The AI safe programming language.**
 
-A programming language whose only goal is to be simple.
+Let an AI write the program, then run it without reading it.
 
 ![Self-host](https://img.shields.io/badge/self--hosted-fixpoint%20reached-2ea44f)
 ![Written in](https://img.shields.io/badge/written%20in-Simpler-blue)
@@ -12,23 +12,40 @@ A programming language whose only goal is to be simple.
 ![License](https://img.shields.io/badge/license-Unlicense-green)
 ![Stay Amazing](https://img.shields.io/badge/Stay-Amazing-important)
 
-Simple to learn, simple to read, simple for an AI to write, simple to install,
-simple to upgrade. Compiled, and fast. Every feature must pay for itself in
-problems solved, or it does not go in.
-
-**Built to be written by an AI.** A model writes good code in a mature language
-by recalling millions of examples; it has seen none of this one. So the whole
-language is small enough to hold in the prompt at once: one grammar production,
-four pieces of punctuation, twelve operators, one page of built-in methods.
-[**SPEC.md**](SPEC.md) is the entire language, and it is the corpus, read it
-once and you can write Simpler.
-
 <br clear="left"/>
+
+What keeps an unread program safe:
+
+- **A locked room.** The top lines of a program name the files it may read and
+  write, the programs it may run and the hosts it may reach. The kernel
+  (Landlock) refuses everything else.
+- **A look first.** `simpler what` lists all the program can touch.
+  `simpler run --dry` prints what it would write, delete, start, fetch or mail,
+  and does none of it.
+- **An undo button.** `simpler undo` puts back every file the last run changed.
+- **No silent mistakes.** An index past the end or a division by zero stops the
+  program at its line. There are no pointers, no null and no threads.
+- **Checks on each piece.** `example double(4) == 8` above a function is checked
+  at every build.
+- **A replay.** A run that fails keeps its input, and `simpler replay` runs it
+  again for the AI that fixes it.
+- **A leash.** `limits "2s", "50MB"` stops a program that spins or eats memory,
+  and a loop that never waits is refused.
+- **Safe from strangers.** `simpler run https://...` shows what a program can
+  touch and asks once.
+- **No prompts.** `simpler trusted` lets an AI tool run a program without asking,
+  when its top lines fit the owner's rules file.
+
+**Small enough to learn from one page.** A model has seen no Simpler code, so
+the whole language must fit in its prompt. [PROMPT.md](PROMPT.md) is about 2,000
+tokens; [SPEC.md](SPEC.md) is the full language. It compiles to C, so programs
+are fast. The story of the safety parts: [A safety net for AI
+code](https://isene.org/2026/11/Net.html).
 
 ## The idea
 
 **Everything is a message send.** A field read, a method call, an operator: all
-one thing, `receiver.name(arguments)`. There is essentially one grammar
+one thing, `receiver.name(arguments)`. There is one grammar
 production, and that is the point. Four pieces of punctuation carry the syntax,
 with zero overlap:
 
@@ -58,8 +75,7 @@ The full reasoning, including why it is built to be written by an AI, is in
 
 ## The goal
 
-Run a program an AI wrote without reading it. Five goalposts, each with a
-measure:
+Five goalposts, each with a measure:
 
 | Goal | Measure | November 2026 |
 |------|---------|---------------|
