@@ -25,8 +25,10 @@ What keeps an unread program safe:
 - **An undo button.** `simpler undo` puts back every file the last run changed.
 - **No silent mistakes.** An index past the end or a division by zero stops the
   program at its line. There are no pointers, no null and no threads.
-- **Checks on each piece.** `example double(4) == 8` above a function is checked
-  at every build.
+- **Tests that always run.** The line `example double(4) == 8` above a function
+  says that `double(4)` must give 8. `example "3 4", "7"` says the whole program,
+  given the input `3 4`, must print `7`. Each build and run tries these lines first.
+  If one gives a wrong answer, there is no program, only the line that failed.
 - **A replay.** A run that fails keeps its input, and `simpler replay` runs it
   again for the AI that fixes it.
 - **A leash.** `limits "2s", "50MB"` stops a program that spins or eats memory,
