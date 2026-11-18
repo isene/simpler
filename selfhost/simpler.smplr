@@ -305,7 +305,7 @@ main(sys) {
   }
   sys.screen.print(fl.concat("0};"))
   sys.screen.print("static const char* simpler_at(long line) { static char b[300]; snprintf(b, sizeof b, \"%s:%ld\", simpler_fl[line / 1000000], line % 1000000); return b; }")
-  sys.screen.print("int simpler_dry = 0; void simpler_keep(const char* path); void simpler_note(const char* p, long n); void simpler_leave(int c);")
+  sys.screen.print("int simpler_dry = 0; void simpler_keep(const char* path); void simpler_note(const char* p, long n); __attribute__((noreturn)) void simpler_leave(int c);")
   sys.screen.print("#define exit(c) simpler_leave(c)")
   sys.screen.print("static int simpler_would(const char* what, const char* a, const char* to, const char* b) { if (!simpler_dry) return 0; if (b) printf(\"would %s \\\"%s\\\" %s \\\"%s\\\"\\n\", what, a, to, b); else printf(\"would %s \\\"%s\\\"\\n\", what, a); return 1; }")
   sys.screen.print("typedef struct { int tag; long v0; long v1; long v2; long v3; long v4; long v5; long v6; long v7; } Obj;")
@@ -338,10 +338,14 @@ main(sys) {
   sys.screen.print("long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } return l->data[i]; }")
   sys.screen.print("static inline long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) { fprintf(stderr, \"%s: text index %ld, but the text has %ld characters\\n\", simpler_at(line), i, e->nl); exit(1); } long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }")
   sys.screen.print("static inline long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (a < 0 || b > e->nl) { fprintf(stderr, \"%s: slice %ld to %ld, but the text has %ld characters\\n\", simpler_at(line), a, b, e->nl); exit(1); } if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }")
+  // A whole number that grows past the largest one stops the program, as a division by zero does.
+  sys.screen.print("__attribute__((noreturn, cold)) static void i_over(long line) { fprintf(stderr, \"%s: whole number too big (the limit is 9223372036854775807)\\n\", simpler_at(line)); exit(1); }")
+  sys.screen.print("static inline long i_add(long a, long b, long line) { long r; if (__builtin_add_overflow(a, b, &r)) i_over(line); return r; } static inline long i_sub(long a, long b, long line) { long r; if (__builtin_sub_overflow(a, b, &r)) i_over(line); return r; } static inline long i_mul(long a, long b, long line) { long r; if (__builtin_mul_overflow(a, b, &r)) i_over(line); return r; }")
+  sys.screen.print("static inline long i_neg(long a, long line) { if (a == -9223372036854775807L - 1) i_over(line); return -a; } static inline long i_abs(long a, long line) { return a < 0 ? i_neg(a, line) : a; }")
   sys.screen.print("long s_isint(long s) { const char* p = (const char*)(intptr_t)s; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; if (*p == 45 || *p == 43) p++; if (*p < 48 || *p > 57) return 0; while (*p >= 48 && *p <= 57) p++; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; return *p == 0; }")
-  sys.screen.print("long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"%s: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", simpler_at(line), (const char*)(intptr_t)s); exit(1); } return atol((const char*)(intptr_t)s); }")
-  sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a / b; }")
-  sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } return a % b; }")
+  sys.screen.print("long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"%s: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", simpler_at(line), (const char*)(intptr_t)s); exit(1); } errno = 0; long v = strtol((const char*)(intptr_t)s, 0, 10); if (errno == ERANGE) i_over(line); return v; }")
+  sys.screen.print("long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return i_neg(a, line); return a / b; }")
+  sys.screen.print("long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return 0; return a % b; }")
   sys.screen.print("static inline long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) return (long)(intptr_t)\"\"; long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }")
   sys.screen.print("long s_code(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long c = p[0]; int n = c >= 240 ? 3 : c >= 224 ? 2 : c >= 192 ? 1 : 0; long v = c & (63 >> n); for (int k = 1; k <= n; k++) { if ((p[k] & 192) != 128) return c; v = (v << 6) | (p[k] & 63); } return n ? v : c; }")
   sys.screen.print("static inline long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }")
@@ -4594,6 +4598,17 @@ emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
   if op == "%" {
     r = "i_mod(".concat(ca).concat(", ").concat(cb).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
   }
+  // whole-number + - * stop the program when the result does not fit
+  if (exprType(a, ctx) == "Int") && ((op == "+") || (op == "-") || (op == "*")) {
+    f = "i_add("
+    if op == "-" {
+      f = "i_sub("
+    }
+    if op == "*" {
+      f = "i_mul("
+    }
+    r = f.concat(ca).concat(", ").concat(cb).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
+  }
   if op == "==" {
     ta = exprType(a, ctx)
     if ta == "Str" {
@@ -4629,7 +4644,7 @@ emitBin0(op : Str, a : Expr, b : Expr, ctx : Ctx) : Str !Mut {
     if ((exprType(b, ctx) == "Int") || (exprType(b, ctx) == "Float")).not {
       failAt("- needs a number, got ".concat(exprType(b, ctx)), ctx)
     }
-    r = "(-".concat(cb).concat(")")
+    r = "i_neg(".concat(cb).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
     if exprType(b, ctx) == "Float" {
       r = "d2l(-l2d(".concat(cb).concat("))")
     }
@@ -5047,7 +5062,7 @@ emitField(recv : Expr, fld : Str, ctx : Ctx) : Str !Mut {
     if fld == "abs" {
       r = "d2l(fabs(l2d(".concat(recvC).concat(")))")
       if t == "Int" {
-        r = "labs(".concat(recvC).concat(")")
+        r = "i_abs(".concat(recvC).concat(", ").concat(envGet(ctx.env, "__line__")).concat(")")
       }
     }
     if fld == "atan" {

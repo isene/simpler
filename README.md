@@ -23,8 +23,9 @@ What keeps an unread program safe:
   `simpler run --dry` prints what it would write, delete, start, fetch or mail,
   and does none of it.
 - **An undo button.** `simpler undo` puts back every file the last run changed.
-- **No silent mistakes.** An index past the end or a division by zero stops the
-  program at its line. There are no pointers, no null and no threads.
+- **No silent mistakes.** An index past the end, a division by zero or a number
+  too big for a whole number stops the program at its line. There are no
+  pointers, no null and no threads.
 - **Tests that always run.** The line `example double(4) == 8` above a function
   says that `double(4)` must give 8. `example "3 4", "7"` says the whole program,
   given the input `3 4`, must print `7`. Each build and run tries these lines first.
@@ -81,7 +82,7 @@ Five goalposts, each with a measure:
 
 | Goal | Measure | November 2026 |
 |------|---------|---------------|
-| Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; five fault types stop |
+| Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; six fault types stop, whole-number overflow among them |
 | Nothing is touched unseen | one command lists every file, program, host, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, the programs it may run and the hosts it may reach, and anything else is refused |
 | As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, 16 of 100 to 250 lines, and 10 of 200 to 900 lines that are then changed | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust; big, three runs: 22 of 30 on the first try in Simpler, 25 in Rust, 26 in Python, all 30 within three tries |
 | No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, 1.7 times on the big programs; the code is 1.2 times, the rest is the model thinking |
@@ -286,6 +287,14 @@ command, green or red:
 ./run-tests.sh
 ```
 
+`SAN` builds the compiler and every test program with a C checker, and a fault
+the checker finds fails the test:
+
+```bash
+SAN=-fsanitize=undefined ./run-tests.sh   # undefined behaviour in the C
+SAN=-fsanitize=address ./run-tests.sh     # a read or write outside memory it owns
+```
+
 ## Status
 
 **Self-hosting and Rust-free.** It grew one runnable milestone at a time, from the
@@ -353,6 +362,7 @@ first lexer to a compiler that compiles itself:
   - [x] **Safe from strangers**: `simpler run https://...` fetches a program, shows everything it can touch and asks once at the terminal. The kernel holds it to what was shown.
   - [x] **A dry run**: `simpler run --dry prog.smplr` prints what the program would write, delete, start, fetch or mail, and does none of it. The kernel backs it: a dry run gets no `writes` names and no net.
   - [x] **Run without a question**: `simpler trusted prog.smplr [args]` succeeds when every name on the program's top lines is inside the rules file `~/.config/simpler/trust` (the same `reads`, `writes`, `runs`, `fetches` and `mails` lines, written by the owner of the machine; `runs "*"` is any program). An AI tool's permission hook can then let `simpler run` through without asking, since the kernel keeps the program to those lines. With no rules file the answer is always no.
+  - [x] **Overflow stops**: whole-number `+`, `-`, `*`, a minus sign, `abs`, a division by -1 and `toInt` stop the program at its line when the answer does not fit, where C would wrap round to a wrong number. The check costs no time we could measure: the compiler builds itself in 0.65 s with it and without it.
   - [x] **Links**: a link inside an allowed folder that leads out of it is not followed.
   - [x] **`break`, `continue`, `xs.set(i, x)`, `xs.remove(i)`** and the forms models write from habit (`!=`, `!x`, `+` on texts, `for x in xs`).
   - [x] **`!Mut`**: a function that changes a list or map it was handed (directly, through another name for it, through a part of it, or by passing it to a `!Mut` function that changes it) must declare `!Mut`; `main` is exempt.

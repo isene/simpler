@@ -744,8 +744,9 @@ run for ever or use up memory.
 The values of a call run left to right: in `f(a(), b())`, `a` runs first.
 
 A running program never goes on with a wrong value. A list or text index past
-the end, a slice past the end, a whole-number division by zero and `toInt` on
-a text that is no whole number stop it with
+the end, a slice past the end, a whole-number division by zero, `toInt` on
+a text that is no whole number, and a whole number that grows past the largest
+one (9223372036854775807) or below the smallest stop it with
 `input.smplr:<line>: <what happened>` on stderr and exit code 1. (A missing map
 key is no error: `get` gives 0 or "".)
 

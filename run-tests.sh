@@ -11,6 +11,16 @@
 set -u
 cd "$(dirname "$0")"
 PATH="/usr/bin:$PATH"            # real cc, not the ~/bin/cc session launcher
+# SAN="-fsanitize=undefined" ./run-tests.sh builds the compiler and every test
+# program with that C checker, and a fault the checker finds stops the program.
+if [ -n "${SAN:-}" ]; then
+    # gcc 15.2 with -O2 and the undefined-behaviour checker drops the second
+    # half of a text comparison after a checked + (a key loop never saw "q");
+    # clang, -O1 and gcc without jump threading build it right.
+    SAN="$SAN -fno-sanitize-recover=all -fno-thread-jumps -g"
+    cc() { command cc $SAN "$@"; }
+    export CC="cc $SAN" ASAN_OPTIONS="detect_leaks=0"
+fi
 TMP="$(mktemp -d)"
 pass=0
 fail=0
@@ -1256,6 +1266,52 @@ stops "remainder by zero" \
   n = sys.stdin.trim.toInt
   sys.screen.print(10 % n)
 }' "0" "input.smplr:3: division by zero"
+# A whole number that grows past the largest one stops the program; it never wraps.
+big="whole number too big (the limit is 9223372036854775807)"
+stops "+ past the largest whole number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n + 1)
+}' "9223372036854775807" "input.smplr:3: $big"
+stops "- past the smallest whole number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(0 - n - 2)
+}' "9223372036854775807" "input.smplr:3: $big"
+stops "* past the largest whole number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n * n)
+}' "4000000000" "input.smplr:3: $big"
+stops "- on the smallest whole number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(-n)
+}' "-9223372036854775808" "input.smplr:3: $big"
+stops "abs on the smallest whole number" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n.abs)
+}' "-9223372036854775808" "input.smplr:3: $big"
+stops "the smallest whole number / -1" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n / (0 - 1))
+}' "-9223372036854775808" "input.smplr:3: $big"
+stops "toInt of a number too big" \
+    'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n)
+}' "99999999999999999999" "input.smplr:2: $big"
+printf '%s' 'main(sys) {
+  n = sys.stdin.trim.toInt
+  sys.screen.print(n % (0 - 1))
+  sys.screen.print(n + 9223372036854775807)
+  sys.screen.print(3000000000 * 3000000000)
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > fit.c 2>/dev/null )
+fit="$( cc -O2 -o "$TMP/fit" "$TMP/fit.c" -lm 2>/dev/null && printf '%s' "-9223372036854775808" | "$TMP/fit" 2>&1 )"
+if [ "$fit" = "$(printf '0\n-1\n9000000000000000000')" ]; then ok; else nope "numbers that fit are not stopped (got: $fit)"; fi
 stops "toInt of a text that is no number" \
     'main(sys) {
   n = sys.stdin.trim.toInt
@@ -1919,7 +1975,8 @@ printf 'limits "1s", "64MB"\nmain(sys) {\n  n = 0\n  while n >= 0 {\n    n = n +
 printf 'limits "5s", "64MB"\nmain(sys) {\n  xs : List[Str] = []\n  while xs.length >= 0 {\n    xs.push("0123456789012345678901234567890123456789".concat(xs.length.toStr))\n  }\n}\n' > "$TMP/ex/eat.smplr"
 printf 'limits "soon"\nmain(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/ex/badl.smplr"
 limout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; for f in spin eat badl; do "$OLDPWD/simpler" run $f.smplr >/dev/null 2>&1; printf '%s ' $?; done )"
-if [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
+if [ -n "${SAN:-}" ]; then echo "SKIP: limits (the checker itself needs the memory the test takes away)"
+elif [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
 
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
