@@ -1,5 +1,7 @@
 # Simpler
 
+**The AI safe programming language.**
+
 *A programming language whose only goal is to be simple, above all simple for
 an AI to write.*
 

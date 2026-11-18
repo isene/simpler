@@ -2,7 +2,9 @@
 
 <img src="logo.svg" align="left" width="120" height="120" alt="Simpler logo">
 
-**A programming language whose only goal is to be simple.**
+**The AI safe programming language.**
+
+A programming language whose only goal is to be simple.
 
 ![Self-host](https://img.shields.io/badge/self--hosted-fixpoint%20reached-2ea44f)
 ![Written in](https://img.shields.io/badge/written%20in-Simpler-blue)
