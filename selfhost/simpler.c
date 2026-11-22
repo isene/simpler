@@ -411,6 +411,8 @@ typedef struct { long list; long next; } R_PArgs;
 long PArgs(long list, long next) { R_PArgs* _o = malloc(sizeof(R_PArgs)); _o->list = list; _o->next = next; return (long)(intptr_t)_o; }
 typedef struct { long kinds; long acts; long fns; } R_What;
 long What(long kinds, long acts, long fns) { R_What* _o = malloc(sizeof(R_What)); _o->kinds = kinds; _o->acts = acts; _o->fns = fns; return (long)(intptr_t)_o; }
+typedef struct { long text; long upto; long nl; } R_Here;
+long Here(long text, long upto, long nl) { R_Here* _o = malloc(sizeof(R_Here)); _o->text = text; _o->upto = upto; _o->nl = nl; return (long)(intptr_t)_o; }
 long u_exLeft(long e);
 long u_exPiece(long e);
 long u_isPieceFn(long name);
@@ -743,6 +745,8 @@ long u_isCmpOp(long toks, long i);
 long u_isAddOp(long toks, long i);
 long u_isMulOp(long toks, long i);
 long u_lex(long src, long files);
+long u_isHere(long src, long i, long n);
+long u_hereText(long src, long i, long n, long files, long line);
 long u_esc(long src, long j);
 long u_isComment(long src, long i, long n);
 long u_isTwoCharOp(long src, long i, long n);
@@ -10735,6 +10739,7 @@ long u_lex(long src, long files) {
   long i = 0;
   long line = 0;
   long c = 0;
+  long h = 0;
   long j = 0;
   long s = 0;
   long start = 0;
@@ -10775,22 +10780,35 @@ long u_lex(long src, long files) {
   }
   } else {
 
+  if (u_isHere(src, i, n)) {
+
+  h = u_hereText(src, i, n, files, line);
+
+  l_push(toks, Str(((R_Here*)(intptr_t)h)->text));
+
+  l_push(lines, line);
+
+  line = i_add(line, ((R_Here*)(intptr_t)h)->nl, 6203);
+
+  i = ((R_Here*)(intptr_t)h)->upto;
+  } else {
+
   if (((c == 34L) || (c == 39L))) {
 
-  j = i_add(i, 1L, 6200);
+  j = i_add(i, 1L, 6207);
 
   s = (long)(intptr_t)"";
 
-  while (((j < n) && (!(s_code(s_atc(src, j, 6202)) == c)))) {
+  while (((j < n) && (!(s_code(s_atc(src, j, 6209)) == c)))) {
 
-  if ((s_code(s_atc(src, j, 6203)) == 10L)) {
+  if ((s_code(s_atc(src, j, 6210)) == 10L)) {
 
   fail(s_concat(u_spot(files, line), (long)(intptr_t)"a text is missing its closing quote"));
   }
 
-  if ((s_code(s_atc(src, j, 6206)) == 92L)) {
+  if ((s_code(s_atc(src, j, 6213)) == 92L)) {
 
-  j = i_add(j, 1L, 6207);
+  j = i_add(j, 1L, 6214);
 
   if ((j == n)) {
 
@@ -10800,10 +10818,10 @@ long u_lex(long src, long files) {
   s = s_concat(s, u_esc(src, j));
   } else {
 
-  s = s_concat(s, s_atc(src, j, 6213));
+  s = s_concat(s, s_atc(src, j, 6220));
   }
 
-  j = i_add(j, 1L, 6215);
+  j = i_add(j, 1L, 6222);
   }
 
   if ((j == n)) {
@@ -10815,7 +10833,7 @@ long u_lex(long src, long files) {
 
   l_push(lines, line);
 
-  i = i_add(j, 1L, 6222);
+  i = i_add(j, 1L, 6229);
   } else {
 
   if (u_isDigit(c)) {
@@ -10824,43 +10842,43 @@ long u_lex(long src, long files) {
 
   num = 0L;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6227))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6234))))) {
 
-  num = i_add(i_mul(num, 10L, 6228), i_sub(s_code(s_atc(src, i, 6228)), 48L, 6228), 6228);
-
-  i = i_add(i, 1L, 6229);
-  }
-
-  if ((((i_add(i, 1L, 6233) < n) && (s_code(s_atc(src, i, 6233)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 6233), 6233))))) {
-
-  i = i_add(i, 1L, 6234);
-
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6235))))) {
+  num = i_add(i_mul(num, 10L, 6235), i_sub(s_code(s_atc(src, i, 6235)), 48L, 6235), 6235);
 
   i = i_add(i, 1L, 6236);
   }
 
-  if (((i < n) && ((s_code(s_atc(src, i, 6239)) == 101L) || (s_code(s_atc(src, i, 6239)) == 69L)))) {
+  if ((((i_add(i, 1L, 6240) < n) && (s_code(s_atc(src, i, 6240)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 6240), 6240))))) {
 
-  j = i_add(i, 1L, 6240);
+  i = i_add(i, 1L, 6241);
 
-  if (((j < n) && ((s_code(s_atc(src, j, 6241)) == 43L) || (s_code(s_atc(src, j, 6241)) == 45L)))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6242))))) {
 
-  j = i_add(j, 1L, 6242);
+  i = i_add(i, 1L, 6243);
   }
 
-  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 6244))))) {
+  if (((i < n) && ((s_code(s_atc(src, i, 6246)) == 101L) || (s_code(s_atc(src, i, 6246)) == 69L)))) {
+
+  j = i_add(i, 1L, 6247);
+
+  if (((j < n) && ((s_code(s_atc(src, j, 6248)) == 43L) || (s_code(s_atc(src, j, 6248)) == 45L)))) {
+
+  j = i_add(j, 1L, 6249);
+  }
+
+  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 6251))))) {
 
   i = j;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6246))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 6253))))) {
 
-  i = i_add(i, 1L, 6247);
+  i = i_add(i, 1L, 6254);
   }
   }
   }
 
-  l_push(toks, Float(s_slicec(src, start, i, 6251)));
+  l_push(toks, Float(s_slicec(src, start, i, 6258)));
 
   l_push(lines, line);
   } else {
@@ -10875,12 +10893,12 @@ long u_lex(long src, long files) {
 
   j = i;
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 6260))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 6267))))) {
 
-  j = i_add(j, 1L, 6261);
+  j = i_add(j, 1L, 6268);
   }
 
-  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 6263), taken)));
+  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 6270), taken)));
 
   l_push(lines, line);
 
@@ -10889,26 +10907,27 @@ long u_lex(long src, long files) {
 
   if (u_isTwoCharOp(src, i, n)) {
 
-  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 6268), 6268)));
+  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 6275), 6275)));
 
   l_push(lines, line);
 
-  i = i_add(i, 2L, 6270);
+  i = i_add(i, 2L, 6277);
   } else {
 
-  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 6276), 6276) == line)));
+  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 6283), 6283) == line)));
 
-  if (((s_code(s_atc(src, i, 6277)) == 40L) && fol)) {
+  if (((s_code(s_atc(src, i, 6284)) == 40L) && fol)) {
 
   l_push(toks, Punct((long)(intptr_t)"s("));
   } else {
 
-  l_push(toks, Punct(s_atc(src, i, 6280)));
+  l_push(toks, Punct(s_atc(src, i, 6287)));
   }
 
   l_push(lines, line);
 
-  i = i_add(i, 1L, 6283);
+  i = i_add(i, 1L, 6290);
+  }
   }
   }
   }
@@ -10924,13 +10943,128 @@ long u_lex(long src, long files) {
   return Lexed(toks, lines, files);
   return 0;
 }
+long u_isHere(long src, long i, long n) {
+
+  return ((((i_add(i, 2L, 6314) < n) && (s_code(s_atc(src, i, 6314)) == 60L)) && (s_code(s_atc(src, i_add(i, 1L, 6314), 6314)) == 60L)) && u_isAlpha(s_code(s_atc(src, i_add(i, 2L, 6314), 6314))));
+  return 0;
+}
+long u_hereText(long src, long i, long n, long files, long line) {
+  long j = 0;
+  long word = 0;
+  long rows = 0;
+  long found = 0;
+  long indent = 0;
+  long e = 0;
+  long row = 0;
+  long k = 0;
+  long w = 0;
+  long s = 0;
+  long r = 0;
+
+  j = i_add(i, 2L, 6318);
+
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 6319))))) {
+
+  j = i_add(j, 1L, 6320);
+  }
+
+  word = s_slicec(src, i_add(i, 2L, 6322), j, 6322);
+
+  while ((((j < n) && u_isSpace(s_code(s_atc(src, j, 6323)))) && (!(s_code(s_atc(src, j, 6323)) == 10L)))) {
+
+  j = i_add(j, 1L, 6324);
+  }
+
+  if (((j < n) && (!(s_code(s_atc(src, j, 6326)) == 10L)))) {
+
+  fail(s_concat(s_concat(s_concat(u_spot(files, line), (long)(intptr_t)"<<"), word), (long)(intptr_t)" must end its line; the text starts on the next line"));
+  }
+
+  rows = l_new();
+
+  j = i_add(j, 1L, 6330);
+
+  found = false;
+
+  indent = (long)(intptr_t)"";
+
+  while (((j < n) && (!found))) {
+
+  e = j;
+
+  while (((e < n) && (!(s_code(s_atc(src, e, 6335)) == 10L)))) {
+
+  e = i_add(e, 1L, 6336);
+  }
+
+  row = s_slicec(src, j, e, 6338);
+
+  if (s_eq(s_trim(row), word)) {
+
+  found = true;
+
+  k = 0L;
+
+  while (((k < s_len(row)) && ((s_code(s_atc(row, k, 6342)) == 32L) || (s_code(s_atc(row, k, 6342)) == 9L)))) {
+
+  k = i_add(k, 1L, 6343);
+  }
+
+  indent = s_slicec(row, 0L, k, 6345);
+  } else {
+
+  l_push(rows, row);
+  }
+
+  j = i_add(e, 1L, 6349);
+  }
+
+  if ((!found)) {
+
+  fail(s_concat(s_concat(s_concat(s_concat(s_concat(u_spot(files, line), (long)(intptr_t)"the text that starts with <<"), word), (long)(intptr_t)" has no line with "), word), (long)(intptr_t)" alone to end it"));
+  }
+
+  w = s_len(indent);
+
+  s = (long)(intptr_t)"";
+
+  r = 0L;
+
+  while ((r < l_len(rows))) {
+
+  row = l_atc(rows, r, 6358);
+
+  if (((s_len(row) >= w) && s_eq(s_slicec(row, 0L, w, 6359), indent))) {
+
+  s = s_concat(s, s_slicec(row, w, s_len(row), 6360));
+  } else {
+
+  if ((!s_eq(s_trim(row), (long)(intptr_t)""))) {
+
+  fail(s_concat(s_concat(s_concat(s_concat(u_spot(files, i_add(i_add(line, 1L, 6363), r, 6363)), (long)(intptr_t)"this line of the <<"), word), (long)(intptr_t)" text starts left of its end word "), word));
+  }
+  }
+
+  s = s_concat(s, (long)(intptr_t)"\n");
+
+  r = i_add(r, 1L, 6367);
+  }
+
+  if ((j > n)) {
+
+  j = n;
+  }
+
+  return Here(s, j, i_add(l_len(rows), 2L, 6372));
+  return 0;
+}
 long u_esc(long src, long j) {
   long c = 0;
   long r = 0;
 
-  c = s_code(s_atc(src, j, 6297));
+  c = s_code(s_atc(src, j, 6376));
 
-  r = s_atc(src, j, 6298);
+  r = s_atc(src, j, 6377);
 
   if ((c == 110L)) {
 
@@ -10957,7 +11091,7 @@ long u_esc(long src, long j) {
 }
 long u_isComment(long src, long i, long n) {
 
-  return (((i_add(i, 1L, 6309) < n) && (s_code(s_atc(src, i, 6309)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 6309), 6309)) == 47L));
+  return (((i_add(i, 1L, 6388) < n) && (s_code(s_atc(src, i, 6388)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 6388), 6388)) == 47L));
   return 0;
 }
 long u_isTwoCharOp(long src, long i, long n) {
@@ -10967,7 +11101,7 @@ long u_isTwoCharOp(long src, long i, long n) {
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
 
-  return (((i_add(i, 1L, 6317) < n) && (s_code(s_atc(src, i, 6317)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 6317), 6317)) == b));
+  return (((i_add(i, 1L, 6396) < n) && (s_code(s_atc(src, i, 6396)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 6396), 6396)) == b));
   return 0;
 }
 long u_isDigit(long c) {
@@ -10992,9 +11126,9 @@ long u_safeName(long s, long taken) {
 
   if ((n > 1L)) {
 
-  c0 = s_code(s_atc(s, 0L, 6342));
+  c0 = s_code(s_atc(s, 0L, 6421));
 
-  c1 = s_code(s_atc(s, 1L, 6343));
+  c1 = s_code(s_atc(s, 1L, 6422));
 
   if (((c0 == 95L) || ((c1 == 95L) && (((((((c0 == 108L) || (c0 == 115L)) || (c0 == 109L)) || (c0 == 105L)) || (c0 == 102L)) || (c0 == 117L)) || (c0 == 84L))))) {
 
@@ -11008,7 +11142,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 3L)) {
 
-  if (s_eq(s_slicec(s, 0L, 4L, 6351), (long)(intptr_t)"cmp_")) {
+  if (s_eq(s_slicec(s, 0L, 4L, 6430), (long)(intptr_t)"cmp_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
@@ -11016,7 +11150,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 7L)) {
 
-  if (s_eq(s_slicec(s, 0L, 8L, 6356), (long)(intptr_t)"simpler_")) {
+  if (s_eq(s_slicec(s, 0L, 8L, 6435), (long)(intptr_t)"simpler_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }

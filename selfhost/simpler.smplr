@@ -6196,91 +6196,99 @@ lex(src : Str, files : List[Str]) : Lexed {
           i = i + 1
         }
       } else {
-        if (c == 34).or(c == 39) {
-          j = i + 1
-          s = ""
-          while (j < n).and((src.at(j).code == c).not) {
-            if src.at(j).code == 10 {
-              fail(spot(files, line).concat("a text is missing its closing quote"))
-            }
-            if src.at(j).code == 92 {
-              j = j + 1
-              if j == n {
+        if isHere(src, i, n) {
+          h = hereText(src, i, n, files, line)
+          toks.push(Str(h.text))
+          lines.push(line)
+          line = line + h.nl
+          i = h.upto
+        } else {
+          if (c == 34).or(c == 39) {
+            j = i + 1
+            s = ""
+            while (j < n).and((src.at(j).code == c).not) {
+              if src.at(j).code == 10 {
                 fail(spot(files, line).concat("a text is missing its closing quote"))
               }
-              s = s.concat(esc(src, j))
-            } else {
-              s = s.concat(src.at(j))
+              if src.at(j).code == 92 {
+                j = j + 1
+                if j == n {
+                  fail(spot(files, line).concat("a text is missing its closing quote"))
+                }
+                s = s.concat(esc(src, j))
+              } else {
+                s = s.concat(src.at(j))
+              }
+              j = j + 1
             }
-            j = j + 1
-          }
-          if j == n {
-            fail(spot(files, line).concat("a text is missing its closing quote"))
-          }
-          toks.push(Str(s))
-          lines.push(line)
-          i = j + 1
-        } else {
-          if isDigit(c) {
-            start = i
-            num = 0
-            while (i < n).and(isDigit(src.at(i).code)) {
-              num = num * 10 + (src.at(i).code - 48)
-              i = i + 1
+            if j == n {
+              fail(spot(files, line).concat("a text is missing its closing quote"))
             }
-            // a `.` followed by a digit makes it a float literal; keep the
-            // source text, since the value is a double the lexer can't hold
-            if (i + 1 < n).and(src.at(i).code == 46).and(isDigit(src.at(i + 1).code)) {
-              i = i + 1
+            toks.push(Str(s))
+            lines.push(line)
+            i = j + 1
+          } else {
+            if isDigit(c) {
+              start = i
+              num = 0
               while (i < n).and(isDigit(src.at(i).code)) {
+                num = num * 10 + (src.at(i).code - 48)
                 i = i + 1
               }
-              // optional exponent: e or E, an optional sign, then digits (1.5e-9)
-              if (i < n).and((src.at(i).code == 101).or(src.at(i).code == 69)) {
-                j = i + 1
-                if (j < n).and((src.at(j).code == 43).or(src.at(j).code == 45)) {
-                  j = j + 1
+              // a `.` followed by a digit makes it a float literal; keep the
+              // source text, since the value is a double the lexer can't hold
+              if (i + 1 < n).and(src.at(i).code == 46).and(isDigit(src.at(i + 1).code)) {
+                i = i + 1
+                while (i < n).and(isDigit(src.at(i).code)) {
+                  i = i + 1
                 }
-                if (j < n).and(isDigit(src.at(j).code)) {
-                  i = j
-                  while (i < n).and(isDigit(src.at(i).code)) {
-                    i = i + 1
+                // optional exponent: e or E, an optional sign, then digits (1.5e-9)
+                if (i < n).and((src.at(i).code == 101).or(src.at(i).code == 69)) {
+                  j = i + 1
+                  if (j < n).and((src.at(j).code == 43).or(src.at(j).code == 45)) {
+                    j = j + 1
+                  }
+                  if (j < n).and(isDigit(src.at(j).code)) {
+                    i = j
+                    while (i < n).and(isDigit(src.at(i).code)) {
+                      i = i + 1
+                    }
                   }
                 }
-              }
-              toks.push(Float(src.slice(start, i)))
-              lines.push(line)
-            } else {
-              toks.push(Int(num))
-              lines.push(line)
-            }
-          } else {
-            if isAlpha(c) {
-              j = i
-              while (j < n).and(isAlnum(src.at(j).code)) {
-                j = j + 1
-              }
-              toks.push(Ident(safeName(src.slice(i, j), taken)))
-              lines.push(line)
-              i = j
-            } else {
-              if isTwoCharOp(src, i, n) {
-                toks.push(Punct(src.slice(i, i + 2)))
+                toks.push(Float(src.slice(start, i)))
                 lines.push(line)
-                i = i + 2
               } else {
-                // a `(` that opens a line is a grouping paren starting a new
-                // statement, never a method-call's argument list. Mark it `s(`
-                // so the parser does not glue `expr.field` to a following
-                // `(...)` line into a bogus method call.
-                fol = (lines.length == 0).or((lines.at(lines.length - 1) == line).not)
-                if (src.at(i).code == 40).and(fol) {
-                  toks.push(Punct("s("))
-                } else {
-                  toks.push(Punct(src.at(i)))
-                }
+                toks.push(Int(num))
                 lines.push(line)
-                i = i + 1
+              }
+            } else {
+              if isAlpha(c) {
+                j = i
+                while (j < n).and(isAlnum(src.at(j).code)) {
+                  j = j + 1
+                }
+                toks.push(Ident(safeName(src.slice(i, j), taken)))
+                lines.push(line)
+                i = j
+              } else {
+                if isTwoCharOp(src, i, n) {
+                  toks.push(Punct(src.slice(i, i + 2)))
+                  lines.push(line)
+                  i = i + 2
+                } else {
+                  // a `(` that opens a line is a grouping paren starting a new
+                  // statement, never a method-call's argument list. Mark it `s(`
+                  // so the parser does not glue `expr.field` to a following
+                  // `(...)` line into a bogus method call.
+                  fol = (lines.length == 0).or((lines.at(lines.length - 1) == line).not)
+                  if (src.at(i).code == 40).and(fol) {
+                    toks.push(Punct("s("))
+                  } else {
+                    toks.push(Punct(src.at(i)))
+                  }
+                  lines.push(line)
+                  i = i + 1
+                }
               }
             }
           }
@@ -6291,6 +6299,77 @@ lex(src : Str, files : List[Str]) : Lexed {
   toks.push(Eof)
   lines.push(line)
   Lexed(toks = toks, lines = lines, files = files)
+}
+
+// A raw text: `<<WORD` ends its line, and the text is every line after it up
+// to a line with WORD alone. No escapes. Each line keeps its newline, and the
+// end word's indent is cut from every line, so the text may sit indented.
+Here = type {
+  text : Str
+  upto : Int
+  nl : Int
+}
+
+isHere(src : Str, i : Int, n : Int) : Bool {
+  (i + 2 < n).and(src.at(i).code == 60).and(src.at(i + 1).code == 60).and(isAlpha(src.at(i + 2).code))
+}
+
+hereText(src : Str, i : Int, n : Int, files : List[Str], line : Int) : Here {
+  j = i + 2
+  while (j < n).and(isAlnum(src.at(j).code)) {
+    j = j + 1
+  }
+  word = src.slice(i + 2, j)
+  while (j < n).and(isSpace(src.at(j).code)).and((src.at(j).code == 10).not) {
+    j = j + 1
+  }
+  if (j < n).and((src.at(j).code == 10).not) {
+    fail(spot(files, line).concat("<<").concat(word).concat(" must end its line; the text starts on the next line"))
+  }
+  rows : List[Str] = []
+  j = j + 1
+  found = false
+  indent = ""
+  while (j < n).and(found.not) {
+    e = j
+    while (e < n).and((src.at(e).code == 10).not) {
+      e = e + 1
+    }
+    row = src.slice(j, e)
+    if row.trim == word {
+      found = true
+      k = 0
+      while (k < row.length).and((row.at(k).code == 32).or(row.at(k).code == 9)) {
+        k = k + 1
+      }
+      indent = row.slice(0, k)
+    } else {
+      rows.push(row)
+    }
+    j = e + 1
+  }
+  if found.not {
+    fail(spot(files, line).concat("the text that starts with <<").concat(word).concat(" has no line with ").concat(word).concat(" alone to end it"))
+  }
+  w = indent.length
+  s = ""
+  r = 0
+  while r < rows.length {
+    row = rows.at(r)
+    if (row.length >= w).and(row.slice(0, w) == indent) {
+      s = s.concat(row.slice(w, row.length))
+    } else {
+      if (row.trim == "").not {
+        fail(spot(files, line + 1 + r).concat("this line of the <<").concat(word).concat(" text starts left of its end word ").concat(word))
+      }
+    }
+    s = s.concat("\n")
+    r = r + 1
+  }
+  if j > n {
+    j = n
+  }
+  Here(text = s, upto = j, nl = rows.length + 2)
 }
 
 esc(src : Str, j : Int) : Str {

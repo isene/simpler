@@ -136,7 +136,9 @@ main(sys) {
 - An empty list needs its type: `xs : List[Int] = []`. A new map is `Map()` (text to Int), `Map[Str]()`
   or `Map[Point]()`.
 - Text is in quotes: `"a"` or `'a'`. In a text, `\n`, `\t`, `\r`, `\\`, `\"` and `\'` are the usual; a backslash before
-  anything else stays as it is. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
+  anything else stays as it is. For text full of quotes or backslashes (code to patch), write `old = <<END` and end
+  it with a line holding `END` alone: the lines between are taken as written, each with its newline, and the end
+  word's indent is cut from each line. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
   `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, `!x` for not, and `-x`. `&&` and `||` stop as soon
   as the answer is known, so `i < n && xs.at(i) == 0` is safe. Int `/` cuts toward zero and `%` takes the

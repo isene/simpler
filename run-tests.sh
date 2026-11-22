@@ -74,6 +74,7 @@ check_run numsmaps  "$(printf '6\n2.5\nfalse\na,c\n4\n9\n572\n1152\n-4')"
 check_run ownnames  "$(printf '9\n8\n3\n101\n7')"
 check_run cnames    "45"
 check_run booltext  "$(printf 'true\nfalse\ntrue!\ntrue')"
+check_run rawtext   "$(printf '%s\n' 32 'if x {' '  y()' '' '}' 'say "hi" to C:\temp\n, it'"'"'s raw' '|' 0)"
 # sleep, a wait for a file change, and input read line by line
 out="$(printf 'a\nb\n' | run_smplr examples/waits.smplr)"
 if [ "$out" = "$(printf 'true\nsimpler-waits-test\n[a]\n[b]')" ]; then ok; else nope "run waits: got $(printf '%q' "$out")"; fi
@@ -758,6 +759,35 @@ reject "transitive effect" \
 b(s : Screen) { a(s) }
 main(sys) { b(sys.screen) }' \
     "uses !IO but does not declare it"
+# a raw text: its lines count, so an error after one names the right line
+reject "line after a raw text" \
+    'main(sys) {
+  a = <<END
+x
+END
+  b = 1 + "a"
+}' \
+    "input.smplr:5: + adds two numbers"
+reject "raw text with no end word" \
+    'main(sys) {
+  a = <<END
+x
+}' \
+    "has no line with END alone to end it"
+reject "raw text start that does not end its line" \
+    'main(sys) {
+  a = <<END x
+END
+}' \
+    "<<END must end its line"
+reject "raw text line left of its end word" \
+    'main(sys) {
+  a = <<END
+  x
+y
+  END
+}' \
+    "input.smplr:4: this line of the <<END text starts left of its end word"
 # a read that can fail needs no !Fail mark: the compiler works that out
 printf 'reads "p"\nrd(f : Files) : Str !IO {\n  f.read("p")?\n}\nmain(sys) {\n  sys.screen.print(rd(sys.files))\n}\n' > "$TMP/nofail.smplr"
 if ( cd "$TMP" && cp nofail.smplr input.smplr && ./seedc 2>&1 >/dev/null | grep -q . ); then nope "a read without !Fail compiles"; else ok; fi

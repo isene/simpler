@@ -1,0 +1,19 @@
+// Raw text: <<WORD ends its line, and the text runs to a line with WORD alone.
+// No escapes; each line keeps its newline; the end word's indent is cut.
+main(sys) {
+  a = <<END
+say "hi" to C:\temp\n, it's raw
+END
+  sys.screen.print(a.length.toStr)
+  b = <<CODE
+    if x {
+      y()
+
+    }
+    CODE
+  sys.screen.part(b)
+  sys.screen.print(a + "|")
+  e = <<NONE
+NONE
+  sys.screen.print(e.length.toStr)
+}

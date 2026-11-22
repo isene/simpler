@@ -204,6 +204,20 @@ true      false         // Bool
 []        [1, 2, 3]     // List ([] needs an annotation)
 ```
 
+A raw text is for text full of quotes and backslashes, such as code to patch.
+`<<END` ends its line, and the text is every line after it up to a line with
+`END` alone (any name will do). Nothing in it is an escape. Each line keeps its
+newline, and the end word's indent is cut from every line:
+
+```
+  old = <<END
+    say("hi\n")
+    END
+```
+
+Here `old` is `say("hi\n")` and a newline. A line left of the end word stops
+the compiler.
+
 ## 6. Operators
 
 Fourteen operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, and `!` in front of a `Bool`. Arithmetic and
