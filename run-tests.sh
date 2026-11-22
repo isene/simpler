@@ -29,7 +29,7 @@ cleanup() {
     find examples -maxdepth 1 -type f ! -name '*.smplr' ! -name '*.txt' -delete 2>/dev/null
     # remove generated artifacts in selfhost, but keep the committed seed simpler.c
     find selfhost -maxdepth 1 -type f -name '*.c' ! -name 'simpler.c' -delete 2>/dev/null
-    for f in selfhost/*.smplr; do rm -f "${f%.smplr}"; done   # per-source binaries
+    for f in selfhost/*.smplr; do [ "$f" = selfhost/simpler.smplr ] || rm -f "${f%.smplr}"; done   # per-source binaries, never the compiler the simpler command runs
     rm -f selfhost/input.smplr input.smplr
     rm -rf "$TMP"
 }
