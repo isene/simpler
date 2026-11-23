@@ -10,5 +10,6 @@ main(sys) {
   sys.env.setVar("CLAUDE_CONFIG_DIR", room)
   sys.env.setVar("TMPDIR", room + "/tmp")
   sys.env.setVar("CLAUDE_CODE_TMPDIR", room + "/tmp")
+  sys.env.setVar("DISABLE_AUTOUPDATER", "1")
   exit(sys.programs.status("~/.local/bin/claude", sys.args))
 }
