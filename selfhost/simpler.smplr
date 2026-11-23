@@ -112,6 +112,7 @@ Prog = type {
   runs : List[Str]
   fetches : List[Str]
   mails : List[Str]
+  listens : List[Str]
   examples : List[Str]
   limits : List[Str]
   files : List[Str]
@@ -139,6 +140,7 @@ Sigs = type {
   runs : List[Str]
   fetches : List[Str]
   mails : List[Str]
+  listens : List[Str]
   files : List[Str]
 }
 
@@ -534,6 +536,7 @@ main(sys) {
   sys.screen.print(mayTable("simpler_rn", prog.runs))
   sys.screen.print(mayTable("simpler_ft", prog.fetches))
   sys.screen.print(mayTable("simpler_ml", prog.mails))
+  sys.screen.print(mayTable("simpler_ls", prog.listens))
   sys.screen.print(exTable(prog.examples))
   sys.screen.print(mayTable("simpler_lm", prog.limits))
   sys.screen.print("static long simpler_lmb = 0; static void simpler_over(int sig) { const char* m = sig == SIGXCPU ? \"simpler: stopped, the program used more processor time than its limits line allows\\n\" : \"simpler: stopped, most likely out of memory: its limits line allows less than it asked for\\n\"; if (write(2, m, strlen(m)) < 0) _exit(125); _exit(sig == SIGXCPU ? 124 : 125); }")
@@ -564,7 +567,7 @@ main(sys) {
   sys.screen.print("static int simpler_io(int fd, void* p, size_t n, int wr) { char* c = (char*)p; while (n > 0) { ssize_t k = wr ? write(fd, c, n) : read(fd, c, n); if (k <= 0) { if (k < 0 && errno == EINTR) continue; return 0; } c += k; n -= (size_t)k; } return 1; }")
   sys.screen.print("static void simpler_broker(void) { int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid > 0) { close(sv[1]); simpler_mfd = sv[0]; return; } close(sv[0]); for (;;) { unsigned int n[3]; if (!simpler_io(sv[1], n, sizeof n, 0) || n[1] > 8192 || n[2] > (64U << 20)) _exit(0); char* t = (char*)gc_atomic(n[1] + 1); char* m = (char*)gc_atomic(n[2] + 1); if (!t || !m || !simpler_io(sv[1], t, n[1], 0) || !simpler_io(sv[1], m, n[2], 0)) _exit(0); t[n[1]] = 0; m[n[2]] = 0; int code = n[0] == 2 ? simpler_keep_do(t, m) : simpler_mailok(t) ? simpler_deliver(t, m) : 126; free(t); free(m); if (!simpler_io(sv[1], &code, sizeof code, 1)) _exit(0); } }")
   sys.screen.print("int simpler_ask(int op, const char* t, const char* msg) { if (simpler_mfd < 0) return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); unsigned int n[3] = {(unsigned int)op, (unsigned int)strlen(t), (unsigned int)strlen(msg)}; int code = 127; if (!simpler_io(simpler_mfd, n, sizeof n, 1) || !simpler_io(simpler_mfd, (void*)t, n[1], 1) || !simpler_io(simpler_mfd, (void*)msg, n[2], 1) || !simpler_io(simpler_mfd, &code, sizeof code, 0)) return 127; return code; }")
-  sys.screen.print("void simpler_lock(void) { long abi = syscall(SYS_landlock_create_ruleset, 0, 0, 1U); if (abi < 1) return; unsigned long long fs = (1ULL << 13) - 1; if (abi >= 2) fs |= 1ULL << 13; if (abi >= 3) fs |= 1ULL << 14; if (abi >= 5) fs |= 1ULL << 15; unsigned long long ra[3] = {fs, 0, 0}; size_t size = 8; int runs = simpler_rn[0] || simpler_ft[0]; if (abi >= 4) { size = 16; if (!simpler_ft[0] || simpler_dry) ra[1] = 3; } if (abi >= 6) { size = 24; ra[2] = 3; } simpler_ll = (int)syscall(SYS_landlock_create_ruleset, ra, size, 0); if (simpler_ll < 0) return; simpler_ll_fs = fs; unsigned long long R = 4ULL | 8ULL; unsigned long long W = 2ULL | (1ULL << 4) | (1ULL << 5) | (1ULL << 7) | (1ULL << 8) | (1ULL << 13) | (1ULL << 14); if (!simpler_dry) simpler_allow_all(simpler_wr, W, 1); simpler_allow_all(simpler_rd, R, 0); for (int k = 0; simpler_rd[k]; k++) if (strncmp(simpler_rd[k], \"/sys/\", 5) == 0) { simpler_allow(\"/sys/devices\", R); break; } const char* dev[] = {\"/dev/null\", \"/dev/tty\", \"/dev/zero\", \"/dev/urandom\", 0}; for (int k = 0; dev[k]; k++) simpler_allow(dev[k], 2ULL | 4ULL | (1ULL << 15)); if (runs) { const char* sysd[] = {\"/usr\", \"/bin\", \"/sbin\", \"/lib\", \"/lib64\", \"/lib32\", \"/etc\", \"/opt\", \"/snap\", \"/nix\", \"/run/systemd/resolve\", \"/proc/sys\", \"/sys/devices/system/cpu\", 0}; for (int k = 0; sysd[k]; k++) simpler_allow(sysd[k], 1ULL | R); for (int k = 0; simpler_rn[k]; k++) simpler_allow_prog(simpler_rn[k]); if (simpler_ft[0]) simpler_allow_prog(\"curl\"); } if ((simpler_ml[0] || simpler_jdir[0]) && !simpler_dry) simpler_broker(); prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); if (syscall(SYS_landlock_restrict_self, simpler_ll, 0) != 0) { fprintf(stderr, \"simpler: the kernel lock could not be set: %s\\n\", strerror(errno)); exit(1); } close(simpler_ll); }")
+  sys.screen.print("void simpler_lock(void) { long abi = syscall(SYS_landlock_create_ruleset, 0, 0, 1U); if (abi < 1) return; unsigned long long fs = (1ULL << 13) - 1; if (abi >= 2) fs |= 1ULL << 13; if (abi >= 3) fs |= 1ULL << 14; if (abi >= 5) fs |= 1ULL << 15; unsigned long long ra[3] = {fs, 0, 0}; size_t size = 8; int runs = simpler_rn[0] || simpler_ft[0]; if (abi >= 4) { size = 16; ra[1] = (!simpler_ft[0] || simpler_dry) ? 3 : 1; } if (abi >= 6) { size = 24; ra[2] = 3; } simpler_ll = (int)syscall(SYS_landlock_create_ruleset, ra, size, 0); if (simpler_ll < 0) return; simpler_ll_fs = fs; if (abi >= 4) for (int k = 0; simpler_ls[k]; k++) { unsigned long long np[2] = {1, (unsigned long long)atol(simpler_ls[k])}; syscall(SYS_landlock_add_rule, simpler_ll, 2, np, 0); } unsigned long long R = 4ULL | 8ULL; unsigned long long W = 2ULL | (1ULL << 4) | (1ULL << 5) | (1ULL << 7) | (1ULL << 8) | (1ULL << 13) | (1ULL << 14); if (!simpler_dry) simpler_allow_all(simpler_wr, W, 1); simpler_allow_all(simpler_rd, R, 0); for (int k = 0; simpler_rd[k]; k++) if (strncmp(simpler_rd[k], \"/sys/\", 5) == 0) { simpler_allow(\"/sys/devices\", R); break; } const char* dev[] = {\"/dev/null\", \"/dev/tty\", \"/dev/zero\", \"/dev/urandom\", 0}; for (int k = 0; dev[k]; k++) simpler_allow(dev[k], 2ULL | 4ULL | (1ULL << 15)); if (runs) { const char* sysd[] = {\"/usr\", \"/bin\", \"/sbin\", \"/lib\", \"/lib64\", \"/lib32\", \"/etc\", \"/opt\", \"/snap\", \"/nix\", \"/run/systemd/resolve\", \"/proc/sys\", \"/sys/devices/system/cpu\", 0}; for (int k = 0; sysd[k]; k++) simpler_allow(sysd[k], 1ULL | R); for (int k = 0; simpler_rn[k]; k++) simpler_allow_prog(simpler_rn[k]); if (simpler_ft[0]) simpler_allow_prog(\"curl\"); } if ((simpler_ml[0] || simpler_jdir[0]) && !simpler_dry) simpler_broker(); prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); if (syscall(SYS_landlock_restrict_self, simpler_ll, 0) != 0) { fprintf(stderr, \"simpler: the kernel lock could not be set: %s\\n\", strerror(errno)); exit(1); } close(simpler_ll); }")
   sys.screen.print("static FILE* simpler_tmp(void) { int fd = (int)syscall(SYS_memfd_create, \"simpler\", 1U); return fd >= 0 ? fdopen(fd, \"w+\") : tmpfile(); }")
   sys.screen.print("#else")
   sys.screen.print("void simpler_lock(void) {}")
@@ -602,6 +605,7 @@ main(sys) {
   sys.screen.print("long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); if (simpler_dry) { printf(\"would start\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); return 0; } int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }")
   sys.screen.print("static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
   sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); if (simpler_would(post ? \"post to\" : \"fetch\", (const char*)(intptr_t)url, 0, 0)) return (long)(intptr_t)\"\"; long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }")
+  sys.screen.print(netRuntime())
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); if (simpler_would(\"reach\", (const char*)(intptr_t)url, 0, 0)) return 200; long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
   sys.screen.print("static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;")
   sys.screen.print("typedef struct { char g[6]; unsigned short st; } SCell; static SCell* simpler_back = 0; static SCell* simpler_front = 0; static long simpler_tr = 0, simpler_tc = 0; static int simpler_all = 1; static volatile sig_atomic_t simpler_winched = 0; static char simpler_sty[1024][40]; static int simpler_nsty = 1; static char* simpler_ob = 0; static long simpler_on = 0, simpler_ocap = 0;")
@@ -873,7 +877,7 @@ What = type {
 //   reads "notes.txt", "data/", args      writes "out/"
 // A name ending in / is a folder; args is any file named on the command line.
 isMayLine(toks : Lexed, i : Int) : Bool {
-  ((isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))) || ((isWord(toks, i, "runs") || isWord(toks, i, "fetches") || isWord(toks, i, "mails")) && isStrTok(toks, i + 1))
+  ((isWord(toks, i, "reads") || isWord(toks, i, "writes")) && (isStrTok(toks, i + 1) || isWord(toks, i + 1, "args"))) || ((isWord(toks, i, "runs") || isWord(toks, i, "fetches") || isWord(toks, i, "mails")) && isStrTok(toks, i + 1)) || (isWord(toks, i, "listens") && (isStrTok(toks, i + 1) || portTok(toks, i + 1)))
 }
 
 isStrTok(toks : Lexed, i : Int) : Bool {
@@ -958,7 +962,10 @@ exTable(examples : List[Str]) : Str {
   out.concat("0};")
 }
 
-parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : List[Str], fetches : List[Str], mails : List[Str]) : Int !Mut {
+parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : List[Str], fetches : List[Str], mails : List[Str], listens : List[Str]) : Int !Mut {
+  if isWord(toks, i, "listens") {
+    return parsePorts(toks, i + 1, listens)
+  }
   w = isWord(toks, i, "writes")
   ml = isWord(toks, i, "mails")
   rn = isWord(toks, i, "runs") || ml
@@ -994,6 +1001,51 @@ parseMay(toks : Lexed, i : Int, reads : List[Str], writes : List[Str], runs : Li
     }
   }
   j
+}
+
+// `listens 8080, 8081` names the ports a program may wait for web requests on.
+parsePorts(toks : Lexed, j : Int, listens : List[Str]) : Int !Mut {
+  more = true
+  while more {
+    p = 0
+    if portTok(toks, j) {
+      p = portOf(toks, j)
+    } else if isStrTok(toks, j) {
+      p = strAt(toks, j).toInt
+    }
+    if (p < 1) || (p > 65535) {
+      failTok(toks, j, "expected a port number from 1 to 65535")
+    }
+    listens.push(p.toStr)
+    j = j + 1
+    more = isPunct(toks, j, ",")
+    if more {
+      j = j + 1
+    }
+  }
+  j
+}
+
+portTok(toks : Lexed, i : Int) : Bool {
+  tokAt(toks, i).match {
+    Ident(s) -> false
+    Int(v) -> true
+    Float(f) -> false
+    Str(s) -> false
+    Punct(p) -> false
+    Eof -> false
+  }
+}
+
+portOf(toks : Lexed, i : Int) : Int {
+  tokAt(toks, i).match {
+    Ident(s) -> 0
+    Int(v) -> v
+    Float(f) -> 0
+    Str(s) -> 0
+    Punct(p) -> 0
+    Eof -> 0
+  }
 }
 
 // The C list of the names a reads or writes line gave, ended by 0.
@@ -1157,6 +1209,34 @@ mailCheck(arg : Expr, ctx : Ctx) : Int {
   0
 }
 
+// A port written out must be on the listens line; any other is checked when the program runs.
+listenCheck(arg : Expr, ctx : Ctx) : Int {
+  if ctx.sigs.listens.length == 0 {
+    failAt("this program may not listen on a port; say which at the top, as in: listens 8080", ctx)
+  }
+  p = portLit(arg)
+  if (p > 0) && hasName(ctx.sigs.listens, p.toStr).not {
+    failAt("this program may not listen on port ".concat(p.toStr).concat("; add it to the listens line at the top"), ctx)
+  }
+  0
+}
+
+portLit(e : Expr) : Int {
+  e.match {
+    Num(v) -> v
+    StrLit(s) -> 0
+    FloatLit(s) -> 0
+    Var(s) -> 0
+    ListLit(es) -> 0
+    Bin(op, a, b) -> 0
+    Call(name, args) -> 0
+    Match(scrut, arms) -> 0
+    Field(recv, fld) -> 0
+    Method(recv, name, args) -> 0
+    Each(recv, param, body) -> 0
+  }
+}
+
 fetchCheck(arg : Expr, ctx : Ctx) : Int {
   if ctx.sigs.fetches.length == 0 {
     failAt("this program may not fetch from the network; say which hosts at the top, as in: fetches \"example.com\"", ctx)
@@ -1230,6 +1310,9 @@ whatProg(prog : Prog, sigs : Sigs) : Str {
   }
   if prog.mails.length > 0 {
     out = out.concat("may mail   ").concat(mayText(prog.mails)).concat("\n")
+  }
+  if prog.listens.length > 0 {
+    out = out.concat("may listen on port ").concat(prog.listens.join(", ")).concat("\n")
   }
   if prog.limits.length > 0 {
     out = out.concat("limits     ").concat(mayText(prog.limits)).concat("\n")
@@ -1406,6 +1489,9 @@ whatMethod(recv : Expr, name : Str, args : List[Expr], fn : Str, w : What, sigs 
     if name == "post" {
       whatAdd(w, "net", "sends to ".concat(whatPath(args.at(0))), fn)
     }
+    if name == "request" {
+      whatAdd(w, "net", "waits for web requests", fn)
+    }
     if name == "var" {
       whatAdd(w, "env", "reads the variable ".concat(whatPath(args.at(0))), fn)
     }
@@ -1473,7 +1559,7 @@ buildSigs(prog : Prog) : Sigs {
       }
     }
   }
-  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches, mails = prog.mails, files = prog.files)
+  Sigs(recNames = recNames, records = prog.records, types = prog.types, fns = prog.fns, fnNames = fnNames, fnRets = fnRets, boxedNullary = boxedNullary, retP = retP, mutP = mutP, reads = prog.reads, writes = prog.writes, runs = prog.runs, fetches = prog.fetches, mails = prog.mails, listens = prog.listens, files = prog.files)
 }
 
 // --- parse: tokens to a program -----------------------------------------
@@ -1590,8 +1676,8 @@ makeMod(name : Str, src : Str, files : List[Str], queue : List[Str], queueLines 
   lx = qualify(takeUses(lex(src, files), mine, queue, queueLines), mine)
   p = parse(lx)
   first = spot(files, (files.length - 1) * 1000000 + 1)
-  if p.reads.length + p.writes.length + p.runs.length + p.fetches.length + p.mails.length > 0 {
-    fail(first.concat("a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it"))
+  if p.reads.length + p.writes.length + p.runs.length + p.fetches.length + p.mails.length + p.listens.length > 0 {
+    fail(first.concat("a module has no reads, writes, runs, fetches, mails or listens line; those belong to the program that uses it"))
   }
   names : List[Str] = []
   fields : List[Str] = []
@@ -1672,12 +1758,13 @@ parse(toks : Lexed) : Prog {
   runs : List[Str] = []
   fetches : List[Str] = []
   mails : List[Str] = []
+  listens : List[Str] = []
   examples : List[Str] = []
   pieces : List[PieceEx] = []
   limits : List[Str] = []
   while notEof(toks, i) {
     if isMayLine(toks, i) {
-      i = parseMay(toks, i, reads, writes, runs, fetches, mails)
+      i = parseMay(toks, i, reads, writes, runs, fetches, mails, listens)
     } else if isExampleLine(toks, i) {
       i = parseExample(toks, i, examples)
     } else if isWord(toks, i, "example") {
@@ -1715,7 +1802,7 @@ parse(toks : Lexed) : Prog {
       }
     }
   }
-  Prog(pieces = pieces, types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, examples = examples, limits = limits, files = toks.files)
+  Prog(pieces = pieces, types = types, records = records, fns = fns, reads = reads, writes = writes, runs = runs, fetches = fetches, mails = mails, listens = listens, examples = examples, limits = limits, files = toks.files)
 }
 
 // --- parse errors: every one names the line and what stood there --------
@@ -2136,7 +2223,7 @@ spins(toks : Lexed, from : Int, to : Int) : Bool {
   while k < to {
     if isIdent(toks, k) {
       w = identAt(toks, k)
-      if w == "break" || w == "return" || w == "stdinLine" || w == "stdin" || w == "wait" || w == "sleep" || w == "key" || w == "run" || w == "feed" || w == "output" || w == "status" || w == "try" || w == "fetch" || w == "fetchWith" || w == "post" || w == "reach" || w == "send" {
+      if w == "break" || w == "return" || w == "stdinLine" || w == "stdin" || w == "wait" || w == "sleep" || w == "key" || w == "run" || w == "feed" || w == "output" || w == "status" || w == "try" || w == "fetch" || w == "fetchWith" || w == "post" || w == "reach" || w == "send" || w == "request" {
         r = false
       }
       if isPunct(toks, k + 1, "(") && isPunct(toks, k - 1, ".").not {
@@ -3555,6 +3642,102 @@ END
   gc
 }
 
+// The tiny web server: sys.net.request(port) waits for the next request and
+// gives it as a map; sys.net.reply(code, text) answers it. One at a time, on
+// this machine only (127.0.0.1).
+netRuntime() : Str {
+  net = <<END
+#include <netinet/in.h>
+static int simpler_lfd = -1, simpler_lport = 0, simpler_cfd = -1;
+static char simpler_reqpath[512];
+static void simpler_sendall(int fd, const char* p, long n) { while (n > 0) { long w = send(fd, p, n, MSG_NOSIGNAL); if (w < 0 && errno == EINTR) continue; if (w <= 0) return; p += w; n -= w; } }
+static int simpler_hex(int c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; }
+/* "a=1&b=x+y%21" sets a to 1 and b to "x y!" in the map. */
+static void simpler_fields(long m, const char* p, const char* end) {
+  while (p < end) {
+    const char* amp = memchr(p, '&', end - p); if (!amp) amp = end;
+    const char* eq = memchr(p, '=', amp - p); if (!eq) eq = amp;
+    char* k = (char*)gc_atomic(eq - p + 1); char* v = (char*)gc_atomic(amp - eq + 1); char* o = k;
+    for (const char* s = p; s <= amp; s++) {
+      if (s == eq || s == amp) { *o = 0; if (s == eq && eq < amp) o = v; else if (s == eq) { v[0] = 0; } continue; }
+      if (*s == '+') *o++ = ' ';
+      else if (*s == '%' && s + 2 < amp && simpler_hex(s[1]) >= 0 && simpler_hex(s[2]) >= 0) { *o++ = (char)(simpler_hex(s[1]) * 16 + simpler_hex(s[2])); s += 2; }
+      else *o++ = *s;
+    }
+    if (eq == amp) v[0] = 0;
+    if (k[0]) m_set(m, (long)(intptr_t)k, (long)(intptr_t)v);
+    p = amp + 1;
+  }
+}
+long simpler_reply(long code, long text, long line);
+long simpler_request(long port, long line) {
+  int ok = 0; for (int k = 0; simpler_ls[k]; k++) if (atol(simpler_ls[k]) == port) ok = 1;
+  if (!ok) { fprintf(stderr, "%s: this program may not listen on port %ld; add it to the listens line at the top\n", simpler_at(line), port); exit(1); }
+  if (simpler_dry) { printf("would wait for web requests on port %ld\n", port); exit(0); }
+  if (simpler_cfd >= 0) simpler_reply(500, (long)(intptr_t)"the program gave no answer", line);
+  if (simpler_lfd < 0 || simpler_lport != port) {
+    if (simpler_lfd >= 0) close(simpler_lfd);
+    simpler_lfd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int one = 1; if (simpler_lfd >= 0) setsockopt(simpler_lfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+    struct sockaddr_in a; memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_port = htons((unsigned short)port); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (simpler_lfd < 0 || bind(simpler_lfd, (struct sockaddr*)&a, sizeof a) != 0 || listen(simpler_lfd, 16) != 0) { fprintf(stderr, "%s: cannot listen on port %ld: %s\n", simpler_at(line), port, strerror(errno)); exit(1); }
+    simpler_lport = (int)port;
+  }
+  fflush(stdout); gc_idle();
+  for (;;) {
+    int c = accept4(simpler_lfd, 0, 0, SOCK_CLOEXEC);
+    if (c < 0) { if (errno == EINTR || errno == ECONNABORTED) continue; fprintf(stderr, "%s: cannot take a request: %s\n", simpler_at(line), strerror(errno)); exit(1); }
+    struct timeval tv = {10, 0}; setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv); setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    long cap = 8192, n = 0, hend = -1; char* b = (char*)gc_atomic(cap);
+    while (hend < 0) {
+      if (n + 1 >= cap) { if (cap >= 65536) break; cap *= 2; b = (char*)gc_trealloc(b, cap); }
+      long r = read(c, b + n, cap - n - 1); if (r < 0 && errno == EINTR) continue; if (r <= 0) break;
+      n += r; b[n] = 0; char* e = strstr(b, "\r\n\r\n"); if (e) hend = (e - b) + 4;
+    }
+    char* eol = hend > 0 ? strstr(b, "\r\n") : 0; char* sp1 = hend > 0 ? strchr(b, ' ') : 0; char* sp2 = sp1 ? strchr(sp1 + 1, ' ') : 0;
+    if (hend < 0 || !sp1 || !sp2 || sp2 > eol) { close(c); continue; }
+    long blen = 0; char* cl = strcasestr(b, "\r\ncontent-length:"); if (cl && cl < b + hend) blen = atol(cl + 17);
+    if (blen < 0 || blen > (8L << 20)) { simpler_cfd = c; simpler_reqpath[0] = 0; simpler_reply(413, (long)(intptr_t)"the request is too large", line); continue; }
+    long need = hend + blen;
+    if (need + 1 > cap) { cap = need + 1; b = (char*)gc_trealloc(b, cap); }
+    while (n < need) { long r = read(c, b + n, need - n); if (r < 0 && errno == EINTR) continue; if (r <= 0) break; n += r; }
+    if (n < need) { close(c); continue; }
+    b[need] = 0;
+    long m = Map();
+    char* q = memchr(sp1 + 1, '?', sp2 - sp1 - 1); char* pe = q ? q : sp2;
+    if (q) simpler_fields(m, q + 1, sp2);
+    char* ct = strcasestr(b, "\r\ncontent-type: application/x-www-form-urlencoded"); if (ct && ct < b + hend) simpler_fields(m, b + hend, b + need);
+    m_set(m, (long)(intptr_t)"method", s_part(b, 0, sp1 - b));
+    m_set(m, (long)(intptr_t)"path", s_part(b, (sp1 + 1) - b, pe - b));
+    m_set(m, (long)(intptr_t)"query", q ? s_part(b, (q + 1) - b, sp2 - b) : (long)(intptr_t)"");
+    m_set(m, (long)(intptr_t)"body", s_part(b, hend, need));
+    snprintf(simpler_reqpath, sizeof simpler_reqpath, "%.*s", (int)(pe - sp1 - 1), sp1 + 1);
+    simpler_cfd = c;
+    return m;
+  }
+}
+long simpler_reply(long code, long text, long line) {
+  if (simpler_cfd < 0) { fprintf(stderr, "%s: there is no request to answer; call sys.net.request first\n", simpler_at(line)); exit(1); }
+  const char* t = (const char*)(intptr_t)text; long n = (long)strlen(t);
+  const char* why = code == 200 ? "OK" : code == 201 ? "Created" : code == 204 ? "No Content" : code == 301 ? "Moved Permanently" : code == 302 ? "Found" : code == 303 ? "See Other" : code == 400 ? "Bad Request" : code == 403 ? "Forbidden" : code == 404 ? "Not Found" : code == 405 ? "Method Not Allowed" : code == 413 ? "Payload Too Large" : code == 500 ? "Internal Server Error" : "Status";
+  char h[1024]; int hn;
+  if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+    char loc[904]; int k = 0; for (const char* s = t; *s && *s != '\r' && *s != '\n' && k < 896; s++) { if (*s == ' ') { memcpy(loc + k, "%20", 3); k += 3; } else loc[k++] = *s; } loc[k] = 0; /* no line break may add a header */
+    hn = snprintf(h, sizeof h, "HTTP/1.1 %ld %s\r\nLocation: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", code, why, loc); n = 0;
+  } else {
+    const char* ty = "text/plain"; const char* dot = strrchr(simpler_reqpath, '.'); const char* s = t; while (*s == ' ' || *s == '\n' || *s == '\r' || *s == '\t') s++;
+    if (dot && strchr(dot, '/') == 0) { if (!strcmp(dot, ".html") || !strcmp(dot, ".htm")) ty = "text/html"; else if (!strcmp(dot, ".css")) ty = "text/css"; else if (!strcmp(dot, ".js")) ty = "text/javascript"; else if (!strcmp(dot, ".json")) ty = "application/json"; else if (!strcmp(dot, ".svg")) ty = "image/svg+xml"; else if (!strcmp(dot, ".csv")) ty = "text/csv"; else if (!strcmp(dot, ".xml")) ty = "application/xml"; else if (*s == '<') ty = "text/html"; }
+    else if (*s == '<') ty = "text/html"; else if (*s == '{' || *s == '[') ty = "application/json";
+    hn = snprintf(h, sizeof h, "HTTP/1.1 %ld %s\r\nContent-Type: %s; charset=utf-8\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", code, why, ty, n);
+  }
+  simpler_sendall(simpler_cfd, h, hn); simpler_sendall(simpler_cfd, t, n);
+  close(simpler_cfd); simpler_cfd = -1;
+  return 0;
+}
+END
+  net
+}
+
 // The two ends of `for i in a..b`, so the loop counts without making a list.
 rangeArgs(e : Expr) : List[Expr] {
   none : List[Expr] = []
@@ -4580,7 +4763,7 @@ effMethodE(recv : Expr, name : Str, args : List[Expr], used : List[Str], ctx : C
   if (name == "print") || (name == "part") || (name == "error") || (name == "fetchWith") || (name == "readBytes") || (name == "writeBytes") {
     used.push("IO")
   }
-  if (name == "send") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") || (name == "output") || (name == "fetch") || (name == "post") || (name == "reach") {
+  if (name == "send") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") || (name == "output") || (name == "fetch") || (name == "post") || (name == "reach") || (name == "request") || (name == "reply") {
     used.push("IO")
   }
   if name == "read" {
@@ -5500,7 +5683,7 @@ capNeed(name : Str) : Str {
   if (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "feed") || (name == "output") {
     r = "Programs"
   }
-  if (name == "fetch") || (name == "post") || (name == "reach") || (name == "fetchWith") {
+  if (name == "fetch") || (name == "post") || (name == "reach") || (name == "fetchWith") || (name == "request") || (name == "reply") {
     r = "Net"
   }
   if (name == "date") || (name == "dateAs") || (name == "secsOf") || (name == "sleep") {
@@ -5691,10 +5874,10 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "wait") || (name == "sleep") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "wait") || (name == "sleep") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") || (name == "request") {
     r = 1
   }
-  if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") {
+  if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") || (name == "reply") {
     r = 2
   }
   if (name == "feed") || (name == "output") || (name == "send") {
@@ -5815,6 +5998,16 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     wantType(args.at(0), "Str", name, ctx)
     wantType(args.at(1), "Str", name, ctx)
     r = "simpler_fetch(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", 1, ").concat(ln).concat(")")
+  }
+  if name == "request" {
+    listenCheck(args.at(0), ctx)
+    wantType(args.at(0), "Int", name, ctx)
+    r = "simpler_request(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "reply" {
+    wantType(args.at(0), "Int", name, ctx)
+    wantType(args.at(1), "Str", name, ctx)
+    r = "simpler_reply(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(emitExpr(args.at(1), ctx)).concat(", ").concat(ln).concat(")")
   }
   if name == "date" {
     wantType(args.at(0), "Int", name, ctx)
@@ -6309,6 +6502,9 @@ methodRet(recv : Expr, name : Str, ctx : Ctx) : Str !Mut {
   }
   if name == "exists" {
     r = "Bool"
+  }
+  if name == "request" {
+    r = "Map[Str]"
   }
   if (name == "run") || (name == "try") || (name == "feed") || (name == "output") || (name == "fetch") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "date") || (name == "var") || (name == "wait") {
     r = "Str"

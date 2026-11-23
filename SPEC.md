@@ -408,6 +408,8 @@ nothing at runtime.
 | `sys.net.fetchWith(url, headers)` | `Str` | `!IO` | like `fetch`, with a `List[Str]` of header lines such as `"X-Key: abc"` (at most 16, one line each) |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
 | `sys.net.post(url, body)` | `Str` | `!IO` | send `body` to a web address and give the answer |
+| `sys.net.request(port)` | `Map[Str]` | `!IO` | wait for the next web request on a port from the `listens` line and give its `method`, `path`, `query` and `body`, plus each field of the query and of a form, decoded; a request left without a reply gets 500 |
+| `sys.net.reply(code, text)` | — | `!IO` | answer the request with `text`; its type follows the path's ending, or else its first character (`<` html, `{` or `[` json, else plain text); for 301, 302, 303, 307 and 308 `text` is the address to go to |
 | `sys.mail.send(to, subject, body)` | `Int` | `!IO` | send one mail through the machine's `sendmail` (or the program named in the variable `SIMPLER_SENDMAIL`); `to` is one address on the `mails` line, or one that a `"*@example.com"` entry on it covers; the program stops when the address is not allowed or the mail could not be handed over |
 | `sys.clock.now` | `Int` | — | seconds since 1970 |
 | `sys.clock.millis` | `Int` | — | thousandths of a second since 1970 |
@@ -446,6 +448,9 @@ runs "git", "ffmpeg"
 fetches "api.github.com"
 mails "me@example.com"
 ```
+
+A `listens` line names each port the program may answer web requests on:
+`listens 8080`. It answers on 127.0.0.1 only, so only this machine can reach it.
 
 A program is started with its arguments as a list, never through a shell, so
 no text can turn into a second command. A web address is fetched with `curl`,
@@ -546,6 +551,8 @@ So `runs "sh"` gives a shell that can read and write only what the top lines nam
 - With no `fetches` line no program in the tree can open a TCP connection
   (Linux 6.7). With one, the kernel lets the net through, and the host check
   stays with `sys.net`: a started program could reach any host.
+- No program in the tree can listen on a port the `listens` line does not name
+  (Linux 6.7).
 - No program in the tree can become root, or signal a program outside it (Linux 6.12).
 - Mail is handed to a helper that starts before the lock. It checks the address
   again and runs the mail program, which needs its own settings files.
@@ -707,7 +714,7 @@ main(sys) {
 - A module is plain Simpler. It has no `main`, so it never holds `sys`: what
   it may touch is handed to it as a parameter (`t : Term`, `fs : Files`), and
   its functions carry the same effect marks as any other.
-- A module has no `reads`, `writes`, `runs`, `fetches` or `mails` line. Those
+- A module has no `reads`, `writes`, `runs`, `fetches`, `mails` or `listens` line. Those
   stay at the top of the program, and they bind the module's code too.
   `simpler what` lists a module's reach with the program's, as
   `(in tui.show)`.

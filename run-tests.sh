@@ -1791,7 +1791,7 @@ if [ "$(moderr 'uses "shape"\nmain(sys) {\n  sys.screen.print(shape.nope(1))\n}\
 if [ "$(moderr 'uses "../shape"\nmain(sys) {\n}\n')" = 'bad.smplr:1: a module name has only letters, digits and _' ]; then ok; else nope "a module name with a path in it (got: $(moderr 'uses "../shape"\nmain(sys) {\n}\n'))"; fi
 printf 'reads "x"\nf() : Int {\n  1\n}\n' > "$TMP/mod/m1.smplr"; printf 'main(sys) {\n}\n' > "$TMP/mod/m2.smplr"; printf 'f(x : Int) : Int {\n  x +\n}\n' > "$TMP/mod/m3.smplr"
 modbad="$( for m in m1 m2 m3; do moderr "uses \"$m\"\nmain(sys) {\n}\n"; done | tr '\n' '|' )"
-if [ "$modbad" = 'm1.smplr:1: a module has no reads, writes, runs, fetches or mails line; those belong to the program that uses it|m2.smplr:1: a module has no main; main belongs to the program that uses it|m3.smplr:3: expected a value, found }|' ]; then ok; else nope "what a module may not have (got: $modbad)"; fi
+if [ "$modbad" = 'm1.smplr:1: a module has no reads, writes, runs, fetches, mails or listens line; those belong to the program that uses it|m2.smplr:1: a module has no main; main belongs to the program that uses it|m3.smplr:3: expected a value, found }|' ]; then ok; else nope "what a module may not have (got: $modbad)"; fi
 # screen.error prints to stderr and goes on; a module used without its uses line gets a hint.
 printf 'main(sys) {\n  sys.screen.print("a")\n  sys.screen.error("b")\n  sys.screen.print("c")\n}\n' > "$TMP/mod/err.smplr"
 printf 'main(sys) {\n  o = zork.parse(sys.args, "v", "")\n}\n' > "$TMP/mod/nouses.smplr"
@@ -2038,6 +2038,48 @@ CHURN
 churnout="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run churn.smplr 2>&1 )"
 if [ -n "${SAN:-}" ]; then echo "SKIP: memory comes back (a sanitizer needs more than the limit)"
 elif [ "$churnout" = "8000000" ]; then ok; else nope "memory comes back (got: $churnout)"; fi
+
+# A program listens on the port it names: query and form fields come decoded,
+# a redirect cannot add a header, and the content type follows the text.
+reject "listening with no listens line" \
+    'main(sys) { r = sys.net.request(8099) }' 'say which at the top, as in: listens 8080'
+reject "listening on a port not on the listens line" \
+    'listens 8099
+main(sys) { r = sys.net.request(8100) }' 'may not listen on port 8100'
+cat > "$TMP/ex/web.smplr" <<'WEB'
+listens 18099
+main(sys) {
+  count = 0
+  while count < 4 {
+    req = sys.net.request(18099)
+    count = count + 1
+    if req.get("path") == "/hello" {
+      sys.net.reply(200, "<h1>Hello " + req.get("name") + "</h1>")
+    } else if req.get("method") == "POST" {
+      sys.net.reply(303, "/hello?name=" + req.get("who"))
+    } else {
+      sys.net.reply(404, "not found: " + req.get("path"))
+    }
+  }
+  sys.screen.print("served " + count.toStr)
+}
+WEB
+if ! command -v curl >/dev/null; then echo "SKIP: a web server (no curl)"
+else
+    webdry="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run --dry web.smplr 2>&1 )"
+    ( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" build web.smplr -o web >/dev/null 2>&1 )
+    "$TMP/ex/web" > "$TMP/ex/web.out" 2>&1 &
+    webpid=$!
+    w="http://127.0.0.1:18099"
+    for i in $(seq 100); do webout="$(curl -s -o /dev/null -w '%{http_code}' "$w/ping")" && break; sleep 0.05; done
+    webout="$webout|$(curl -s "$w/hello?name=Ada+L%21")"
+    webout="$webout|$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -d 'who=Bob%0D%0AX-Evil:%201' "$w/form")"
+    webout="$webout|$(curl -s -w ' %{content_type}' "$w/hello?name=Cy")"
+    for i in $(seq 100); do kill -0 "$webpid" 2>/dev/null || break; sleep 0.05; done
+    kill "$webpid" 2>/dev/null; wait "$webpid" 2>/dev/null
+    webout="$webdry|$webout|$(cat "$TMP/ex/web.out")"
+    if [ "$webout" = "would wait for web requests on port 18099|404|<h1>Hello Ada L!</h1>|303 $w/hello?name=Bob|<h1>Hello Cy</h1> text/html; charset=utf-8|served 4" ]; then ok; else nope "a web server (got: $webout)"; fi
+fi
 
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
