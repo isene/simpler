@@ -2081,6 +2081,34 @@ else
     if [ "$webout" = "would wait for web requests on port 18099|404|<h1>Hello Ada L!</h1>|303 $w/hello?name=Bob|<h1>Hello Cy</h1> text/html; charset=utf-8|served 4" ]; then ok; else nope "a web server (got: $webout)"; fi
 fi
 
+# A program on a terminal of its own is typed into and shows what it printed;
+# end stops it with every program it started, and gives the exit status.
+reject "driving a program not on the runs line" \
+    'runs "sh"
+main(sys) { t = sys.programs.drive("bash", []) }' 'may not run "bash"'
+cat > "$TMP/ex/drive.smplr" <<'DRV'
+runs "sh"
+main(sys) {
+  t = sys.programs.drive("sh", ["-c", "printf 'name? '; read x; echo hi $x; sleep 4321 & wait"])
+  sys.screen.print(sys.programs.shown(t, 5000).trim)
+  sys.programs.press(t, "Ada\r")
+  out = ""
+  tries = 0
+  while (out.contains("hi Ada").not) && (tries < 50) {
+    out = out + sys.programs.shown(t, 100)
+    tries = tries + 1
+  }
+  sys.screen.print(out.contains("hi Ada"))
+  sys.screen.print(sys.programs.end(t))
+  u = sys.programs.drive("sh", ["-c", "exit 3"])
+  sys.screen.print(sys.programs.shown(u, 5000).length)
+  sys.screen.print(sys.programs.end(u))
+}
+DRV
+drvout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" run --dry drive.smplr 2>&1 | head -1; "$OLDPWD/simpler" run drive.smplr 2>&1; pgrep -ax sleep | grep -c 4321 )"
+drvout="$(printf '%s' "$drvout" | tr '\n' '|')"
+if [ "$drvout" = "would start sh -c printf 'name? '; read x; echo hi \$x; sleep 4321 & wait on a terminal of its own|name?|true|129|0|3|0" ]; then ok; else nope "a program on a terminal of its own (got: $drvout)"; fi
+
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
 cat > "$TMP/un/und.smplr" <<'UNT'

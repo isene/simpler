@@ -181,7 +181,9 @@ main(sys) {
   it fails); `sys.programs.try("pgrep", ["-x", "vim"])` gives what it printed, or "" when it fails,
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
   and lets it print to the screen; `sys.programs.start("mpv", [file])` starts it, does not wait,
-  and gives its process number;
+  and gives its process number; `t = sys.programs.drive("sh", [])` starts it on a terminal of its own:
+  `sys.programs.press(t, "ls\r")` types, `sys.programs.shown(t, 500)` gives what it printed (waits up to
+  500 ms), and `sys.programs.end(t)` stops it and all it started and gives its exit status;
   `sys.programs.feed("sort", [], text)` is `run` with `text` as its input;
   `sys.programs.output(name, args, text)` is `feed` that goes on when the program fails. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.

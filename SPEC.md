@@ -404,6 +404,10 @@ nothing at runtime.
 | `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
 | `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
 | `sys.programs.start(name, args)` | `Int` | `!IO` | start it without waiting, in a session of its own with no input, and give its process number (-1 if it could not start); the name obeys `runs` |
+| `sys.programs.drive(name, args)` | `Int` | `!IO` | start it on a terminal of its own (24 rows, 80 columns) and give a number for the three calls below; at most 4 at once; the name obeys `runs` |
+| `sys.programs.press(t, text)` | `Int` | `!IO` | type `text` into it as keys; `"\r"` is Enter |
+| `sys.programs.shown(t, ms)` | `Str` | `!IO` | what it printed since the last call: waits up to `ms` milliseconds for output, then reads on until it is quiet for 30 ms; `""` when nothing came or it has ended |
+| `sys.programs.end(t)` | `Int` | `!IO` | stop it and every program it started, and give its exit status (128 plus the signal's number when a signal stopped it) |
 | `sys.net.fetch(url)` | `Str` | `!IO` | the body at a web address; the program stops unless the answer is a 2xx |
 | `sys.net.fetchWith(url, headers)` | `Str` | `!IO` | like `fetch`, with a `List[Str]` of header lines such as `"X-Key: abc"` (at most 16, one line each) |
 | `sys.net.reach(url)` | `Int` | `!IO` | the status a web address answers with (200, 404, ...), or 0 when nothing answers; never stops the program |
@@ -553,6 +557,8 @@ So `runs "sh"` gives a shell that can read and write only what the top lines nam
   stays with `sys.net`: a started program could reach any host.
 - No program in the tree can listen on a port the `listens` line does not name
   (Linux 6.7).
+- No program in the tree can open a terminal. The four terminals for
+  `sys.programs.drive` are made before the lock, only when the code uses it.
 - No program in the tree can become root, or signal a program outside it (Linux 6.12).
 - Mail is handed to a helper that starts before the lock. It checks the address
   again and runs the mail program, which needs its own settings files.
