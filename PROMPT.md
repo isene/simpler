@@ -182,7 +182,8 @@ main(sys) {
   and hides its error text; `sys.programs.status("grep", ["-q", "x", "f"])` gives its exit status
   and lets it print to the screen; `sys.programs.start("mpv", [file])` starts it, does not wait,
   and gives its process number;
-  `sys.programs.feed("sort", [], text)` is `run` with `text` as its input. Arguments are a
+  `sys.programs.feed("sort", [], text)` is `run` with `text` as its input;
+  `sys.programs.output(name, args, text)` is `feed` that goes on when the program fails. Arguments are a
   `List[Str]`, one item each, no shell. The top says which: `runs "git", "grep"`.
   A program you run is held to your `reads` and `writes` lines too: name each file or folder it reads or writes.
 - When the task shows input with the output it wants, put it at the top: `example "3 4", "7"` (the input, the output,

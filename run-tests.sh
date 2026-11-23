@@ -1152,6 +1152,13 @@ main(sys) {
 }' > "$TMP/input.smplr"
 ( cd "$TMP" && ./seedc > feed.c 2>/dev/null && cc -w -o feed feed.c 2>/dev/null )
 if [ "$( cd "$TMP" && ./feed 2>&1 | tr '\n' '|' )" = "HELLO|a b |0|" ]; then ok; else nope "feeding text to a program, and a host that does not answer"; fi
+printf '%s' 'runs "sh"
+main(sys) {
+  sys.screen.print(sys.programs.output("sh", ["-c", "cat; exit 3"], "kept\n").trim)
+  sys.screen.print("after")
+}' > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > output.c 2>/dev/null && cc -w -o output output.c 2>/dev/null )
+if [ "$( cd "$TMP" && ./output 2>&1 | tr '\n' '|' )" = "kept|after|" ]; then ok; else nope "what a failing program printed is kept"; fi
 printf '%s' 'main(sys) {
   s = "key=Value=x"
   p = s.find("=")

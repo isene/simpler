@@ -400,6 +400,7 @@ nothing at runtime.
 | `sys.files.delete(path)` | — | `!IO` | delete a file or an empty folder; the program stops if it cannot |
 | `sys.programs.run(name, args)` | `Str` | `!IO` | run another program with a `List[Str]` of arguments and give what it printed; the program stops if it fails |
 | `sys.programs.feed(name, args, text)` | `Str` | `!IO` | like `run`, with `text` as the program's standard input |
+| `sys.programs.output(name, args, text)` | `Str` | `!IO` | like `feed`, but a program that fails still gives what it printed, and this program goes on |
 | `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
 | `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
 | `sys.programs.start(name, args)` | `Int` | `!IO` | start it without waiting, in a session of its own with no input, and give its process number (-1 if it could not start); the name obeys `runs` |
