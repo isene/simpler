@@ -2109,6 +2109,46 @@ drvout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cac
 drvout="$(printf '%s' "$drvout" | tr '\n' '|')"
 if [ "$drvout" = "would start sh -c printf 'name? '; read x; echo hi \$x; sleep 4321 & wait on a terminal of its own|name?|true|129|0|3|0" ]; then ok; else nope "a program on a terminal of its own (got: $drvout)"; fi
 
+# xs.parallel(f) runs f on all cores and keeps the list order; f has no !IO and
+# gives a plain value; an item that fails stops the program with its error.
+reject "parallel with a function that prints" \
+    'show(n : Int) : Int !IO {
+  n
+}
+main(sys) { ys = [1, 2].parallel(show) }' 'show has !IO; a function that runs in parallel may not print'
+reject "parallel with a name that is no function" \
+    'main(sys) { ys = [1, 2].parallel(nope) }' 'parallel takes the name of one of your functions'
+reject "parallel with a function that gives a list" \
+    'pair(n : Int) : List[Int] {
+  [n, n]
+}
+main(sys) { ys = [1, 2].parallel(pair) }' 'parallel gives back an Int, Float, Bool or Str, and pair gives List[Int]'
+cat > "$TMP/ex/par.smplr" <<'PAR'
+square(n : Int) : Int {
+  n * n
+}
+name(n : Int) : Str {
+  "item " + n.toStr
+}
+pick(n : Int) : Int {
+  [1, 2, 3].at(n)
+}
+main(sys) {
+  xs : List[Int] = []
+  for i in 0..1000 {
+    xs.push(i)
+  }
+  sq = xs.parallel(square)
+  total = 0
+  sq.each { s in total = total + s }
+  sys.screen.print(total.toStr + " " + sq.at(999).toStr + " " + xs.parallel(name).at(7))
+  sys.screen.print([0, 1, 7].parallel(pick).length)
+}
+PAR
+parout="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run par.smplr 2>&1; echo "rc=$?" )"
+parout="$(printf '%s' "$parout" | tr '\n' '|')"
+if [ "$parout" = "332833500 998001 item 7|par.smplr:8: list index 7, but the list has 3 items|rc=1" ]; then ok; else nope "parallel (got: $parout)"; fi
+
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
 cat > "$TMP/un/und.smplr" <<'UNT'

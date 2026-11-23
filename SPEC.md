@@ -336,6 +336,9 @@ them must link it: `cc out.c -o out -lm`.
 `xs.set(i, x)` (put `x` at place `i`), `xs.remove(i)` (take the item at `i` out and give it;
 the last one is `xs.remove(xs.length - 1)`),
 `xs.sort` (new sorted `List[T]`), `xs.join(sep)` (a `List[Str]` as one text, `sep` between the items), `xs.each { x in ... }`.
+`xs.parallel(f)` runs your function `f` on each item, on every core at once, and gives
+the results in list order. `f` takes one item, gives an `Int`, `Float`, `Bool` or `Str`,
+and has no `!IO`. Each core runs a process of its own with its own memory.
 
 **`Map`**: `m.set(k, v)`, `m.get(k)` (value type), `m.has(k)` (`Bool`),
 `m.keys` (`List[Str]`), `m.byValue` (`List[Str]`, descending by value).

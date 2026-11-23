@@ -219,7 +219,8 @@ main(sys) {
 - Int: `n.toStr`, `n.toFloat`, `n.abs`, bits: `a.bitAnd(b)`, `a.bitOr(b)`, `a.bitXor(b)`, `a.shl(n)`, `a.shr(n)`. Float: `x.toStr`, `x.toInt`, `x.sqrt`, `x.floor`, `x.ceil`, `x.round`, `x.abs`, `x.pow(y)`, `x % y`. Bool: `b.not`
 - List: `xs.length`, `xs.at(i)`, `xs.push(x)`, `xs.set(i, x)`, `xs.slice(a, b)` (a new list; `xs.slice(a)` runs to the end), `xs.remove(i)` (takes the item out and
   gives it; a stack pop is `xs.remove(xs.length - 1)`), `xs.sort` (a new sorted list),
-  `xs.join(sep)` (a list of texts as one text)
+  `xs.join(sep)` (a list of texts as one text), `xs.parallel(f)` (your function `f` on each item on all
+  cores at once, results in list order; `f` takes one item, gives an Int, Float, Bool or Str, and has no `!IO`)
 - Map: `m.set(k, v)`, `m.get(k)` (0 or "" when absent; a map of lists or of your own types has no empty
   value, so there the program stops: ask `m.has(k)` first), `m.has(k)`, `m.remove(k)`, `m.keys`, `m.byValue` (keys, highest value first)
 

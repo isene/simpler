@@ -612,6 +612,7 @@ main(sys) {
   sys.screen.print("static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
   sys.screen.print("long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); if (simpler_would(post ? \"post to\" : \"fetch\", (const char*)(intptr_t)url, 0, 0)) return (long)(intptr_t)\"\"; long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }")
   sys.screen.print(netRuntime())
+  sys.screen.print(parRuntime())
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); if (simpler_would(\"reach\", (const char*)(intptr_t)url, 0, 0)) return 200; long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
   sys.screen.print("static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;")
   sys.screen.print("typedef struct { char g[6]; unsigned short st; } SCell; static SCell* simpler_back = 0; static SCell* simpler_front = 0; static long simpler_tr = 0, simpler_tc = 0; static int simpler_all = 1; static volatile sig_atomic_t simpler_winched = 0; static char simpler_sty[1024][40]; static int simpler_nsty = 1; static char* simpler_ob = 0; static long simpler_on = 0, simpler_ocap = 0;")
@@ -3747,6 +3748,162 @@ END
   net
 }
 
+parRuntime() : Str {
+  par = <<END
+/* xs.parallel(f): f runs on each item in worker processes, one per core.
+   Each worker has its own memory and collector, takes the next item from a
+   shared counter, and sends each result back on a pipe; the results come
+   back in list order. kind 0: an 8-byte value (Int, Bool, Float); 1: Str. */
+#include <sched.h>
+static int simpler_par_put(int fd, const char* p, long n) {
+  while (n > 0) { ssize_t w = write(fd, p, (size_t)n); if (w < 0) { if (errno == EINTR) continue; return -1; } p += w; n -= w; }
+  return 0;
+}
+long simpler_parallel(long xs, long (*f)(long), long kind, long line) {
+  long n = l_len(xs), out = l_new();
+  long w = 1;
+  cpu_set_t cs;
+  if (sched_getaffinity(0, sizeof cs, &cs) == 0) w = CPU_COUNT(&cs);
+  if (w > n) w = n;
+  if (w <= 1) { for (long i = 0; i < n; i++) l_push(out, f(l_at(xs, i))); return out; }
+  long* next = (long*)mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  if (next == MAP_FAILED) { fprintf(stderr, "%s: parallel: no shared memory: %s\n", simpler_at(line), strerror(errno)); exit(1); }
+  *next = 0;
+  int* fd = (int*)gc_atomic(w * sizeof(int));
+  pid_t* pid = (pid_t*)gc_atomic(w * sizeof(pid_t));
+  fflush(stdout); fflush(stderr);
+  for (long k = 0; k < w; k++) {
+    int p[2];
+    if (pipe(p) != 0) { fprintf(stderr, "%s: parallel: %s\n", simpler_at(line), strerror(errno)); exit(1); }
+    pid[k] = fork();
+    if (pid[k] < 0) { fprintf(stderr, "%s: parallel: cannot start a worker: %s\n", simpler_at(line), strerror(errno)); exit(1); }
+    if (pid[k] == 0) {
+      close(p[0]);
+      for (;;) {
+        long i = __atomic_fetch_add(next, 1, __ATOMIC_SEQ_CST);
+        if (i >= n) break;
+        long r = f(l_at(xs, i));
+        long hd[2] = {i, kind ? (long)strlen((const char*)(intptr_t)r) : 8};
+        if (simpler_par_put(p[1], (const char*)hd, sizeof hd) != 0) _exit(1);
+        if (simpler_par_put(p[1], kind ? (const char*)(intptr_t)r : (const char*)&r, hd[1]) != 0) _exit(1);
+      }
+      _exit(0);
+    }
+    close(p[1]);
+    fd[k] = p[0];
+  }
+  long* res = (long*)gc_malloc(n * sizeof(long));
+  char* got = (char*)gc_atomic(n);
+  memset(got, 0, n);
+  char** buf = (char**)gc_malloc(w * sizeof(char*));
+  long* len = (long*)gc_atomic(w * sizeof(long));
+  long* cap = (long*)gc_atomic(w * sizeof(long));
+  struct pollfd* pf = (struct pollfd*)gc_atomic(w * sizeof(struct pollfd));
+  for (long k = 0; k < w; k++) { cap[k] = 65536; len[k] = 0; buf[k] = (char*)gc_atomic(cap[k]); pf[k].fd = fd[k]; pf[k].events = POLLIN; }
+  long open = w;
+  while (open > 0) {
+    if (poll(pf, (nfds_t)w, -1) < 0) { if (errno == EINTR) continue; break; }
+    for (long k = 0; k < w; k++) {
+      if (pf[k].fd < 0 || !(pf[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+      if (cap[k] - len[k] < 65536) { cap[k] *= 2; buf[k] = (char*)gc_trealloc(buf[k], cap[k]); }
+      ssize_t r = read(pf[k].fd, buf[k] + len[k], (size_t)(cap[k] - len[k]));
+      if (r < 0 && errno == EINTR) continue;
+      if (r > 0) { len[k] += r; continue; }
+      close(pf[k].fd); pf[k].fd = -1; open--;
+      /* the whole stream is in: take its results out */
+      long at = 0;
+      while (at + 16 <= len[k]) {
+        long hd[2]; memcpy(hd, buf[k] + at, 16); at += 16;
+        if (hd[0] < 0 || hd[0] >= n || hd[1] < 0 || at + hd[1] > len[k]) break;
+        if (kind) { char* s = (char*)gc_atomic(hd[1] + 1); memcpy(s, buf[k] + at, hd[1]); s[hd[1]] = 0; res[hd[0]] = (long)(intptr_t)s; }
+        else memcpy(&res[hd[0]], buf[k] + at, 8);
+        got[hd[0]] = 1; at += hd[1];
+      }
+      buf[k] = 0;
+    }
+  }
+  int failed = 0;
+  for (long k = 0; k < w; k++) { int st = 0; while (waitpid(pid[k], &st, 0) < 0 && errno == EINTR) {} if (!failed && !(WIFEXITED(st) && WEXITSTATUS(st) == 0)) failed = WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st); }
+  munmap(next, 4096);
+  if (failed) exit(failed);
+  for (long i = 0; i < n; i++) { if (!got[i]) { fprintf(stderr, "%s: parallel: item %ld gave no result\n", simpler_at(line), i); exit(1); } l_push(out, res[i]); }
+  return out;
+}
+END
+  par
+}
+
+// xs.parallel(f) runs the named function f on each item, on all cores, and
+// gives the results in list order. f takes one item and touches nothing
+// outside (no !IO), and gives an Int, Float, Bool or Str.
+emitParallel(recvC : Str, t : Str, args : List[Expr], ctx : Ctx, ln : Str) : Str !Mut {
+  fname = parName(args.at(0))
+  k = 0
+  at = -1
+  while k < ctx.sigs.fns.length {
+    if ctx.sigs.fns.at(k).name == fname {
+      at = k
+    }
+    k = k + 1
+  }
+  if at < 0 {
+    failAt("parallel takes the name of one of your functions, as in: xs.parallel(double)", ctx)
+  }
+  f = ctx.sigs.fns.at(at)
+  if isListType(t).not {
+    failAt("parallel works on a list, and this is ".concat(capShow(t)), ctx)
+  }
+  if (f.params.length == 1).not {
+    failAt(fname.concat(" must take one value to run in parallel"), ctx)
+  }
+  if (f.ptypes.at(0) != "") && (f.ptypes.at(0) != elemOf(t)) {
+    failAt(fname.concat(" takes ").concat(capShow(f.ptypes.at(0))).concat(", but the list holds ").concat(capShow(elemOf(t))), ctx)
+  }
+  if hasName(f.effs, "IO") {
+    failAt(fname.concat(" has !IO; a function that runs in parallel may not print or touch files, programs or the net"), ctx)
+  }
+  ret = callRet(fname, ctx)
+  kind = "-1"
+  if (ret == "Int") || (ret == "Bool") || (ret == "Float") {
+    kind = "0"
+  }
+  if ret == "Str" {
+    kind = "1"
+  }
+  if kind == "-1" {
+    failAt("parallel gives back an Int, Float, Bool or Str, and ".concat(fname).concat(" gives ").concat(capShow(ret)), ctx)
+  }
+  "simpler_parallel(".concat(recvC).concat(", ").concat(mangle(fname)).concat(", ").concat(kind).concat(", ").concat(ln).concat(")")
+}
+
+// The type of a method call; parallel needs its argument to know it.
+parRet(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
+  r = ""
+  if (name == "parallel") && (args.length == 1) {
+    r = "List[".concat(callRet(parName(args.at(0)), ctx)).concat("]")
+  } else {
+    r = methodRet(recv, name, ctx)
+  }
+  r
+}
+
+// The function named in xs.parallel(f), or "" when it is not a bare name.
+parName(e : Expr) : Str {
+  e.match {
+    Num(n) -> ""
+    FloatLit(s) -> ""
+    Var(s) -> s
+    StrLit(s) -> ""
+    ListLit(xs) -> ""
+    Bin(op, a, b) -> ""
+    Call(name, args) -> ""
+    Match(x, arms) -> ""
+    Field(x, f) -> ""
+    Method(x, name, args) -> ""
+    Each(x, name, body) -> ""
+  }
+}
+
 // True when the word appears as a name anywhere in the program.
 usesWord(toks : Lexed, word : Str) : Bool {
   r = false
@@ -6018,7 +6175,7 @@ checkSysField(t : Str, fld : Str, ctx : Ctx) : Int {
 // How many values a built-in method takes; -1 for a name that is no method.
 methodArgs(name : Str) : Int {
   r = 0 - 1
-  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "wait") || (name == "sleep") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") || (name == "request") || (name == "end") {
+  if isTextMethod(name) || (name == "print") || (name == "read") || (name == "list") || (name == "exists") || (name == "wait") || (name == "sleep") || (name == "delete") || (name == "remove") || (name == "bitAnd") || (name == "bitOr") || (name == "bitXor") || (name == "shl") || (name == "shr") || (name == "fetch") || (name == "reach") || (name == "part") || (name == "error") || (name == "atan2") || (name == "pow") || (name == "atan2_c") || (name == "pow_c") || (name == "readBytes") || (name == "floatAt") || (name == "secsOf") || (name == "date") || (name == "var") || (name == "mod") || (name == "atan2") || (name == "get") || (name == "has") || (name == "ge") || (name == "le") || (name == "and") || (name == "or") || (name == "send") || (name == "request") || (name == "end") || (name == "parallel") {
     r = 1
   }
   if (name == "setVar") || (name == "slice") || (name == "replace") || (name == "write") || (name == "append") || (name == "rename") || (name == "set") || (name == "run") || (name == "status") || (name == "start") || (name == "try") || (name == "post") || (name == "fetchWith") || (name == "dateAs") || (name == "writeBytes") || (name == "textAt") || (name == "intAt") || (name == "findByte") || (name == "reReplace") || (name == "reply") || (name == "drive") || (name == "press") || (name == "shown") {
@@ -6147,6 +6304,9 @@ emitMethod0(recv : Expr, name : Str, args : List[Expr], ctx : Ctx) : Str !Mut {
     listenCheck(args.at(0), ctx)
     wantType(args.at(0), "Int", name, ctx)
     r = "simpler_request(".concat(emitExpr(args.at(0), ctx)).concat(", ").concat(ln).concat(")")
+  }
+  if name == "parallel" {
+    r = emitParallel(recvC, t, args, ctx, ln)
   }
   if name == "drive" {
     runCheck(args.at(0), ctx)
@@ -6507,7 +6667,7 @@ exprType(e : Expr, ctx : Ctx) : Str !Mut {
     Call(name, args) -> callRet(name, ctx)
     Match(scrut, arms) -> matchType(scrut, arms, ctx)
     Field(recv, fld) -> fieldType(recv, fld, ctx)
-    Method(recv, name, args) -> methodRet(recv, name, ctx)
+    Method(recv, name, args) -> parRet(recv, name, args, ctx)
     Each(recv, param, body) -> "Int"
   }
 }
