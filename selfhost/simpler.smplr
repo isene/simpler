@@ -279,6 +279,7 @@ main(sys) {
     sys.screen.print(whatProg(prog, sigs))
     return
   }
+  sys.screen.print("#define _GNU_SOURCE")
   sys.screen.print("#include <stdio.h>")
   sys.screen.print("#include <stdlib.h>")
   sys.screen.print("#include <stdint.h>")
@@ -297,6 +298,7 @@ main(sys) {
   sys.screen.print("#include <poll.h>")
   sys.screen.print("#include <sys/inotify.h>")
   sys.screen.print("#include <sys/resource.h>")
+  sys.screen.print(gcRuntime())
   fl = "static const char* simpler_fl[] = {"
   q = 0
   while q < files.length {
@@ -327,7 +329,7 @@ main(sys) {
   // Long texts have four places of their own in the cache, so short ones never push them out.
   sys.screen.print("typedef struct { const char* p; long nb, nl, cl, cb; } SL; static SL sl_e[8]; static int sl_k[2]; static SL* sl_last = sl_e; static SL* s_info_slow(const char* p) { for (int k = 0; k < 8; k++) if (sl_e[k].p == p) { sl_last = &sl_e[k]; return sl_last; } long n = strlen(p), m = 0; for (long k = 0; k < n; k++) m += ((unsigned char)p[k] & 192) == 128; int big = n >= 512; SL* e = &sl_e[big * 4 + sl_k[big]]; sl_k[big] = (sl_k[big] + 1) & 3; sl_last = e; e->p = p; e->nb = n; e->nl = n - m; e->cl = 0; e->cb = 0; return e; } static inline SL* s_info(const char* p) { if (sl_last->p == p) return sl_last; return s_info_slow(p); }")
   sys.screen.print("static long s_off_slow(SL* e, long i) { if (i >= e->nl) return e->nb; if (i <= 0) return 0; const unsigned char* p = (const unsigned char*)e->p; long l = e->cl, b = e->cb; if (i < l - i) { l = 0; b = 0; } while (l < i) { b++; while ((p[b] & 192) == 128) b++; l++; } while (l > i) { b--; while (b > 0 && (p[b] & 192) == 128) b--; l--; } e->cl = l; e->cb = b; return b; } static inline long s_off(SL* e, long i) { if (e->nb == e->nl) return i; return s_off_slow(e, i); }")
-  sys.screen.print("static char* s_ar; static long s_arn; static char* s_alloc(long n) { if (n > 256) return (char*)malloc(n); if (s_arn < n) { s_ar = (char*)malloc(65536); s_arn = 65536; } char* r = s_ar; s_ar += n; s_arn -= n; return r; } static long s_part(const char* p, long a, long b) { long n = b - a; char* r = s_alloc(n + 1); memcpy(r, p + a, n); r[n] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("static char* s_alloc(long n) { return (char*)gc_atomic(n); } static long s_part(const char* p, long a, long b) { long n = b - a; char* r = s_alloc(n + 1); memcpy(r, p + a, n); r[n] = 0; return (long)(intptr_t)r; }")
   // A one-letter text is made once and shared, so reading a text letter by letter asks for no memory.
   sys.screen.print("static char s_one[512]; static char* s_mb[1024]; static long s_let(const char* p, long a, long b) { long n = b - a; if (n == 1) { if (!s_one[2]) for (int k = 0; k < 256; k++) s_one[2 * k] = (char)k; return (long)(intptr_t)&s_one[2 * (unsigned char)p[a]]; } if (n < 1) return s_part(p, a, a); unsigned h = 0; for (long k = 0; k < n; k++) h = h * 31 + (unsigned char)p[a + k]; char** e = &s_mb[h & 1023]; if (*e && strncmp(*e, p + a, n) == 0 && (*e)[n] == 0) return (long)(intptr_t)*e; *e = (char*)(intptr_t)s_part(p, a, b); return (long)(intptr_t)*e; }")
   sys.screen.print("static inline long s_each(long s, long* b) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long a = *b, e = a + 1; while ((p[e] & 192) == 128) e++; *b = e; return s_let((const char*)p, a, e); } long s_lenp(const char* p) { return s_info(p)->nl; }")
@@ -349,44 +351,44 @@ main(sys) {
   sys.screen.print("static inline long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) return (long)(intptr_t)\"\"; long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }")
   sys.screen.print("long s_code(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long c = p[0]; int n = c >= 240 ? 3 : c >= 224 ? 2 : c >= 192 ? 1 : 0; long v = c & (63 >> n); for (int k = 1; k <= n; k++) { if ((p[k] & 192) != 128) return c; v = (v << 6) | (p[k] & 63); } return n ? v : c; }")
   sys.screen.print("static inline long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }")
-  sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)malloc(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
+  sys.screen.print("long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)gc_atomic(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }")
   sys.screen.print("static inline long s_eq(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; return x == y || (x[0] == y[0] && strcmp(x, y) == 0); }")
-  sys.screen.print("long i_tostr(long n) { char* r = (char*)malloc(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
+  sys.screen.print("long i_tostr(long n) { char* r = (char*)gc_atomic(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }")
   sys.screen.print("double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }")
   sys.screen.print("long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }")
-  sys.screen.print("long f_tostr(long x) { char* r = (char*)malloc(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }")
+  sys.screen.print("long f_tostr(long x) { char* r = (char*)gc_atomic(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }")
   sys.screen.print("long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }")
   sys.screen.print("long i_tof(long n) { return d2l((double)n); }")
   sys.screen.print("long f_toi(long x) { return (long)l2d(x); }")
   sys.screen.print("long s_toint(long s) { return atol((const char*)(intptr_t)s); }")
-  sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)malloc(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }")
+  sys.screen.print("long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)gc_atomic(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }")
   sys.screen.print("long l_range(long a, long b) { long l = l_new(); for (long k = a; k < b; k++) l_push(l, k); return l; }")
   sys.screen.print("long l_slicec(long lp, long a, long b, long line) { SList* s = (SList*)(intptr_t)lp; if (a < 0 || b > s->len) { fprintf(stderr, \"%s: slice %ld to %ld, but the list has %ld items\\n\", simpler_at(line), a, b, s->len); exit(1); } long l = l_new(); for (long k = a; k < b; k++) l_push(l, s->data[k]); return l; }")
   sys.screen.print("long s_starts(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; return strncmp(p, q, strlen(q)) == 0; }")
   sys.screen.print("long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }")
   sys.screen.print("long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }")
-  sys.screen.print("long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)malloc(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)gc_atomic(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long s_find(long h, long n) { const char* p = (const char*)(intptr_t)h; const char* q = strstr(p, (const char*)(intptr_t)n); if (!q) return -1; long m = 0; for (const char* c = p; c < q; c++) m += c == p || ((unsigned char)*c & 192) != 128; return m; }")
   sys.screen.print("static const char* js_ws(const char* p) { while (*p == 32 || *p == 9 || *p == 10 || *p == 13) p++; return p; }")
   sys.screen.print("static const char* js_str(const char* p) { p++; while (*p && *p != 34) { if (*p == 92 && p[1]) p++; p++; } if (*p) p++; return p; }")
   sys.screen.print("static const char* js_skip(const char* p) { p = js_ws(p); if (*p == 34) return js_str(p); if (*p == 123 || *p == 91) { long d = 0; while (*p) { if (*p == 34) { p = js_str(p); continue; } if (*p == 123 || *p == 91) d++; if (*p == 125 || *p == 93) { d--; if (d == 0) return p + 1; } p++; } return p; } while (*p && *p != 44 && *p != 125 && *p != 93 && *p != 32 && *p != 9 && *p != 10 && *p != 13) p++; return p; }")
   sys.screen.print("static long js_hex(const char* p) { long u = 0; for (int k = 0; k < 4; k++) { char h = p[k]; long v; if (h >= 48 && h <= 57) v = h - 48; else if ((h | 32) >= 97 && (h | 32) <= 102) v = (h | 32) - 87; else return -1; u = u * 16 + v; } return u; }")
-  sys.screen.print("static long js_val(const char* p) { p = js_ws(p); const char* e = js_skip(p); char* r = (char*)malloc((e - p) + 1); long o = 0; if (*p != 34) { o = e - p; memcpy(r, p, o); r[o] = 0; return (long)(intptr_t)r; } p++; while (*p && *p != 34) { if (*p != 92 || p[1] == 0) { r[o++] = *p++; continue; } p++; char c = *p++; if (c == 110) r[o++] = 10; else if (c == 116) r[o++] = 9; else if (c == 114) r[o++] = 13; else if (c == 98) r[o++] = 8; else if (c == 102) r[o++] = 12; else if (c == 117) { long u = js_hex(p); if (u < 0) continue; p += 4; if (u >= 0xD800 && u <= 0xDBFF && p[0] == 92 && p[1] == 117) { long lo = js_hex(p + 2); if (lo >= 0xDC00 && lo <= 0xDFFF) { u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00); p += 6; } } if (u == 0) continue; if (u < 0x80) r[o++] = (char)u; else if (u < 0x800) { r[o++] = (char)(0xC0 | (u >> 6)); r[o++] = (char)(0x80 | (u & 63)); } else if (u < 0x10000) { r[o++] = (char)(0xE0 | (u >> 12)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } else { r[o++] = (char)(0xF0 | (u >> 18)); r[o++] = (char)(0x80 | ((u >> 12) & 63)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } } else r[o++] = c; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("static long js_val(const char* p) { p = js_ws(p); const char* e = js_skip(p); char* r = (char*)gc_atomic((e - p) + 1); long o = 0; if (*p != 34) { o = e - p; memcpy(r, p, o); r[o] = 0; return (long)(intptr_t)r; } p++; while (*p && *p != 34) { if (*p != 92 || p[1] == 0) { r[o++] = *p++; continue; } p++; char c = *p++; if (c == 110) r[o++] = 10; else if (c == 116) r[o++] = 9; else if (c == 114) r[o++] = 13; else if (c == 98) r[o++] = 8; else if (c == 102) r[o++] = 12; else if (c == 117) { long u = js_hex(p); if (u < 0) continue; p += 4; if (u >= 0xD800 && u <= 0xDBFF && p[0] == 92 && p[1] == 117) { long lo = js_hex(p + 2); if (lo >= 0xDC00 && lo <= 0xDFFF) { u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00); p += 6; } } if (u == 0) continue; if (u < 0x80) r[o++] = (char)u; else if (u < 0x800) { r[o++] = (char)(0xC0 | (u >> 6)); r[o++] = (char)(0x80 | (u & 63)); } else if (u < 0x10000) { r[o++] = (char)(0xE0 | (u >> 12)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } else { r[o++] = (char)(0xF0 | (u >> 18)); r[o++] = (char)(0x80 | ((u >> 12) & 63)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } } else r[o++] = c; } r[o] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }")
   sys.screen.print("long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }")
   sys.screen.print("long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }")
   sys.screen.print("typedef struct { long len; unsigned char* data; } SBytes;")
-  sys.screen.print("long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)malloc(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }")
+  sys.screen.print("long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)gc_atomic(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }")
   sys.screen.print("long y_find(long yp, long v, long from) { SBytes* y = (SBytes*)(intptr_t)yp; if (from < 0) from = 0; if (from >= y->len || v < 0 || v > 255) return -1; unsigned char* q = (unsigned char*)memchr(y->data + from, (int)v, (size_t)(y->len - from)); return q ? (long)(q - y->data) : -1; }")
   sys.screen.print("long y_len(long yp) { return ((SBytes*)(intptr_t)yp)->len; }")
   sys.screen.print("long y_atc(long yp, long i, long line) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || i >= y->len) { fprintf(stderr, \"%s: byte %ld, but there are %ld bytes\\n\", simpler_at(line), i, y->len); exit(1); } return y->data[i]; }")
   sys.screen.print("static SBytes* y_need(long yp, long i, long n, long line, const char* what) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || n < 0 || i + n > y->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but there are %ld\\n\", simpler_at(line), what, n, i, y->len); exit(1); } return y; }")
-  sys.screen.print("long y_text(long yp, long i, long n, long line) { SBytes* y = y_need(yp, i, n, line, \"textAt\"); char* r = (char*)malloc(n + 1); long o = 0; for (long k = 0; k < n; k++) { unsigned char v = y->data[i + k]; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long y_text(long yp, long i, long n, long line) { SBytes* y = y_need(yp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { unsigned char v = y->data[i + k]; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long y_int(long yp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SBytes* y = y_need(yp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }")
   sys.screen.print("long y_float(long yp, long i, long line) { SBytes* y = y_need(yp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }")
   sys.screen.print("long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, \"%s: a byte is a number from 0 to 255, but place %ld has %ld\\n\", simpler_at(line), k, l->data[k]); exit(1); } if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"wb\"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }")
   sys.screen.print("static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but the list has %ld\\n\", simpler_at(line), what, n, i, l->len); exit(1); } return l; }")
-  sys.screen.print("long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)malloc(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
   sys.screen.print("long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }")
   sys.screen.print("long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { l_push(l, *p); p++; } return l; }")
@@ -484,20 +486,20 @@ main(sys) {
   sys.screen.print("#endif")
   sys.screen.print("cur = (rl.rlim_cur == RLIM_INFINITY || (long)rl.rlim_cur > want) ? want : (long)rl.rlim_cur; } re_budget = cur / 2; }")
   sys.screen.print("static RE* re_open(long s, long pat, long line) { RE* R = re_comp(pat, line); if (!re_budget) re_stack(); R->b = (const char*)(intptr_t)s; R->e = R->b + strlen(R->b); R->limit = 1000000 + 100 * (long)(R->e - R->b); return R; }")
-  sys.screen.print("static long re_str(const char* a, const char* b) { long n = (a && b && b > a) ? (long)(b - a) : 0; char* r = (char*)malloc(n + 1); if (n) memcpy(r, a, n); r[n] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("static long re_str(const char* a, const char* b) { long n = (a && b && b > a) ? (long)(b - a) : 0; char* r = (char*)gc_atomic(n + 1); if (n) memcpy(r, a, n); r[n] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("static long re_groups(RE* R) { long l = l_new(); for (int i = 0; i <= R->ng; i++) l_push(l, re_str(R->cs[i], R->ce[i])); return l; }")
   sys.screen.print("static const char* re_after(RE* R) { return R->ce[0] > R->cs[0] ? R->ce[0] : re_step(R, R->ce[0]); }")
   sys.screen.print("long re_test(long s, long pat, long line) { RE* R = re_open(s, pat, line); return re_search(R, R->b) != 0; }")
   sys.screen.print("long re_find(long s, long pat, long line) { RE* R = re_open(s, pat, line); if (!re_search(R, R->b)) return l_new(); return re_groups(R); }")
   sys.screen.print("long re_all(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; while (p <= R->e && re_search(R, p)) { l_push(out, re_groups(R)); p = re_after(R); } return out; }")
   sys.screen.print("long re_split(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; const char* last = p; while (p <= R->e && re_search(R, p)) { if (R->ce[0] == R->cs[0]) { p = re_after(R); continue; } l_push(out, re_str(last, R->cs[0])); last = R->ce[0]; p = last; } l_push(out, re_str(last, R->e)); return out; }")
-  sys.screen.print("static void re_put(char** b, size_t* n, size_t* cap, const char* a, size_t len) { if (*n + len + 1 > *cap) { *cap = (*n + len + 1) * 2; *b = (char*)realloc(*b, *cap); } if (len) memcpy(*b + *n, a, len); *n += len; (*b)[*n] = 0; }")
-  sys.screen.print("long re_replace(long s, long pat, long to, long line) { RE* R = re_open(s, pat, line); const char* t = (const char*)(intptr_t)to; size_t n = 0, cap = 64; char* out = (char*)malloc(cap); const char* p = R->b; const char* last = p; out[0] = 0; while (p <= R->e && re_search(R, p)) { re_put(&out, &n, &cap, last, (size_t)(R->cs[0] - last)); for (const char* q = t; *q; q++) { if (*q == '$' && q[1] == '$') { re_put(&out, &n, &cap, q, 1); q++; } else if (*q == '$' && q[1] >= '0' && q[1] <= '9') { int g = q[1] - '0'; q++; if (q[1] >= '0' && q[1] <= '9' && g * 10 + (q[1] - '0') <= R->ng) { g = g * 10 + (q[1] - '0'); q++; } if (g <= R->ng && R->cs[g] && R->ce[g] > R->cs[g]) re_put(&out, &n, &cap, R->cs[g], (size_t)(R->ce[g] - R->cs[g])); } else re_put(&out, &n, &cap, q, 1); } last = R->ce[0]; p = re_after(R); } if (last < R->e) re_put(&out, &n, &cap, last, (size_t)(R->e - last)); return (long)(intptr_t)out; }")
-  sys.screen.print("long s_case(long s, long up) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long n = strlen((const char*)p); unsigned char* r = (unsigned char*)malloc(n + 1); for (long i = 0; i <= n; i++) { unsigned char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; if (i > 0 && p[i - 1] == 195) { if (up && c >= 160 && c <= 190 && c != 183) c = c - 32; if (!up && c >= 128 && c <= 158 && c != 151) c = c + 32; } r[i] = c; } return (long)(intptr_t)r; }")
-  sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)malloc(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
-  sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)malloc(nb + pad + 1); memset(r, 32, pad); memcpy(r + pad, p, nb + 1); return (long)(intptr_t)r; }")
-  sys.screen.print("long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)malloc(nb + pad + 1); memcpy(r, p, nb); memset(r + nb, 32, pad); r[nb + pad] = 0; return (long)(intptr_t)r; }")
-  sys.screen.print("long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)malloc(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }")
+  sys.screen.print("static void re_put(char** b, size_t* n, size_t* cap, const char* a, size_t len) { if (*n + len + 1 > *cap) { *cap = (*n + len + 1) * 2; *b = (char*)gc_trealloc(*b, *cap); } if (len) memcpy(*b + *n, a, len); *n += len; (*b)[*n] = 0; }")
+  sys.screen.print("long re_replace(long s, long pat, long to, long line) { RE* R = re_open(s, pat, line); const char* t = (const char*)(intptr_t)to; size_t n = 0, cap = 64; char* out = (char*)gc_atomic(cap); const char* p = R->b; const char* last = p; out[0] = 0; while (p <= R->e && re_search(R, p)) { re_put(&out, &n, &cap, last, (size_t)(R->cs[0] - last)); for (const char* q = t; *q; q++) { if (*q == '$' && q[1] == '$') { re_put(&out, &n, &cap, q, 1); q++; } else if (*q == '$' && q[1] >= '0' && q[1] <= '9') { int g = q[1] - '0'; q++; if (q[1] >= '0' && q[1] <= '9' && g * 10 + (q[1] - '0') <= R->ng) { g = g * 10 + (q[1] - '0'); q++; } if (g <= R->ng && R->cs[g] && R->ce[g] > R->cs[g]) re_put(&out, &n, &cap, R->cs[g], (size_t)(R->ce[g] - R->cs[g])); } else re_put(&out, &n, &cap, q, 1); } last = R->ce[0]; p = re_after(R); } if (last < R->e) re_put(&out, &n, &cap, last, (size_t)(R->e - last)); return (long)(intptr_t)out; }")
+  sys.screen.print("long s_case(long s, long up) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long n = strlen((const char*)p); unsigned char* r = (unsigned char*)gc_atomic(n + 1); for (long i = 0; i <= n; i++) { unsigned char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; if (i > 0 && p[i - 1] == 195) { if (up && c >= 160 && c <= 190 && c != 183) c = c - 32; if (!up && c >= 128 && c <= 158 && c != 151) c = c + 32; } r[i] = c; } return (long)(intptr_t)r; }")
+  sys.screen.print("long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)gc_atomic(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }")
+  sys.screen.print("long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memset(r, 32, pad); memcpy(r + pad, p, nb + 1); return (long)(intptr_t)r; }")
+  sys.screen.print("long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memcpy(r, p, nb); memset(r + nb, 32, pad); r[nb + pad] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)gc_atomic(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }")
   sys.screen.print("typedef struct { long* keys; long* vals; unsigned long* hs; int* tab; long len; long cap; long tcap; } SMap;")
   sys.screen.print("static unsigned long m_hash(const char* s) { unsigned long h = 1469598103934665603UL; while (*s) { h ^= (unsigned char)*s++; h *= 1099511628211UL; } return h; }")
   sys.screen.print("static long m_findh(SMap* m, const char* key, unsigned long h) { long mask = m->tcap - 1; long j = (long)(h & (unsigned long)mask); while (m->tab[j]) { long i = m->tab[j] - 1; if (m->hs[i] == h && strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; j = (j + 1) & mask; } return -1; }")
@@ -514,16 +516,16 @@ main(sys) {
   sys.screen.print("int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }")
   sys.screen.print("int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }")
   sys.screen.print("long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }")
-  sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; size_t cap = 4096, got = 0, n; char* buf = (char*)malloc(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)realloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return buf; }")
+  sys.screen.print("const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; size_t cap = 4096, got = 0, n; char* buf = (char*)gc_atomic(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return buf; }")
   sys.screen.print("void simpler_wrote(const char* p); static FILE* simpler_tmp(void);")
   sys.screen.print("long simpler_write(long path, long content) { if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_append(long path, long content) { if (simpler_would(\"append to\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }")
   sys.screen.print("long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }")
   sys.screen.print("static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }")
   sys.screen.print("static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; if ((strncmp(rd, \"/sys\", 4) == 0 && strncmp(rp, \"/sys/\", 5) == 0) || (strncmp(rd, \"/proc\", 5) == 0 && strncmp(rp, \"/proc/\", 6) == 0)) return; fprintf(stderr, \"%s: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", simpler_at(line), verb, p, dir); exit(1); }")
-  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; static const char* simpler_home(const char* p) { const char* h = getenv(\"HOME\"); if (p[0] != '~' || p[1] != '/' || !h) return p; char* r = (char*)malloc(strlen(h) + strlen(p) + 1); strcpy(r, h); strcat(r, p + 1); return r; } long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = simpler_home((const char*)(intptr_t)path); path = (long)(intptr_t)p; for (int k = 0; ok[k]; k++) { const char* e = simpler_home(ok[k]); size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"%s: this program may not %s \\\"%s\\\"\\n\", simpler_at(line), verb, p); exit(1); return 0; }")
-  sys.screen.print("long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)malloc(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }")
-  sys.screen.print("long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)malloc(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)malloc(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }")
+  sys.screen.print("int simpler_argc = 0; char** simpler_argv = 0; static const char* simpler_home(const char* p) { const char* h = getenv(\"HOME\"); if (p[0] != '~' || p[1] != '/' || !h) return p; char* r = (char*)gc_atomic(strlen(h) + strlen(p) + 1); strcpy(r, h); strcat(r, p + 1); return r; } long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = simpler_home((const char*)(intptr_t)path); path = (long)(intptr_t)p; for (int k = 0; ok[k]; k++) { const char* e = simpler_home(ok[k]); size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"%s: this program may not %s \\\"%s\\\"\\n\", simpler_at(line), verb, p); exit(1); return 0; }")
+  sys.screen.print("long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)gc_atomic(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)gc_atomic(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)gc_atomic(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }")
   sys.screen.print("int simpler_unwritten(const char* p); long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0 && !simpler_unwritten((const char*)(intptr_t)path); }")
   sys.screen.print("long simpler_rename(long a, long b, long line) { if (simpler_would(\"rename\", (const char*)(intptr_t)a, \"to\", (const char*)(intptr_t)b)) return 0; simpler_keep((const char*)(intptr_t)a); simpler_keep((const char*)(intptr_t)b); if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"%s: could not rename \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
   sys.screen.print("long simpler_delete(long a, long line) { if (simpler_would(\"delete\", (const char*)(intptr_t)a, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)a); if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"%s: could not delete \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }")
@@ -560,7 +562,7 @@ main(sys) {
   sys.screen.print("static int simpler_mfd = -1;")
   sys.screen.print("int simpler_unwritten(const char* p) { struct stat st; for (int k = 0; k < simpler_nmade; k++) if (simpler_made[k] && strcmp(simpler_made[k], p) == 0) return stat(p, &st) == 0 && st.st_size == 0; return 0; }")
   sys.screen.print("static int simpler_io(int fd, void* p, size_t n, int wr) { char* c = (char*)p; while (n > 0) { ssize_t k = wr ? write(fd, c, n) : read(fd, c, n); if (k <= 0) { if (k < 0 && errno == EINTR) continue; return 0; } c += k; n -= (size_t)k; } return 1; }")
-  sys.screen.print("static void simpler_broker(void) { int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid > 0) { close(sv[1]); simpler_mfd = sv[0]; return; } close(sv[0]); for (;;) { unsigned int n[3]; if (!simpler_io(sv[1], n, sizeof n, 0) || n[1] > 8192 || n[2] > (64U << 20)) _exit(0); char* t = (char*)malloc(n[1] + 1); char* m = (char*)malloc(n[2] + 1); if (!t || !m || !simpler_io(sv[1], t, n[1], 0) || !simpler_io(sv[1], m, n[2], 0)) _exit(0); t[n[1]] = 0; m[n[2]] = 0; int code = n[0] == 2 ? simpler_keep_do(t, m) : simpler_mailok(t) ? simpler_deliver(t, m) : 126; free(t); free(m); if (!simpler_io(sv[1], &code, sizeof code, 1)) _exit(0); } }")
+  sys.screen.print("static void simpler_broker(void) { int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid > 0) { close(sv[1]); simpler_mfd = sv[0]; return; } close(sv[0]); for (;;) { unsigned int n[3]; if (!simpler_io(sv[1], n, sizeof n, 0) || n[1] > 8192 || n[2] > (64U << 20)) _exit(0); char* t = (char*)gc_atomic(n[1] + 1); char* m = (char*)gc_atomic(n[2] + 1); if (!t || !m || !simpler_io(sv[1], t, n[1], 0) || !simpler_io(sv[1], m, n[2], 0)) _exit(0); t[n[1]] = 0; m[n[2]] = 0; int code = n[0] == 2 ? simpler_keep_do(t, m) : simpler_mailok(t) ? simpler_deliver(t, m) : 126; free(t); free(m); if (!simpler_io(sv[1], &code, sizeof code, 1)) _exit(0); } }")
   sys.screen.print("int simpler_ask(int op, const char* t, const char* msg) { if (simpler_mfd < 0) return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); unsigned int n[3] = {(unsigned int)op, (unsigned int)strlen(t), (unsigned int)strlen(msg)}; int code = 127; if (!simpler_io(simpler_mfd, n, sizeof n, 1) || !simpler_io(simpler_mfd, (void*)t, n[1], 1) || !simpler_io(simpler_mfd, (void*)msg, n[2], 1) || !simpler_io(simpler_mfd, &code, sizeof code, 0)) return 127; return code; }")
   sys.screen.print("void simpler_lock(void) { long abi = syscall(SYS_landlock_create_ruleset, 0, 0, 1U); if (abi < 1) return; unsigned long long fs = (1ULL << 13) - 1; if (abi >= 2) fs |= 1ULL << 13; if (abi >= 3) fs |= 1ULL << 14; if (abi >= 5) fs |= 1ULL << 15; unsigned long long ra[3] = {fs, 0, 0}; size_t size = 8; int runs = simpler_rn[0] || simpler_ft[0]; if (abi >= 4) { size = 16; if (!simpler_ft[0] || simpler_dry) ra[1] = 3; } if (abi >= 6) { size = 24; ra[2] = 3; } simpler_ll = (int)syscall(SYS_landlock_create_ruleset, ra, size, 0); if (simpler_ll < 0) return; simpler_ll_fs = fs; unsigned long long R = 4ULL | 8ULL; unsigned long long W = 2ULL | (1ULL << 4) | (1ULL << 5) | (1ULL << 7) | (1ULL << 8) | (1ULL << 13) | (1ULL << 14); if (!simpler_dry) simpler_allow_all(simpler_wr, W, 1); simpler_allow_all(simpler_rd, R, 0); for (int k = 0; simpler_rd[k]; k++) if (strncmp(simpler_rd[k], \"/sys/\", 5) == 0) { simpler_allow(\"/sys/devices\", R); break; } const char* dev[] = {\"/dev/null\", \"/dev/tty\", \"/dev/zero\", \"/dev/urandom\", 0}; for (int k = 0; dev[k]; k++) simpler_allow(dev[k], 2ULL | 4ULL | (1ULL << 15)); if (runs) { const char* sysd[] = {\"/usr\", \"/bin\", \"/sbin\", \"/lib\", \"/lib64\", \"/lib32\", \"/etc\", \"/opt\", \"/snap\", \"/nix\", \"/run/systemd/resolve\", \"/proc/sys\", \"/sys/devices/system/cpu\", 0}; for (int k = 0; sysd[k]; k++) simpler_allow(sysd[k], 1ULL | R); for (int k = 0; simpler_rn[k]; k++) simpler_allow_prog(simpler_rn[k]); if (simpler_ft[0]) simpler_allow_prog(\"curl\"); } if ((simpler_ml[0] || simpler_jdir[0]) && !simpler_dry) simpler_broker(); prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); if (syscall(SYS_landlock_restrict_self, simpler_ll, 0) != 0) { fprintf(stderr, \"simpler: the kernel lock could not be set: %s\\n\", strerror(errno)); exit(1); } close(simpler_ll); }")
   sys.screen.print("static FILE* simpler_tmp(void) { int fd = (int)syscall(SYS_memfd_create, \"simpler\", 1U); return fd >= 0 ? fdopen(fd, \"w+\") : tmpfile(); }")
@@ -574,28 +576,28 @@ main(sys) {
   sys.screen.print("#include <fcntl.h>")
   sys.screen.print("static int simpler_rfd = -1; static char* simpler_rin = 0; static long simpler_rlen = 0;")
   sys.screen.print("static int simpler_rpath(char* out, size_t size) { const char* st = getenv(\"XDG_STATE_HOME\"); const char* h = getenv(\"HOME\"); char root[PATH_MAX]; if (st && st[0] == '/') snprintf(root, sizeof root, \"%s/simpler\", st); else if (h) snprintf(root, sizeof root, \"%s/.local/state/simpler\", h); else return 0; unsigned long long x = 1469598103934665603ULL; for (const char* c = (const char*)(intptr_t)simpler_self(); *c; c++) { x ^= (unsigned char)*c; x *= 1099511628211ULL; } return snprintf(out, size, \"%s/replay/%016llx\", root, x) < (int)size; }")
-  sys.screen.print("void simpler_note(const char* p, long n) { if (simpler_rfd < 0 || n <= 0 || simpler_rlen + n > (1L << 20)) return; simpler_rin = (char*)realloc(simpler_rin, simpler_rlen + n); memcpy(simpler_rin + simpler_rlen, p, n); simpler_rlen += n; }")
+  sys.screen.print("void simpler_note(const char* p, long n) { if (simpler_rfd < 0 || n <= 0 || simpler_rlen + n > (1L << 20)) return; simpler_rin = (char*)gc_trealloc(simpler_rin, simpler_rlen + n); memcpy(simpler_rin + simpler_rlen, p, n); simpler_rlen += n; }")
   sys.screen.print("static void simpler_rsave(void) { if (simpler_rfd < 0) return; int fd = simpler_rfd; simpler_rfd = -1; if (ftruncate(fd, 0) != 0) return; dprintf(fd, \"simpler-replay 1\\nargs %d\\n\", simpler_argc > 0 ? simpler_argc - 1 : 0); for (int k = 1; k < simpler_argc; k++) { dprintf(fd, \"%zu\\n\", strlen(simpler_argv[k])); if (write(fd, simpler_argv[k], strlen(simpler_argv[k])) < 0 || write(fd, \"\\n\", 1) < 0) return; } dprintf(fd, \"stdin %ld\\n\", simpler_rlen); if (simpler_rlen > 0 && write(fd, simpler_rin, simpler_rlen) < 0) return; }")
   sys.screen.print("void simpler_leave(int c) { if (c != 0) simpler_rsave(); (exit)(c); }")
   sys.screen.print("static void simpler_rinit(void) { if (simpler_dry || getenv(\"SIMPLER_REPLAY\")) return; char f[PATH_MAX]; if (!simpler_rpath(f, sizeof f)) return; simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); if (simpler_rfd < 0 && errno == ENOENT) { for (char* c = f + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(f, 0700); *c = '/'; } simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); } }")
-  sys.screen.print("static void simpler_replay(void) { const char* mode = getenv(\"SIMPLER_REPLAY\"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, \"rb\") : 0; int n = 0; if (!r || fscanf(r, \"simpler-replay 1\\nargs %d\", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, \"simpler: no failed run is kept for this program\\n\"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, \"show\") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, \"%ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)malloc(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf(\"argument %d: %s\\n\", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, \"stdin %ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)malloc(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf(\"input (%ld bytes):\\n%s\", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }")
-  sys.screen.print("extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, \"%sexample fails: the left side %s\\n\", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)malloc(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }")
-  sys.screen.print("static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf(\"would run\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); *code = 0; return (long)(intptr_t)\"\"; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (simpler_quiet && !freopen(\"/dev/null\", \"w\", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)realloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
+  sys.screen.print("static void simpler_replay(void) { const char* mode = getenv(\"SIMPLER_REPLAY\"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, \"rb\") : 0; int n = 0; if (!r || fscanf(r, \"simpler-replay 1\\nargs %d\", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, \"simpler: no failed run is kept for this program\\n\"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, \"show\") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, \"%ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)gc_atomic(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf(\"argument %d: %s\\n\", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, \"stdin %ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)gc_atomic(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf(\"input (%ld bytes):\\n%s\", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }")
+  sys.screen.print("extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, \"%sexample fails: the left side %s\\n\", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)gc_atomic(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }")
+  sys.screen.print("static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf(\"would run\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); *code = 0; return (long)(intptr_t)\"\"; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (simpler_quiet && !freopen(\"/dev/null\", \"w\", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; waitpid(pid, &st, 0); *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }")
   sys.screen.print("char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }")
   sys.screen.print("long simpler_runok(long name, long line) { const char* p = (const char*)(intptr_t)name; for (int k = 0; simpler_rn[k]; k++) if (strcmp(simpler_rn[k], p) == 0) return name; fprintf(stderr, \"%s: this program may not run \\\"%s\\\"\\n\", simpler_at(line), p); exit(1); return 0; }")
   sys.screen.print("int simpler_mailok(const char* t) { size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } return ok; }")
   sys.screen.print("static const char* simpler_mailer(void) { const char* prog = getenv(\"SIMPLER_SENDMAIL\"); return prog && *prog ? prog : \"sendmail\"; }")
   sys.screen.print("int simpler_deliver(const char* t, const char* msg) { char* av[] = {(char*)simpler_mailer(), (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); return code; }")
-  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; if (!simpler_mailok(t)) { fprintf(stderr, \"%s: this program may not mail \\\"%s\\\"\\n\", simpler_at(line), t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"%s: the subject of a mail is one line\\n\", simpler_at(line)); exit(1); } char* msg = (char*)malloc(strlen(t) + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); if (simpler_would(\"mail\", t, \"with subject\", s)) return 0; int code = simpler_ask(1, t, msg); if (code != 0) { fprintf(stderr, \"%s: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", simpler_at(line), t, simpler_mailer(), code); exit(1); } return 0; }")
+  sys.screen.print("long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; if (!simpler_mailok(t)) { fprintf(stderr, \"%s: this program may not mail \\\"%s\\\"\\n\", simpler_at(line), t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"%s: the subject of a mail is one line\\n\", simpler_at(line)); exit(1); } char* msg = (char*)gc_atomic(strlen(t) + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); if (simpler_would(\"mail\", t, \"with subject\", s)) return 0; int code = simpler_ask(1, t, msg); if (code != 0) { fprintf(stderr, \"%s: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", simpler_at(line), t, simpler_mailer(), code); exit(1); } return 0; }")
   sys.screen.print("long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"%s: \\\"%s\\\" ended with status %d\\n\", simpler_at(line), (const char*)(intptr_t)name, code); exit(1); } return out; }")
   sys.screen.print("long simpler_try(long name, long args, long line) { int code = 0; simpler_quiet = 1; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, 0); simpler_quiet = 0; return code == 0 ? out : (long)(intptr_t)\"\"; }")
   sys.screen.print("long simpler_output(long name, long args, long input, long line) { int code = 0; return simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); }")
   sys.screen.print("long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }")
   sys.screen.print("long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], hb) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], hb))) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }")
-  sys.screen.print("long i_char(long n) { char* o = (char*)malloc(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }")
-  sys.screen.print("long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }")
-  sys.screen.print("long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); if (getline(&buf, &cap, stdin) < 0) { free(buf); return (long)(intptr_t)\"\"; } simpler_note(buf, (long)strlen(buf)); return (long)(intptr_t)buf; }")
-  sys.screen.print("long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, \"line %ld: cannot wait for a change in %s: %s\\n\", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, \"line %ld: the wait for a change in %s failed\\n\", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : \"\"); } }")
+  sys.screen.print("long i_char(long n) { char* o = (char*)gc_atomic(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }")
+  sys.screen.print("long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); gc_idle(); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }")
+  sys.screen.print("long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); gc_idle(); if (getline(&buf, &cap, stdin) < 0) { free(buf); return (long)(intptr_t)\"\"; } char* r = strdup(buf); free(buf); simpler_note(r, (long)strlen(r)); return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); gc_idle(); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, \"line %ld: cannot wait for a change in %s: %s\\n\", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, \"line %ld: the wait for a change in %s failed\\n\", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : \"\"); } }")
   sys.screen.print("long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }")
   sys.screen.print("long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); if (simpler_dry) { printf(\"would start\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); return 0; } int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }")
   sys.screen.print("static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }")
@@ -603,7 +605,7 @@ main(sys) {
   sys.screen.print("long simpler_reach(long url, long line) { simpler_fetchok(url, line); if (simpler_would(\"reach\", (const char*)(intptr_t)url, 0, 0)) return 200; long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }")
   sys.screen.print("static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;")
   sys.screen.print("typedef struct { char g[6]; unsigned short st; } SCell; static SCell* simpler_back = 0; static SCell* simpler_front = 0; static long simpler_tr = 0, simpler_tc = 0; static int simpler_all = 1; static volatile sig_atomic_t simpler_winched = 0; static char simpler_sty[1024][40]; static int simpler_nsty = 1; static char* simpler_ob = 0; static long simpler_on = 0, simpler_ocap = 0;")
-  sys.screen.print("static void simpler_o(const char* s) { long n = (long)strlen(s); if (simpler_on + n + 1 > simpler_ocap) { simpler_ocap = (simpler_on + n + 1) * 2 + 4096; simpler_ob = (char*)realloc(simpler_ob, simpler_ocap); } memcpy(simpler_ob + simpler_on, s, n); simpler_on += n; }")
+  sys.screen.print("static void simpler_o(const char* s) { long n = (long)strlen(s); if (simpler_on + n + 1 > simpler_ocap) { simpler_ocap = (simpler_on + n + 1) * 2 + 4096; simpler_ob = (char*)gc_trealloc(simpler_ob, simpler_ocap); } memcpy(simpler_ob + simpler_on, s, n); simpler_on += n; }")
   sys.screen.print("static void simpler_term_blank(SCell* a) { long n = simpler_tr * simpler_tc; memset(a, 0, n * sizeof(SCell)); for (long k = 0; k < n; k++) a[k].g[0] = 32; }")
   sys.screen.print("static void simpler_term_fit(void) { struct winsize w; long r = 24, c = 80; if (ioctl(1, TIOCGWINSZ, &w) == 0 && w.ws_row && w.ws_col) { r = w.ws_row; c = w.ws_col; } if (simpler_back && r == simpler_tr && c == simpler_tc) return; free(simpler_back); free(simpler_front); simpler_tr = r; simpler_tc = c; simpler_back = (SCell*)malloc(r * c * sizeof(SCell)); simpler_front = (SCell*)malloc(r * c * sizeof(SCell)); simpler_term_blank(simpler_back); simpler_term_blank(simpler_front); simpler_all = 1; }")
   sys.screen.print("static void simpler_term_flush(void) { fflush(stdout); if (!simpler_back) return; char b[64]; simpler_on = 0; if (simpler_all) { simpler_o(\"\\033[0m\\033[2J\"); simpler_term_blank(simpler_front); simpler_all = 0; } long cur = -1, pr = -1, pc = -1; for (long r = 0; r < simpler_tr; r++) for (long c = 0; c < simpler_tc; c++) { SCell* k = simpler_back + r * simpler_tc + c; SCell* f = simpler_front + r * simpler_tc + c; if (memcmp(k, f, sizeof(SCell)) == 0) continue; if (pr == r && c > pc && c - pc <= 4) { long g = pc; while (g < c && simpler_back[r * simpler_tc + g].st == cur) g++; if (g == c) { for (g = pc; g < c; g++) simpler_o(simpler_back[r * simpler_tc + g].g); pc = c; } } if (pr != r || pc != c) { snprintf(b, sizeof b, \"\\033[%ld;%ldH\", r + 1, c + 1); simpler_o(b); } if (k->st != cur) { simpler_o(\"\\033[0\"); if (k->st) { simpler_o(\";\"); simpler_o(simpler_sty[k->st]); } simpler_o(\"m\"); cur = k->st; } simpler_o(k->g); *f = *k; pr = r; pc = c + 1; } if (simpler_on == 0) return; simpler_o(\"\\033[0m\"); long off = 0; while (off < simpler_on) { ssize_t n = write(1, simpler_ob + off, simpler_on - off); if (n <= 0) { if (n < 0 && errno == EINTR) continue; break; } off += n; } }")
@@ -617,16 +619,16 @@ main(sys) {
   sys.screen.print("static const char* simpler_style(const char* w, long n) { static const char* k[] = {\"bold\",\"1\",\"dim\",\"2\",\"underline\",\"4\",\"reverse\",\"7\",\"black\",\"30\",\"red\",\"31\",\"green\",\"32\",\"yellow\",\"33\",\"blue\",\"34\",\"magenta\",\"35\",\"cyan\",\"36\",\"white\",\"37\",\"gray\",\"90\",0}; for (int i = 0; k[i]; i += 2) if ((long)strlen(k[i]) == n && strncmp(k[i], w, n) == 0) return k[i + 1]; int bg = n > 2 && w[0] == 'o' && w[1] == 'n'; static char b[32]; if (n - (bg ? 2 : 0) == 7 && w[bg ? 2 : 0] == '#') { long c = 0; for (long i = (bg ? 3 : 1); i < n; i++) { char h = w[i]; int x = h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : -1; if (x < 0) return 0; c = c * 16 + x; } snprintf(b, sizeof b, \"%d;2;%ld;%ld;%ld\", bg ? 48 : 38, (c >> 16) & 255, (c >> 8) & 255, c & 255); return b; } long v = 0, d = 0; for (long i = bg ? 2 : 0; i < n; i++) { if (w[i] < '0' || w[i] > '9' || ++d > 3) return 0; v = v * 10 + (w[i] - '0'); } if (d == 0 || v > 255) return 0; snprintf(b, sizeof b, \"%d;5;%ld\", bg ? 48 : 38, v); return b; }")
   sys.screen.print("long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_tc - col; if (row < 0 || col < 0 || row >= simpler_tr || room <= 0) return 0; char sg[40]; long sn = 0; while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"%s: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255, and on with a number for the background (on52)\\n\", simpler_at(line), (int)n, y); exit(1); } long cn = (long)strlen(c); if (sn + cn + 2 < (long)sizeof sg) { if (sn) sg[sn++] = 59; memcpy(sg + sn, c, cn); sn += cn; } y += n; } sg[sn] = 0; static int last = 0; int st = 0; if (sn) { if (strcmp(simpler_sty[last], sg) == 0) st = last; else { for (int k = 1; k < simpler_nsty && !st; k++) if (strcmp(simpler_sty[k], sg) == 0) st = k; if (!st && simpler_nsty < 1024) { st = simpler_nsty++; strcpy(simpler_sty[st], sg); } last = st; } } SCell* k = simpler_back + row * simpler_tc + col - 1; long gn = 5; for (; *t; t++) { unsigned char ch = (unsigned char)*t; if ((ch & 0xC0) != 0x80) { if (room == 0) break; room--; k++; memset(k, 0, sizeof(SCell)); k->st = (unsigned short)st; gn = 0; } if (gn < 4) k->g[gn++] = (char)(ch < 32 || ch == 127 ? 63 : ch); } return 0; }")
   sys.screen.print("static long simpler_keyname(const char* k) { return (long)(intptr_t)k; }")
-  sys.screen.print("long simpler_term_key(void) { simpler_term_on(); if (simpler_winched) { simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } simpler_term_flush(); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) { if (errno != EINTR) return simpler_keyname(\"eof\"); simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)malloc(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_term_key(void) { simpler_term_on(); if (simpler_winched) { simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } simpler_term_flush(); gc_idle(); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) { if (errno != EINTR) return simpler_keyname(\"eof\"); simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)gc_atomic(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_now() { return (long)time(0); }")
   sys.screen.print("long simpler_fetchwith(long url, long hdrs, long line) { SList* h = (SList*)(intptr_t)hdrs; for (long k = 0; k < h->len; k++) { const char* x = (const char*)(intptr_t)h->data[k]; if (k >= 16 || x[0] == '@' || !strchr(x, ':') || strchr(x, 10) || strchr(x, 13)) { fprintf(stderr, \"%s: a header is one line like \\\"Name: value\\\", and there are at most 16; got \\\"%s\\\"\\n\", simpler_at(line), x); exit(1); } } simpler_hdr = hdrs; long out = simpler_fetch(url, 0, 0, line); simpler_hdr = 0; return out; }")
-  sys.screen.print("long simpler_stamp(long t, long pat) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)malloc(256); if (strftime(r, 256, (const char*)(intptr_t)pat, m) == 0) r[0] = 0; return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_stamp(long t, long pat) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(256); if (strftime(r, 256, (const char*)(intptr_t)pat, m) == 0) r[0] = 0; return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_secs(long text) { const char* s = (const char*)(intptr_t)text; struct tm m; memset(&m, 0, sizeof m); int y, mo, d, h = 0, mi = 0, se = 0, n = 0; if (sscanf(s, \"%d-%d-%d%n\", &y, &mo, &d, &n) != 3 || mo < 1 || mo > 12 || d < 1 || d > 31) return 0; s += n; if (*s == 'T' || *s == ' ') { n = 0; if (sscanf(s + 1, \"%d:%d%n\", &h, &mi, &n) != 2) return 0; s += 1 + n; n = 0; if (*s == ':' && sscanf(s + 1, \"%d%n\", &se, &n) == 1) s += 1 + n; if (*s == '.') { s++; while (*s >= '0' && *s <= '9') s++; } } m.tm_year = y - 1900; m.tm_mon = mo - 1; m.tm_mday = d; m.tm_hour = h; m.tm_min = mi; m.tm_sec = se; m.tm_isdst = -1; if (*s == 'Z') return (long)timegm(&m); if (*s == '+' || *s == '-') { int oh = 0, om = 0; if (sscanf(s + 1, \"%d:%d\", &oh, &om) < 1) return 0; if (oh > 99) { om = oh % 100; oh = oh / 100; } long off = oh * 3600L + om * 60L; return (long)timegm(&m) - (*s == '-' ? -off : off); } return (long)mktime(&m); }")
-  sys.screen.print("long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)malloc(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }")
+  sys.screen.print("long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }")
   sys.screen.print("long simpler_setenv(long name, long value) { const char* n = (const char*)(intptr_t)name; if (!n[0] || strchr(n, 61)) return 0; setenv(n, (const char*)(intptr_t)value, 1); return 1; }")
   sys.screen.print("static char* simpler_selfp = 0; void simpler_self_init() { const char* e = getenv(\"SIMPLER_SELF\"); if (e) { simpler_selfp = strdup(e); unsetenv(\"SIMPLER_SELF\"); } } long simpler_self() { if (!simpler_selfp) { char b[4096]; ssize_t n = readlink(\"/proc/self/exe\", b, sizeof b - 1); if (n > 0) { b[n] = 0; simpler_selfp = strdup(b); } else { char* r = realpath(simpler_argv[0], 0); simpler_selfp = r ? r : simpler_argv[0]; } } return (long)(intptr_t)simpler_selfp; }")
   sys.screen.print("long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }")
-  sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)malloc(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)realloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)buf; }")
+  sys.screen.print("long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)gc_trealloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)buf; }")
   sys.screen.print("long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }")
   sys.screen.print("long simpler_exit(long c) { exit((int)c); return 0; }")
   sys.screen.print("long simpler_failed = 0;")
@@ -1437,7 +1439,7 @@ isTest(name : Str) : Bool {
 }
 
 emitTests(fns : List[Fn]) : Str {
-  out = "int main(void) {\n  long failures = 0;\n  long total = 0;"
+  out = "int main(void) {\n  gc_base = (char*)__builtin_frame_address(0) + 16;\n  long failures = 0;\n  long total = 0;"
   fns.each { f in
     if isTest(f.name) {
       c = mangle(f.name)
@@ -2549,7 +2551,7 @@ emitFn(f : Fn, sigs : Sigs) : Str !Mut {
   }
   out = rt.concat(" ").concat(nm).concat("(").concat(sig).concat(") {")
   if isMain(f.name) {
-    out = out.concat("\n  simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); tzset(); simpler_lock();")
+    out = out.concat("\n  gc_base = (char*)argv; simpler_argc = argc; simpler_argv = argv; simpler_self_init(); simpler_dry = getenv(\"SIMPLER_DRY\") != 0; simpler_examples(); simpler_replay(); argc = simpler_argc; argv = simpler_argv; simpler_limits(); simpler_jinit(); simpler_undo(); simpler_rinit(); tzset(); simpler_lock();")
   }
   ctx = fnCtx(f, sigs)
   checkReturn(f, ctx)
@@ -3264,6 +3266,15 @@ emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str !Mut {
     failAt("a loop goes over a list or the letters of a text, not ".concat(rt), ctx)
   }
   out = "  {"
+  span = rangeArgs(recv)
+  if span.length == 2 {
+    out = out.concat("\n  long _hi = ").concat(emitExpr(span.at(1), ctx)).concat(";")
+    out = out.concat("\n  for (long _i = ").concat(emitExpr(span.at(0), ctx)).concat("; _i < _hi; _i++) {")
+    out = out.concat("\n  long ").concat(param).concat(" = _i;")
+    out = out.concat(emitBlock(body, false, ctx))
+    envPut(ctx.env, param, old)
+    return out.concat("\n  }\n  }")
+  }
   out = out.concat("\n  long _lst = ").concat(recvC).concat(";")
   if rt == "Str" {
     out = out.concat("\n  long _b = 0;")
@@ -3279,6 +3290,287 @@ emitEach(recv : Expr, param : Str, body : List[Stmt], ctx : Ctx) : Str !Mut {
   out = out.concat("\n  }")
   out = out.concat("\n  }")
   out
+}
+
+rangeOf(name : Str, args : List[Expr]) : List[Expr] {
+  r : List[Expr] = []
+  if name == "l_range" {
+    r = args
+  }
+  r
+}
+
+// The memory collector, printed into every program after the system headers.
+// A block nothing points at is reused, and a chunk with no live block goes
+// back to the system. Every malloc in the runtime goes through it.
+gcRuntime() : Str {
+  gc = <<END
+/* simpler gc: memory a program no longer reaches is reused, and empty
+   chunks go back to the system. Blocks live in 256 KB chunks of one size
+   each; a word that points into a chunk keeps its block alive. Text never
+   holds a pointer, so its chunks are never scanned. */
+#include <sys/mman.h>
+#include <link.h>
+#define GC_CHUNK (256L * 1024)
+#define GC_NCLS 32
+typedef struct GcChunk { struct GcChunk* next; struct GcChunk* avail; char* start; long size; long n; long bump; long nfree; void* fl; int cls; int onav; int atom; long map; uint64_t* live; uint64_t* mark; } GcChunk;
+static const long gc_sizes[GC_NCLS] = {16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 1024, 1280, 1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536};
+static unsigned char gc_cls16[1025 / 16 + 1];
+static GcChunk* gc_av[2][GC_NCLS];
+static GcChunk* gc_all;
+static GcChunk* gc_spare; static long gc_nspare; /* empty chunks kept for reuse */
+static uintptr_t* gc_tk; static GcChunk** gc_tv; static long gc_tcap, gc_tn;
+static uintptr_t gc_lo = UINTPTR_MAX, gc_hi;
+static long gc_since, gc_live, gc_limit = 16L << 20;
+static char* gc_base;
+static int gc_ready, gc_off;
+static void gc_init(void) {
+  for (int s = 0, c = 0; s <= 1024; s += 16) { while (gc_sizes[c] < s) c++; gc_cls16[s / 16] = c; }
+  gc_ready = 1;
+}
+static int gc_cls(long n) {
+  if (n <= 1024) return gc_cls16[(n + 15) / 16];
+  for (int c = 0; c < GC_NCLS; c++) if (gc_sizes[c] >= n) return c;
+  return -1;
+}
+static unsigned long gc_h(uintptr_t k) { return (unsigned long)((k >> 18) * 0x9E3779B97F4A7C15ULL); }
+static void gc_tput(uintptr_t k, GcChunk* v);
+static void gc_tgrow(void) {
+  long oc = gc_tcap; uintptr_t* ok = gc_tk; GcChunk** ov = gc_tv;
+  gc_tcap = oc ? oc * 2 : 256; gc_tn = 0;
+  gc_tk = (uintptr_t*)calloc(gc_tcap, sizeof(uintptr_t)); gc_tv = (GcChunk**)calloc(gc_tcap, sizeof(GcChunk*));
+  for (long i = 0; i < oc; i++) if (ok[i] > 1) gc_tput(ok[i], ov[i]);
+  free(ok); free(ov);
+}
+static void gc_tput(uintptr_t k, GcChunk* v) {
+  if ((gc_tn + 1) * 2 > gc_tcap) gc_tgrow();
+  unsigned long i = gc_h(k) & (gc_tcap - 1);
+  while (gc_tk[i] > 1 && gc_tk[i] != k) i = (i + 1) & (gc_tcap - 1);
+  if (gc_tk[i] <= 1) gc_tn++;
+  gc_tk[i] = k; gc_tv[i] = v;
+}
+static GcChunk* gc_tget(uintptr_t k) {
+  if (!gc_tcap) return 0;
+  unsigned long i = gc_h(k) & (gc_tcap - 1);
+  while (gc_tk[i]) { if (gc_tk[i] == k) return gc_tv[i]; i = (i + 1) & (gc_tcap - 1); }
+  return 0;
+}
+static void gc_tdel(uintptr_t k) {
+  unsigned long i = gc_h(k) & (gc_tcap - 1);
+  while (gc_tk[i]) { if (gc_tk[i] == k) { gc_tk[i] = 1; gc_tv[i] = 0; return; } i = (i + 1) & (gc_tcap - 1); }
+}
+/* A mapping of `size` bytes that starts on a chunk boundary. */
+static char* gc_map(long size) {
+  char* p = (char*)mmap(0, size + GC_CHUNK, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) return 0;
+  uintptr_t a = ((uintptr_t)p + GC_CHUNK - 1) & ~(uintptr_t)(GC_CHUNK - 1);
+  if (a > (uintptr_t)p) munmap(p, a - (uintptr_t)p);
+  uintptr_t e = (uintptr_t)p + size + GC_CHUNK;
+  if (e > a + size) munmap((char*)(a + size), e - (a + size));
+  return (char*)a;
+}
+/* Small chunks come from a 4 MB mapping cut in 16, to save system calls. */
+static char* gc_res; static long gc_resn;
+static char* gc_take(void) {
+  if (!gc_resn) { gc_res = gc_map(16 * GC_CHUNK); if (!gc_res) return 0; gc_resn = 16; }
+  char* m = gc_res; gc_res += GC_CHUNK; gc_resn--;
+  return m;
+}
+static GcChunk* gc_chunk(int cls, long big, int atom) {
+  long size = cls >= 0 ? gc_sizes[cls] : big;
+  long n = cls >= 0 ? 0 : 1, words = 0, hdr = 0, map = GC_CHUNK;
+  if (cls >= 0) {
+    n = (GC_CHUNK - sizeof(GcChunk)) / size;
+    for (;;) { words = (n + 63) / 64; hdr = (sizeof(GcChunk) + 2 * words * 8 + 15) & ~15L; if (hdr + n * size <= GC_CHUNK) break; n--; }
+  } else {
+    words = 1; hdr = (sizeof(GcChunk) + 16 + 15) & ~15L;
+    map = (hdr + big + GC_CHUNK - 1) & ~(GC_CHUNK - 1);
+  }
+  char* m;
+  if (cls >= 0 && gc_spare) { m = (char*)gc_spare; gc_spare = gc_spare->next; gc_nspare--; }
+  else {
+    m = cls >= 0 ? gc_take() : gc_map(map);
+    if (!m) return 0;
+    for (long off = 0; off < map; off += GC_CHUNK) gc_tput((uintptr_t)m + off, (GcChunk*)m);
+  }
+  GcChunk* c = (GcChunk*)m;
+  memset(c, 0, hdr);
+  c->live = (uint64_t*)(m + sizeof(GcChunk)); c->mark = c->live + words;
+  c->start = m + hdr; c->size = size; c->n = n; c->cls = cls; c->map = map; c->nfree = n; c->atom = atom;
+  if ((uintptr_t)m < gc_lo) gc_lo = (uintptr_t)m;
+  if ((uintptr_t)m + map > gc_hi) gc_hi = (uintptr_t)m + map;
+  c->next = gc_all; gc_all = c;
+  return c;
+}
+static void gc_collect(void);
+static void* gc_alloc(size_t want, int atom) {
+  if (!gc_ready) gc_init();
+  long n = want ? (long)want : 1;
+  if (gc_since > gc_limit && !gc_off) gc_collect();
+  int cls = gc_cls(n);
+  if (cls < 0) {
+    GcChunk* c = gc_chunk(-1, n, atom);
+    if (!c) return 0;
+    c->live[0] = 1; c->nfree = 0; c->bump = 1;
+    gc_since += c->map;
+    return c->start;
+  }
+  GcChunk* c = gc_av[atom][cls];
+  while (c && c->nfree == 0) { c->onav = 0; c = c->avail; gc_av[atom][cls] = c; }
+  if (!c) { c = gc_chunk(cls, 0, atom); if (!c) return 0; c->onav = 1; c->avail = 0; gc_av[atom][cls] = c; }
+  char* p; long i;
+  if (c->fl) { p = (char*)c->fl; c->fl = *(void**)p; i = (p - c->start) / c->size; }
+  else { i = c->bump++; p = c->start + i * c->size; }
+  c->nfree--;
+  c->live[i >> 6] |= 1ULL << (i & 63);
+  if (!atom) memset(p, 0, c->size);
+  gc_since += c->size;
+  return p;
+}
+void* gc_malloc(size_t n) { return gc_alloc(n, 0); }
+void* gc_atomic(size_t n) { return gc_alloc(n, 1); }
+static GcChunk* gc_find(uintptr_t w, long* idx) {
+  if (w < gc_lo || w >= gc_hi) return 0;
+  GcChunk* c = gc_tget(w & ~(uintptr_t)(GC_CHUNK - 1));
+  if (!c || w < (uintptr_t)c->start) return 0;
+  long i = (long)((w - (uintptr_t)c->start) / c->size);
+  if (i >= c->bump || !(c->live[i >> 6] >> (i & 63) & 1)) return 0;
+  *idx = i;
+  return c;
+}
+void gc_free(void* p) {
+  if (!p) return;
+  if (!gc_tget((uintptr_t)p & ~(uintptr_t)(GC_CHUNK - 1))) { free(p); return; }
+  long i; GcChunk* c = gc_find((uintptr_t)p, &i);
+  if (!c || c->start + i * c->size != (char*)p) return;
+  c->live[i >> 6] &= ~(1ULL << (i & 63));
+  if (c->cls < 0) {
+    for (long off = 0; off < c->map; off += GC_CHUNK) gc_tdel((uintptr_t)c + off);
+    GcChunk** q = &gc_all; while (*q != c) q = &(*q)->next; *q = c->next;
+    munmap(c, c->map);
+    return;
+  }
+  *(void**)p = c->fl; c->fl = p; c->nfree++;
+  if (!c->onav) { c->onav = 1; c->avail = gc_av[c->atom][c->cls]; gc_av[c->atom][c->cls] = c; }
+}
+void* gc_calloc(size_t a, size_t b) { return gc_malloc(a * b); }
+void* gc_realloc(void* p, size_t n) {
+  if (!p) return gc_malloc(n);
+  if (!gc_tget((uintptr_t)p & ~(uintptr_t)(GC_CHUNK - 1))) return realloc(p, n);
+  long i; GcChunk* c = gc_find((uintptr_t)p, &i);
+  if (!c) return gc_malloc(n);
+  if ((long)n <= c->size) return p;
+  void* q = gc_alloc(n, c->atom);
+  if (q) memcpy(q, p, c->size);
+  gc_free(p);
+  return q;
+}
+/* realloc for text: a new block is text-only too. */
+void* gc_trealloc(void* p, size_t n) { return p ? gc_realloc(p, n) : gc_atomic(n); }
+char* gc_strdup(const char* s) { size_t n = strlen(s) + 1; char* r = (char*)gc_atomic(n); memcpy(r, s, n); return r; }
+static uintptr_t* gc_st; static long gc_sn, gc_scap;
+static void gc_push(uintptr_t w) {
+  long i; GcChunk* c = gc_find(w, &i);
+  if (!c || (c->mark[i >> 6] >> (i & 63) & 1)) return;
+  c->mark[i >> 6] |= 1ULL << (i & 63);
+  if (c->atom) return; /* text: marked, nothing inside to follow */
+  if (gc_sn == gc_scap) { gc_scap = gc_scap ? gc_scap * 2 : 4096; gc_st = (uintptr_t*)realloc(gc_st, gc_scap * sizeof(uintptr_t)); }
+  gc_st[gc_sn++] = (uintptr_t)(c->start + i * c->size);
+}
+__attribute__((no_sanitize("address"))) static void gc_range(const char* a, const char* b) {
+  a = (const char*)(((uintptr_t)a + 7) & ~(uintptr_t)7);
+  for (; a + 8 <= b; a += 8) { uintptr_t w = *(const uintptr_t*)a; if (w >= gc_lo && w < gc_hi) gc_push(w); }
+}
+static void gc_drain(void) {
+  while (gc_sn > 0) {
+    uintptr_t o = gc_st[--gc_sn]; long i; GcChunk* c = gc_find(o, &i);
+    gc_range((const char*)o, (const char*)o + c->size);
+  }
+}
+static int gc_seg(struct dl_phdr_info* info, size_t size, void* data) {
+  (void)size; (void)data;
+  for (int k = 0; k < info->dlpi_phnum; k++) {
+    const ElfW(Phdr)* ph = &info->dlpi_phdr[k];
+    if (ph->p_type == PT_LOAD && (ph->p_flags & PF_W)) { const char* a = (const char*)(info->dlpi_addr + ph->p_vaddr); gc_range(a, a + ph->p_memsz); }
+  }
+  return 1; /* the program itself comes first; its libraries hold none of our blocks */
+}
+static void __attribute__((noinline)) gc_stack(void) {
+  gc_range((const char*)__builtin_frame_address(0), gc_base); /* the real stack, even when a sanitizer moves locals */
+  gc_drain();
+}
+static void __attribute__((noinline)) gc_mark(void) {
+  __builtin_unwind_init(); /* every register that may hold a pointer goes to the stack */
+  gc_stack();
+  dl_iterate_phdr(gc_seg, 0);
+  gc_drain();
+  if (gc_scap > 65536) { free(gc_st); gc_st = 0; gc_scap = 0; }
+}
+static void gc_unmap(GcChunk* c) {
+  for (long off = 0; off < c->map; off += GC_CHUNK) gc_tdel((uintptr_t)c + off);
+  munmap(c, c->map);
+}
+/* keep: how many empty chunks to hold for the next allocations. */
+static void gc_sweep(long keep);
+static void gc_collect(void) { gc_sweep(-1); }
+static void gc_sweep(long keep) {
+  if (!gc_base) { gc_since = 0; return; }
+  gc_mark();
+  long live = 0;
+  for (int k = 0; k < GC_NCLS; k++) gc_av[0][k] = gc_av[1][k] = 0;
+  GcChunk** q = &gc_all;
+  while (*q) {
+    GcChunk* c = *q; long words = (c->n + 63) / 64, used = 0;
+    c->fl = 0; c->nfree = c->n - c->bump; c->onav = 0;
+    for (long w = 0; w < words; w++) {
+      uint64_t dead = c->live[w] & ~c->mark[w];
+      c->live[w] &= c->mark[w]; c->mark[w] = 0;
+      used += __builtin_popcountll(c->live[w]);
+      while (dead) { long i = w * 64 + __builtin_ctzll(dead); dead &= dead - 1; char* p = c->start + i * c->size; *(void**)p = c->fl; c->fl = p; c->nfree++; }
+    }
+    if (used == 0) {
+      *q = c->next;
+      if (c->cls >= 0) { c->next = gc_spare; gc_spare = c; gc_nspare++; }
+      else gc_unmap(c);
+      continue;
+    }
+    live += used * c->size;
+    if (c->cls >= 0 && c->nfree > 0) { c->onav = 1; c->avail = gc_av[c->atom][c->cls]; gc_av[c->atom][c->cls] = c; }
+    q = &c->next;
+  }
+  gc_live = live; gc_since = 0;
+  gc_limit = live > (16L << 20) ? live : (16L << 20);
+  if (keep < 0) keep = gc_limit / GC_CHUNK;
+  while (gc_nspare > keep) { GcChunk* c = gc_spare; gc_spare = c->next; gc_nspare--; gc_unmap(c); }
+}
+/* A program about to wait collects first if it made garbage, so an idle
+   program holds little and no timer is needed. */
+static void gc_idle(void) { if (gc_since > (1L << 20) && !gc_off) gc_sweep(0); }
+#define malloc(n) gc_malloc(n)
+#define calloc(a, b) gc_calloc(a, b)
+#define realloc(p, n) gc_realloc(p, n)
+#define free(p) gc_free(p)
+#define strdup(s) gc_strdup(s)
+END
+  gc
+}
+
+// The two ends of `for i in a..b`, so the loop counts without making a list.
+rangeArgs(e : Expr) : List[Expr] {
+  none : List[Expr] = []
+  e.match {
+    Call(name, args) -> rangeOf(name, args)
+    Num(v) -> none
+    FloatLit(t) -> none
+    Var(t) -> none
+    StrLit(t) -> none
+    ListLit(es) -> none
+    Bin(op, a, b) -> none
+    Match(scrut, arms) -> none
+    Field(recv, fld) -> none
+    Method(recv, name, args) -> none
+    Each(recv, param, body) -> none
+  }
 }
 
 // "List[Fn]" has element type "Fn"; a bare "List" or a non-list has none.

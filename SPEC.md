@@ -734,9 +734,12 @@ one thing with properties (`rows`, `cols`, `fg`, `bg`). Every pane has it as
 ## 14. How it runs
 
 The compiler transpiles Simpler to C and hands it to the system C compiler,
-which buys a mature optimizer and every platform for free. There is no garbage
-collector (no pauses, no idle battery drain) and no borrow checker (nothing
-hard to learn). Build with no Rust at all:
+which buys a mature optimizer and every platform for free. Memory a program no
+longer reaches is reused. The collector runs after 16 MB of new data, and just
+before the program waits (a sleep, a file change, a key, a line of input), so a
+waiting program does no work and holds little; empty chunks go back to the
+system then. There is no borrow checker (nothing hard to learn). Build with no
+Rust at all:
 
 ```bash
 cd selfhost

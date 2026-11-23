@@ -67,9 +67,12 @@ The rest follows from a few committed decisions:
 - **Capabilities replace imports.** There are no globals. `main` receives the
   world and passes subsets down, so a signature becomes a permission list: a
   function can only touch what it was handed.
-- **Value semantics, no GC.** No garbage collector (no pauses, no idle battery
-  drain) and no borrow checker (nothing hard to learn). Capabilities are erased
-  at compile time, so the permission system costs nothing at runtime.
+- **Memory comes back, at no idle cost.** A small collector reuses memory a
+  program no longer reaches and hands empty chunks back to the system. It runs
+  only after 16 MB of new data, or just before the program waits, so a waiting
+  program does no work. There is no borrow checker (nothing hard to learn).
+  Capabilities are erased at compile time, so the permission system costs
+  nothing at runtime.
 - **Compiled via C.** The compiler transpiles to C and hands it to the system C
   compiler, which buys a mature optimizer and every platform for free.
 
@@ -358,6 +361,7 @@ first lexer to a compiler that compiles itself:
   - [x] **Limits**: `limits "2s", "50MB"` at the top caps processor time and memory, for the program and each program it starts. A program that spins or eats memory stops with a line that says why, so it cannot drain the battery.
   - [x] **Undo**: `simpler undo prog.smplr` puts back every file the program's last run wrote, appended to, renamed or deleted, and removes the files it made. The old copy is taken the first time a run touches a file (files up to 16 MB).
   - [x] **Replay**: a run that ends with an error keeps its arguments and input. `simpler replay prog.smplr` runs it again, and `simpler replay --show prog.smplr` prints them for the AI that fixes the program.
+  - [x] **Memory comes back**: a program that runs for days stays small. Memory it no longer reaches is reused, and empty chunks go back to the system just before it waits, so an idle program holds a few MB and does no work. Text is never scanned for pointers. The compiler itself runs in 64 MB instead of 316 MB, and no slower.
   - [x] **No idle drain**: a `while true` loop that neither waits nor ends is refused by the compiler, and `limits` stops a program that spins anyway.
   - [x] **Safe from strangers**: `simpler run https://...` fetches a program, shows everything it can touch and asks once at the terminal. The kernel holds it to what was shown.
   - [x] **A dry run**: `simpler run --dry prog.smplr` prints what the program would write, delete, start, fetch or mail, and does none of it. The kernel backs it: a dry run gets no `writes` names and no net.

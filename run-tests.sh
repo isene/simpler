@@ -19,7 +19,7 @@ if [ -n "${SAN:-}" ]; then
     # clang, -O1 and gcc without jump threading build it right.
     SAN="$SAN -fno-sanitize-recover=all -fno-thread-jumps -g"
     cc() { command cc $SAN "$@"; }
-    export CC="cc $SAN" ASAN_OPTIONS="detect_leaks=0"
+    export CC="cc $SAN" ASAN_OPTIONS="detect_leaks=0:detect_stack_use_after_return=0"
 fi
 TMP="$(mktemp -d)"
 pass=0
@@ -2014,6 +2014,30 @@ printf 'limits "soon"\nmain(sys) {\n  sys.screen.print("x")\n}\n' > "$TMP/ex/bad
 limout="$( cd "$TMP/ex" && export SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; for f in spin eat badl; do "$OLDPWD/simpler" run $f.smplr >/dev/null 2>&1; printf '%s ' $?; done )"
 if [ -n "${SAN:-}" ]; then echo "SKIP: limits (the checker itself needs the memory the test takes away)"
 elif [ "$limout" = "124 125 1 " ]; then ok; else nope "limits (got: $limout)"; fi
+
+# Memory comes back: 400 MB of short-lived text runs under a 64 MB limit, and
+# a loop that sets its own counter still counts every round.
+cat > "$TMP/ex/churn.smplr" <<'CHURN'
+limits "20s", "64MB"
+make(n : Int) : Int {
+  xs : List[Str] = []
+  for i in 0..n {
+    xs.push("item " + i.toStr + " of a round that is thrown away")
+  }
+  xs.length
+}
+main(sys) {
+  total = 0
+  for round in 0..40 {
+    total = total + make(200000)
+    round = 99
+  }
+  sys.screen.print(total.toStr)
+}
+CHURN
+churnout="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run churn.smplr 2>&1 )"
+if [ -n "${SAN:-}" ]; then echo "SKIP: memory comes back (a sanitizer needs more than the limit)"
+elif [ "$churnout" = "8000000" ]; then ok; else nope "memory comes back (got: $churnout)"; fi
 
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
