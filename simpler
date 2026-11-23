@@ -6,6 +6,7 @@
 #   simpler run https://...              fetch a program, show what it can touch, ask once, then run it
 #   simpler undo prog.smplr              put back the files its last run wrote, changed or deleted
 #   simpler replay [--show] prog.smplr   run its last failed run again with the same input (--show prints the input)
+#   simpler room [--undo] folder [args]  Claude Code in a lock that can change only that folder (--undo puts it back)
 #   simpler build prog.smplr [-o name]   make a program file (default: prog)
 #   simpler what prog.smplr              list everything the program can touch
 #   simpler pieces prog.smplr            list each function: what it takes, what it touches, its examples
@@ -23,7 +24,7 @@ while [ -L "$self" ]; do
 done
 home=$(cd "$(dirname "$self")" && pwd)
 
-usage() { sed -n '2,14p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,17p' "$self" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # The compiler: next to this script after an install, or built in the repo.
 compiler() {
@@ -177,6 +178,34 @@ case $cmd in
         SIMPLER_REPLAY=1
         [ "$1" = --show ] && { SIMPLER_REPLAY=show; shift; }
         export SIMPLER_REPLAY; cmd=run ;;
+    room)
+        # Claude Code in a kernel lock that writes only the folder and its own
+        # folder for login and temp files. A copy of the folder is kept first; --undo
+        # puts it back, after keeping a copy of how it is now.
+        undo=; [ "$1" = --undo ] && { undo=1; shift; }
+        [ -d "${1:-}" ] || { echo "simpler: no folder named ${1:-}" >&2; exit 2; }
+        dir=$(cd "$1" && pwd -P); shift
+        case $dir in /|"$(cd "$HOME" && pwd -P)") echo "simpler: a room needs a folder of its own, not $dir" >&2; exit 2 ;; esac
+        copies=$HOME/.local/state/simpler/room-copies
+        copy=$copies/$(printf '%s' "$dir" | cksum | cut -d' ' -f1)
+        if [ -n "$undo" ]; then
+            [ -f "$copy.tar" ] || { echo "simpler: no copy of $dir to put back" >&2; exit 1; }
+            tar -C "$dir" -cf "$copy.after.tar" .
+            find "$dir" -mindepth 1 -delete
+            tar -C "$dir" -xf "$copy.tar"
+            echo "put back $dir as it was before the room (how it was after: $copy.after.tar)"
+            exit
+        fi
+        [ -x "$HOME/.local/bin/claude" ] || { echo "simpler: a room needs Claude Code in ~/.local/bin/claude, where its installer puts it" >&2; exit 1; }
+        mkdir -p "$copies" "$HOME/.local/state/simpler/room/tmp"
+        tar -C "$dir" -cf "$copy.tar" .
+        prog=${XDG_CACHE_HOME:-$HOME/.cache}/simpler/room
+        if [ ! -x "$prog" ] || [ "$home/room.smplr" -nt "$prog" ]; then
+            mkdir -p "$(dirname "$prog")"
+            "$self" build "$home/room.smplr" -o "$prog" > /dev/null
+        fi
+        cd "$dir"
+        exec "$prog" "$@" ;;
     run|build|what|pieces|test|c|trusted) ;;
     *) echo "simpler: no command named $cmd" >&2; usage 2 >&2 ;;
 esac

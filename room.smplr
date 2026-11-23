@@ -1,0 +1,14 @@
+// simpler room: Claude Code inside one kernel lock. It writes only the folder
+// it starts in and its own folder for login and temp files. It runs system
+// programs, and nothing from the home folder but Claude Code itself.
+reads "./", "~/.local/state/simpler/room/", "~/.gitconfig", "~/.config/git/"
+writes "./", "~/.local/state/simpler/room/"
+runs "~/.local/bin/claude"
+fetches "api.anthropic.com"
+main(sys) {
+  room = sys.env.var("HOME") + "/.local/state/simpler/room"
+  sys.env.setVar("CLAUDE_CONFIG_DIR", room)
+  sys.env.setVar("TMPDIR", room + "/tmp")
+  sys.env.setVar("CLAUDE_CODE_TMPDIR", room + "/tmp")
+  exit(sys.programs.status("~/.local/bin/claude", sys.args))
+}

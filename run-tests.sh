@@ -2149,6 +2149,27 @@ parout="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$O
 parout="$(printf '%s' "$parout" | tr '\n' '|')"
 if [ "$parout" = "332833500 998001 item 7|par.smplr:8: list index 7, but the list has 3 items|rc=1" ]; then ok; else nope "parallel (got: $parout)"; fi
 
+# A runs name may start with ~/, and Ctrl+C while status waits stops only the started program.
+mkdir -p "$TMP/rh/bin"; printf '#!/bin/sh\necho hi from home\n' > "$TMP/rh/bin/hi"; chmod +x "$TMP/rh/bin/hi"
+cat > "$TMP/ex/home.smplr" <<'HOM'
+runs "~/bin/hi", "sh"
+main(sys) {
+  sys.programs.status("~/bin/hi", [])
+  sys.screen.print(sys.programs.status("sh", ["-c", "kill -INT $PPID; exit 3"]))
+}
+HOM
+homout="$( cd "$TMP/ex" && HOME="$TMP/rh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run home.smplr 2>&1; echo "rc=$?" )"
+homout="$(printf '%s' "$homout" | tr '\n' '|')"
+if [ "$homout" = "hi from home|3|rc=0" ]; then ok; else nope "runs ~/ and Ctrl+C (got: $homout)"; fi
+
+# simpler room keeps a copy of the folder first, and --undo puts it back. A stand-in
+# for Claude shows the lock: it may write in the folder and not next to it.
+mkdir -p "$TMP/rh/box" "$TMP/rh/.local/bin"; printf 'first\n' > "$TMP/rh/box/a.txt"
+printf '#!/bin/sh\necho "args $* in ${CLAUDE_CONFIG_DIR#$HOME/}"; echo in > made.txt; echo out 2>/dev/null > ../out.txt || echo blocked\n' > "$TMP/rh/.local/bin/claude"; chmod +x "$TMP/rh/.local/bin/claude"
+roomout="$( cd "$TMP/rh" && export HOME="$TMP/rh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" room "$TMP/rh" 2>&1; "$OLDPWD/simpler" room box --version 2>&1; ls box; printf 'changed\n' > box/a.txt; "$OLDPWD/simpler" room --undo box > /dev/null; cat box/a.txt; ls box )"
+roomout="$(printf '%s' "$roomout" | tr '\n' '|')"
+if [ "$roomout" = "simpler: a room needs a folder of its own, not $(cd "$TMP/rh" && pwd -P)|args --version in .local/state/simpler/room|blocked|a.txt|made.txt|first|a.txt" ]; then ok; else nope "room (got: $roomout)"; fi
+
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"
 cat > "$TMP/un/und.smplr" <<'UNT'

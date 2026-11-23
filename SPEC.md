@@ -405,7 +405,7 @@ nothing at runtime.
 | `sys.programs.feed(name, args, text)` | `Str` | `!IO` | like `run`, with `text` as the program's standard input |
 | `sys.programs.output(name, args, text)` | `Str` | `!IO` | like `feed`, but a program that fails still gives what it printed, and this program goes on |
 | `sys.programs.try(name, args)` | `Str` | `!IO` | like `run`, but a program that fails or is missing gives `""`, and its error text is hidden |
-| `sys.programs.status(name, args)` | `Int` | `!IO` | run it, let it print to the screen, and give its exit status |
+| `sys.programs.status(name, args)` | `Int` | `!IO` | run it on this terminal and give its exit status; Ctrl+C stops it, and this program goes on |
 | `sys.programs.start(name, args)` | `Int` | `!IO` | start it without waiting, in a session of its own with no input, and give its process number (-1 if it could not start); the name obeys `runs` |
 | `sys.programs.drive(name, args)` | `Int` | `!IO` | start it on a terminal of its own (24 rows, 80 columns) and give a number for the three calls below; at most 4 at once; the name obeys `runs` |
 | `sys.programs.press(t, text)` | `Int` | `!IO` | type `text` into it as keys; `"\r"` is Enter |
@@ -448,7 +448,8 @@ writes "out/"
 the code may start, a `fetches` line each host it may reach, and a `mails` line
 each address it may send to. A `*` in a name on any of these lines, and on `reads` and
 `writes`, stands for any run of characters but never for a `/`: `reads "logs/*.log"`,
-`fetches "*.example.com"`, `mails "*@example.com"`:
+`fetches "*.example.com"`, `mails "*@example.com"`. A program outside the system folders
+is named by its path, as in `runs "~/bin/tool"`, and started by that same name:
 
 ```
 runs "git", "ffmpeg"
@@ -568,6 +569,13 @@ So `runs "sh"` gives a shell that can read and write only what the top lines nam
 - A name with a `*` opens its folder in the kernel; the exact check stays in the program.
 - A single file named in `writes` cannot be removed or renamed; name its folder for that.
 - On an older kernel, or another system, the checks in the program are all there is.
+
+**A room for an AI agent.** `simpler room <folder> [claude arguments]` starts Claude Code
+(its own install, `~/.local/bin/claude`) in a lock that writes only that folder and
+`~/.local/state/simpler/room/`, its folder for login and temp files. It can run the
+system's programs and nothing else from the home folder. A copy of the folder is kept
+first, and `simpler room --undo <folder>` puts it back. The room logs in once with
+`/login`, apart from Claude Code outside it.
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
 function that was handed only a `Screen` cannot read files. The compiler

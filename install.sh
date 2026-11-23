@@ -11,11 +11,11 @@ bin=${SIMPLER_BIN:-$HOME/.local/bin}
 base=https://raw.githubusercontent.com/isene/simpler/master
 mkdir -p "$dir/lib" "$dir/prompt" "$bin"
 if [ -f selfhost/simpler.c ] && [ -f simpler ] && [ -f PROMPT.md ]; then
-    cp selfhost/simpler.c simpler PROMPT.md "$dir/"
+    cp selfhost/simpler.c simpler PROMPT.md room.smplr "$dir/"
     cp lib/*.smplr "$dir/lib/"
     cp prompt/*.md "$dir/prompt/"
 else
-    for f in selfhost/simpler.c simpler PROMPT.md; do
+    for f in selfhost/simpler.c simpler PROMPT.md room.smplr; do
         curl -fsSL "$base/$f" -o "$dir/$(basename "$f")"
     done
     for p in regex json bytes net screen; do
