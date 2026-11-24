@@ -2081,6 +2081,53 @@ else
     if [ "$webout" = "would wait for web requests on port 18099|404|<h1>Hello Ada L!</h1>|303 $w/hello?name=Bob|<h1>Hello Cy</h1> text/html; charset=utf-8|served 4" ]; then ok; else nope "a web server (got: $webout)"; fi
 fi
 
+# A program that may run programs and fetch gets a network of its own: a
+# started program gets out only through the gate, and only to a fetches host.
+if ! command -v curl >/dev/null || ! bwrap --dev-bind / / --unshare-net true 2>/dev/null; then echo "SKIP: the website gate (no bwrap that can start)"
+else
+    cat > "$TMP/ex/gs.smplr" <<'GS'
+listens 18098
+main(sys) {
+  n = 0
+  while n < 3 {
+    req = sys.net.request(18098)
+    sys.net.reply(200, "hello")
+    n = n + 1
+  }
+}
+GS
+    cat > "$TMP/ex/gate.smplr" <<'GATE'
+runs "curl"
+fetches "127.0.0.1"
+main(sys) {
+  for host in ["127.0.0.1", "localhost"] {
+    sys.programs.status("curl", ["-s", "-o", "/dev/null", "-w", "%{http_code}|", "http://" + host + ":18098/"])
+  }
+  sys.screen.print(sys.net.fetch("http://127.0.0.1:18098/"))
+}
+GATE
+    ( cd "$TMP/ex" && for p in gs gate; do SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" build $p.smplr -o $p >/dev/null 2>&1; done )
+    "$TMP/ex/gs" > /dev/null 2>&1 &
+    gspid=$!
+    for i in $(seq 100); do curl -s -o /dev/null "http://127.0.0.1:18098/ping" && break; sleep 0.05; done
+    gateout="$("$TMP/ex/gate" 2>&1)"
+    kill "$gspid" 2>/dev/null; wait "$gspid" 2>/dev/null
+    if [ "$gateout" = "200|403|hello" ]; then ok; else nope "the website gate (got: $gateout)"; fi
+fi
+
+# A started program cannot open a new local socket (the desktop bus is one door
+# out of the lock), but a socket pair between its own parts still works.
+printf '%s' '#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/socket.h>
+int main(void) { int sv[2]; int p = socketpair(AF_UNIX, SOCK_STREAM, 0, sv); int u = socket(AF_UNIX, SOCK_STREAM, 0); printf("pair %d unix %s\n", p, u < 0 ? strerror(errno) : "open"); return 0; }' > "$TMP/sock.c"
+command cc -w "$TMP/sock.c" -o "$TMP/sock"
+printf 'runs "%s"\nmain(sys) { sys.programs.status("%s", []) }' "$TMP/sock" "$TMP/sock" > "$TMP/input.smplr"
+( cd "$TMP" && ./seedc > sockp.c 2>/dev/null && cc -w -o sockp sockp.c 2>/dev/null )
+sockout="$( cd "$TMP" && ./sockp 2>/dev/null )"
+if [ "$sockout" = "pair 0 unix Permission denied" ] || [ "$(uname -m)" != x86_64 -a "$(uname -m)" != aarch64 ]; then ok; else nope "no new local socket (got: $sockout)"; fi
+
 # A program on a terminal of its own is typed into and shows what it printed;
 # end stops it with every program it started, and gives the exit status.
 reject "driving a program not on the runs line" \
@@ -2183,7 +2230,13 @@ mkdir -p "$TMP/rh/box" "$TMP/rh/.local/bin"; printf 'first\n' > "$TMP/rh/box/a.t
 printf '#!/bin/sh\necho "args $* in ${CLAUDE_CONFIG_DIR#$HOME/}"; echo in > made.txt; echo out 2>/dev/null > ../out.txt || echo blocked\n' > "$TMP/rh/.local/bin/claude"; chmod +x "$TMP/rh/.local/bin/claude"
 roomout="$( cd "$TMP/rh" && export HOME="$TMP/rh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" room "$TMP/rh" 2>&1; "$OLDPWD/simpler" room box --version 2>&1; ls box; printf 'changed\n' > box/a.txt; "$OLDPWD/simpler" room --undo box > /dev/null; cat box/a.txt; ls box )"
 roomout="$(printf '%s' "$roomout" | tr '\n' '|')"
-if [ "$roomout" = "simpler: a room needs a folder of its own, not $(cd "$TMP/rh" && pwd -P)|args --version in .local/state/simpler/room|blocked|a.txt|made.txt|first|a.txt" ]; then ok; else nope "room (got: $roomout)"; fi
+if [ "$roomout" = "simpler: a room needs a folder of its own, not $(cd "$TMP/rh" && pwd -P)|args --dangerously-skip-permissions --version in .local/state/simpler/room|blocked|a.txt|made.txt|first|a.txt" ]; then ok; else nope "room (got: $roomout)"; fi
+# A room with --own has a Claude folder of its own and cannot read the shared one.
+printf '#!/bin/sh\necho "in ${CLAUDE_CONFIG_DIR#$HOME/}"; cat "$HOME/.local/state/simpler/room/chat.txt" 2>/dev/null || echo "no chat"\n' > "$TMP/rh/.local/bin/claude"
+printf 'secret\n' > "$TMP/rh/.local/state/simpler/room/chat.txt"; mkdir -p "$TMP/rh/box2"
+ownid=$(printf '%s' "$(cd "$TMP/rh/box2" && pwd -P)" | cksum | cut -d' ' -f1)
+ownout="$( cd "$TMP/rh" && export HOME="$TMP/rh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache"; "$OLDPWD/simpler" room --own box2 2>&1 | tr '\n' '|' )"
+if [ "$ownout" = "in .local/state/simpler/rooms/$ownid|no chat|" ]; then ok; else nope "a room of its own (got: $ownout)"; fi
 
 # simpler undo puts back what the last run wrote, appended to, deleted and renamed.
 mkdir -p "$TMP/un/box"; printf 'old a\n' > "$TMP/un/box/a.txt"; printf 'old log\n' > "$TMP/un/box/log.txt"; printf 'gone\n' > "$TMP/un/box/del.txt"; printf 'move\n' > "$TMP/un/box/mv.txt"

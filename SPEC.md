@@ -557,10 +557,18 @@ So `runs "sh"` gives a shell that can read and write only what the top lines nam
 - With a `runs` or `fetches` line the system folders (`/usr`, `/bin`, `/lib`,
   `/etc` and the like) may be read and run, and nothing in the home folder.
 - With no `fetches` line no program in the tree can open a TCP connection
-  (Linux 6.7). With one, the kernel lets the net through, and the host check
-  stays with `sys.net`: a started program could reach any host.
+  (Linux 6.7). With one, the kernel lets the net through.
+- With a `fetches` line and a `runs` line, the program starts inside `bwrap`
+  with a network of its own. A started program gets out only through a gate
+  that lets through the `fetches` hosts, by the web proxy it is handed
+  (`https_proxy`). The gate sleeps until a program opens a connection. Without
+  `bwrap`, a started program could reach any host.
 - No program in the tree can listen on a port the `listens` line does not name
   (Linux 6.7).
+- With a `runs` line, no program in the tree can open a new local socket, such
+  as the desktop bus or the sound server, since through the bus a program could
+  start programs outside the lock. A socket pair between its own parts still
+  works (Linux on x86-64 and ARM64).
 - No program in the tree can open a terminal. The four terminals for
   `sys.programs.drive` are made before the lock, only when the code uses it.
 - No program in the tree can become root, or signal a program outside it (Linux 6.12).
@@ -573,9 +581,13 @@ So `runs "sh"` gives a shell that can read and write only what the top lines nam
 **A room for an AI agent.** `simpler room <folder> [claude arguments]` starts Claude Code
 (its own install, `~/.local/bin/claude`) in a lock that writes only that folder and
 `~/.local/state/simpler/room/`, its folder for login and temp files. It can run the
-system's programs and nothing else from the home folder. A copy of the folder is kept
+system's programs and nothing else from the home folder, and reach only
+`api.anthropic.com` and `platform.claude.com`, so Claude Code runs there without
+permission prompts. A copy of the folder is kept
 first, and `simpler room --undo <folder>` puts it back. The room logs in once with
-`/login`, apart from Claude Code outside it.
+`/login`, apart from Claude Code outside it. All rooms share that login and their chat
+logs; `simpler room --own <folder>` gives a room a Claude folder of its own
+(`~/.local/state/simpler/rooms/<number>/`), with its own login.
 
 Pass a capability down by handing it over: `shout(sys.screen, "world")`. A
 function that was handed only a `Screen` cannot read files. The compiler
