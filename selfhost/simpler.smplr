@@ -4588,8 +4588,17 @@ markAgain(f : Fn, ctx : Ctx) : Int !Mut {
   markBody(f.body, ctx)
 }
 
+// A function that changes what it was handed is !Mut, written or not: the
+// compiler works it out, and `simpler what` lists it.
+markMut(f : Fn) : Int !Mut {
+  if hasName(f.effs, "Mut").not {
+    f.effs.push("Mut")
+  }
+  0
+}
+
 // What a function does with each value it is given: can it return it (or a
-// part of it), and, when it declares !Mut, does it change it? The function
+// part of it), and does it change it? The function
 // is read with that one value alone handed. Kept as "name:position". A
 // function that calls another is read again until nothing new is found.
 paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
@@ -4598,7 +4607,7 @@ paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
   while k < f.params.length {
     key = f.name.concat(":").concat(k.toStr)
     needR = plainType(f.ret).not && hasName(sigs.retP, key).not
-    needM = hasName(f.effs, "Mut") && hasName(sigs.mutP, key).not
+    needM = hasName(sigs.mutP, key).not
     if plainType(f.ptypes.at(k)).not && (needR || needM) {
       ctx = fnCtx(f, sigs)
       setHanded(f.params.at(k), ctx)
@@ -4611,11 +4620,12 @@ paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
       effBody(f.body, used, ctx)
       if needM && hasName(used, "Mut") {
         sigs.mutP.push(key)
+        markMut(f)
         found = true
       }
     }
     // does it change what the value holds, and not only the value itself?
-    if plainType(f.ptypes.at(k)).not && hasName(f.effs, "Mut") && hasName(sigs.mutP, "deep:".concat(key)).not {
+    if plainType(f.ptypes.at(k)).not && hasName(sigs.mutP, "deep:".concat(key)).not {
       ctx2 = fnCtx(f, sigs)
       setHolding(f.params.at(k), 1, ctx2)
       markAgain(f, ctx2)
@@ -4623,6 +4633,7 @@ paramFacts(f : Fn, sigs : Sigs) : Bool !Mut {
       effBody(f.body, used2, ctx2)
       if hasName(used2, "Mut") {
         sigs.mutP.push("deep:".concat(key))
+        markMut(f)
         found = true
       }
     }

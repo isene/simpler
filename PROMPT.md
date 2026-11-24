@@ -139,7 +139,7 @@ main(sys) {
   anything else stays as it is. For text full of quotes or backslashes (code to patch), write `old = <<END` and end
   it with a line holding `END` alone: the lines between are taken as written, each with its newline, and the end
   word's indent is cut from each line. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
-  `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€").
+  `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€"). A text cannot hold the character with number 0: `0.char` is "", so keep such a character in another form (its escape, or a number in a list).
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, `!x` for not, and `-x`. `&&` and `||` stop as soon
   as the answer is known, so `i < n && xs.at(i) == 0` is safe. Int `/` cuts toward zero and `%` takes the
   sign of the left side. `true` and `false` are the two Bool values. Texts compare with `<` by character code.
@@ -152,11 +152,9 @@ main(sys) {
   write `x = 0` and then `if c { x = 1 }`. A `match` is a value.
 - Input is `sys.stdin` (all of it, one text), or `sys.stdinLine`: the next line with its newline, waiting until one comes; `""` when the input has ended. Output is `sys.screen.print(text)`, one line per call.
   Only `main(sys)` has `sys`.
-- A function that does `.push`, `.set` or `.remove` on a list or map it got as a parameter, or sets a field of
-  a record it got, says `!Mut` after its return type: `add(xs : List[Int], n : Int) : Int !Mut { xs.push(n)  0 }`.
-  So does a function that hands such a parameter (or a part of it) to a `!Mut` function. A list, map or
-  record the function made itself needs none, and a `!Mut` that turns out unneeded is no error. A function
-  may leave out the return type, and effects combine: `bump(out : Screen, xs : List[Int]) !Mut !IO { }`.
+- A function may change a list, map or record it got as a parameter (`.push`, `.set`, `.remove`, setting a
+  field): the caller sees the change. No mark is needed; the compiler works it out. `!Mut` after the return
+  type is allowed and never an error. A function may leave out the return type: `bump(out : Screen) !IO { }`.
 - A record is `Name = type { a : Int, b : Str }`, made with `Name(a = 1, b = "x")` (values in the order
   declared), read with `p.a`. A variant is `Name = type { CaseA CaseB(Int) }`; take it apart with
   `v.match { CaseA -> ... CaseB(n) -> ... }`, which must name every case and gives a value. An arm is

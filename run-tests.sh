@@ -320,6 +320,13 @@ refused() {  # name, expected message, program
     if ( cd "$TMP" && ./seedc 2>&1 >/dev/null | grep -q "$2" ); then ok; else nope "capability: $1"; fi
     rm -f "$TMP/input.smplr"
 }
+check_mut() { # description  source: it compiles, and `what` lists a function that changes what it was handed
+    printf '%s' "$2" > "$TMP/input.smplr"
+    local got
+    got="$( cd "$TMP" && ./seedc what 2>&1 )"
+    rm -f "$TMP/input.smplr"
+    if printf '%s' "$got" | grep -qF 'lists   changes a list or map it was handed  (in '; then ok; else nope "$1 (got: $got)"; fi
+}
 refused "print with nothing handed down" "print needs a Screen" 'say() : Int !IO {
   screen.print("hi")
   0
@@ -347,7 +354,7 @@ main(sys) {
   x = 5
   x.write("o.txt", "hi")
 }'
-refused "a made record passed to a function that changes what it holds" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+check_mut "a made record passed to a function that changes what it holds" 'Ps = type { t : List[Str], p : Int }
 step(ps : Ps) : Int !Mut {
   ps.t.push("x")
   0
@@ -360,7 +367,7 @@ mk(toks : List[Str]) : Int {
 main(sys) {
   sys.screen.print(mk(["a"]))
 }'
-refused "a made record whose held list is changed" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+check_mut "a made record whose held list is changed" 'Ps = type { t : List[Str], p : Int }
 mk(toks : List[Str]) : Int {
   ps = Ps(t = toks, p = 0)
   ps.t.push("x")
@@ -369,7 +376,7 @@ mk(toks : List[Str]) : Int {
 main(sys) {
   sys.screen.print(mk(["a"]))
 }'
-refused "a returned record still holds the caller list" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+check_mut "a returned record still holds the caller list" 'Ps = type { t : List[Str], p : Int }
 wrap(toks : List[Str]) : Ps {
   Ps(t = toks, p = 0)
 }
@@ -381,7 +388,7 @@ mk(toks : List[Str]) : Int {
 main(sys) {
   sys.screen.print(mk(["a"]))
 }'
-refused "an own list of handed rows passed to a function that changes the rows" "b changes a list or map it was handed" 'deep(g : List[List[Str]]) : Int !Mut {
+check_mut "an own list of handed rows passed to a function that changes the rows" 'deep(g : List[List[Str]]) : Int !Mut {
   g.at(0).push("x")
   0
 }
@@ -394,7 +401,7 @@ b(rows : List[List[Str]]) : Int {
 main(sys) {
   sys.screen.print(b([["a"]]))
 }'
-refused "a returning branch that changes the caller rows it just kept" "groups changes a list or map it was handed" 'groups(kept : List[List[Str]], grp : Str) : Int {
+check_mut "a returning branch that changes the caller rows it just kept" 'groups(kept : List[List[Str]], grp : Str) : Int {
   gs : List[List[List[Str]]] = []
   if grp == "" {
     gs.push(kept)
@@ -406,7 +413,7 @@ refused "a returning branch that changes the caller rows it just kept" "groups c
 main(sys) {
   sys.screen.print(groups([["a"]], ""))
 }'
-refused "a branch that does not return leaves what it kept" "groups changes a list or map it was handed" 'groups(kept : List[List[Str]], grp : Str) : Int {
+check_mut "a branch that does not return leaves what it kept" 'groups(kept : List[List[Str]], grp : Str) : Int {
   gs : List[List[List[Str]]] = []
   if grp == "" {
     gs.push(kept)
@@ -417,7 +424,7 @@ refused "a branch that does not return leaves what it kept" "groups changes a li
 main(sys) {
   sys.screen.print(groups([["a"]], ""))
 }'
-refused "a record returned early still holds the caller list" "mk changes a list or map it was handed" 'Ps = type { t : List[Str], p : Int }
+check_mut "a record returned early still holds the caller list" 'Ps = type { t : List[Str], p : Int }
 wrap(toks : List[Str], q : Int) : Ps {
   if q == 1 {
     ps = Ps(t = toks, p = 0)
@@ -433,7 +440,7 @@ mk(toks : List[Str]) : Int {
 main(sys) {
   sys.screen.print(mk(["a"]))
 }'
-refused "a part of a handed list still holds the caller rows" "bad changes a list or map it was handed" 'bad(rows : List[List[Str]]) : Int {
+check_mut "a part of a handed list still holds the caller rows" 'bad(rows : List[List[Str]]) : Int {
   ks = rows.slice(0, 1)
   ks.at(0).push("x")
   1
@@ -1049,10 +1056,10 @@ check_err "for is no name for a variable" \
     'main(sys) {
   for = 3
 }' "input.smplr:2: expected a name"
-check_err "a for loop that changes a handed list needs !Mut" \
+check_mut "a for loop that changes a handed list needs !Mut" \
     'add(xs : List[Int]) : Int { for i in 0..3 { xs.push(i) }
   0 }
-main(sys) { add([1]) }' "add changes a list or map it was handed"
+main(sys) { add([1]) }'
 echo 'main(sys) {
   n = 0
   for c in "a1b22" {
@@ -1109,9 +1116,9 @@ check_err "break outside a loop" \
   x = 1
   if x == 1 { break }
 }' "input.smplr:3: break is only for inside a loop"
-check_err "remove on a handed list needs !Mut" \
+check_mut "remove on a handed list needs !Mut" \
     'drop(xs : List[Int]) : Int { xs.remove(0) }
-main(sys) { drop([1]) }' "drop changes a list or map it was handed"
+main(sys) { drop([1]) }'
 check_err "set on a list with the wrong type" \
     'main(sys) {
   xs = [1]
@@ -1561,32 +1568,35 @@ check_err "a type name nobody declared, on a local" \
     'main(sys) {
   xs : List[string] = []
 }' "input.smplr:2: no type named string"
-# a function may not change a list or map it was handed, unless it says !Mut
-check_err "!Mut: a push on a handed list" \
+# a function that changes a list or map it was handed is !Mut, written or not; `what` lists it
+check_mut "!Mut: a push on a handed list" \
     'add(xs : List[Int]) {
   xs.push(1)
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a set on a handed map" \
+main(sys) { add([1]) }'
+check_mut "!Mut: a set on a handed map" \
     'note(m : Map[Str, Int]) {
   m.set("a", 1)
 }
-main(sys) { note(Map()) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push through a second name" \
+main(sys) {
+  m : Map[Str, Int] = Map()
+  note(m)
+}'
+check_mut "!Mut: a push through a second name" \
     'add(xs : List[Int]) : Int {
   ys = xs
   ys.push(1)
   ys.length
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push on an item of a handed list" \
+main(sys) { add([1]) }'
+check_mut "!Mut: a push on an item of a handed list" \
     'add(rows : List[List[Int]]) {
   rows.each { r in
     r.push(1)
   }
 }
-main(sys) { add([[1]]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push on a field of a handed record" \
+main(sys) { add([[1]]) }'
+check_mut "!Mut: a push on a field of a handed record" \
     'Box = type {
   items : List[Int]
   n : Int
@@ -1594,8 +1604,8 @@ check_err "!Mut: a push on a field of a handed record" \
 add(b : Box) {
   b.items.push(1)
 }
-main(sys) { add(Box(items = [1], n = 0)) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push on what a function gave back unchanged" \
+main(sys) { add(Box(items = [1], n = 0)) }'
+check_mut "!Mut: a push on what a function gave back unchanged" \
     'same(xs : List[Int]) : List[Int] {
   xs
 }
@@ -1603,16 +1613,16 @@ add(xs : List[Int]) {
   ys = same(xs)
   ys.push(1)
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: passing a handed list to a !Mut function" \
+main(sys) { add([1]) }'
+check_mut "!Mut: passing a handed list to a !Mut function" \
     'put(xs : List[Int], n : Int) !Mut {
   xs.push(n)
 }
 add(xs : List[Int]) {
   put(xs, 1)
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push on a list taken out by match" \
+main(sys) { add([1]) }'
+check_mut "!Mut: a push on a list taken out by match" \
     'T = type {
   Full(List[Int])
   Empty
@@ -1623,23 +1633,23 @@ add(t : T) : Int {
     Empty -> 0
   }
 }
-main(sys) { add(Full([1])) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: a push on a handed list kept in a local list" \
+main(sys) { add(Full([1])) }'
+check_mut "!Mut: a push on a handed list kept in a local list" \
     'add(xs : List[Int]) : Int {
   keep : List[List[Int]] = []
   keep.push(xs)
   keep.at(0).push(1)
   0
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
-check_err "!Mut: x.f on a handed list when f is !Mut" \
+main(sys) { add([1]) }'
+check_mut "!Mut: x.f on a handed list when f is !Mut" \
     'grow(xs : List[Int]) !Mut {
   xs.push(1)
 }
 add(xs : List[Int]) {
   xs.grow
 }
-main(sys) { add([1]) }' "changes a list or map it was handed; add !Mut"
+main(sys) { add([1]) }'
 check_err "x.f counts as a call to f for effects" \
     'shout(s : Screen) !IO {
   s.print("x")
@@ -1743,7 +1753,7 @@ keep(raw : List[Bag]) : List[Bag] {
 main(sys) {
   sys.screen.print(keep([Bag(items = [1])]).length.toStr)
 }' > "$TMP/input.smplr"
-if ( cd "$TMP" && ./seedc 2>&1 >/dev/null ) | grep -qF 'changes a list or map it was handed'; then ok; else nope "a record with a list in it, copied from a handed list, still needs !Mut"; fi
+if ( cd "$TMP" && ./seedc what 2>&1 ) | grep -qF 'changes a list or map it was handed  (in '; then ok; else nope "a record with a list in it, copied from a handed list, is listed as !Mut"; fi
 # A long line of + took twice as long for each part more: 24 parts took five seconds.
 { printf 'main(sys) {\n  a = "x"\n  sys.screen.print(a'; for i in $(seq 23); do printf ' + " " + a'; done; printf ')\n}\n'; } > "$TMP/input.smplr"
 T0=$(date +%s%N); ( cd "$TMP" && ./seedc >/dev/null 2>&1 ); T1=$(date +%s%N)
@@ -2526,8 +2536,8 @@ for body in 'out.at(0).push("z")' 'for r in out { r.push("z") }' 'two = out
   tmp.push([rows.at(0)])
   tmp.at(0).at(0).push("z")'; do
   printf 'f(rows : List[List[Str]]) : List[List[Str]] {\n  out = [rows.at(0)]\n  %s\n  out\n}\nmain(sys) {\n  a : List[List[Str]] = [["x"]]\n  sys.screen.print(f(a).length.toStr)\n}\n' "$body" > "$TMP/mod/hold2.smplr"
-  hold2="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run hold2.smplr 2>&1 )"
-  if [ "$hold2" = 'hold2.smplr:1: f changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "a change to a handed row inside a new list needs !Mut (got: $hold2)"; fi
+  hold2="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" what hold2.smplr 2>&1 )"
+  if printf '%s' "$hold2" | grep -qF "handed  (in f"; then ok; else nope "a change to a handed row inside a new list is listed as !Mut (got: $hold2)"; fi
 done
 
 # A record field can be set; setting one on a handed record needs !Mut; the
@@ -2558,8 +2568,8 @@ SMPLR
 setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf.smplr 2>&1 )"
 if [ "$setf" = 'ba 3 21 3 9 16' ]; then ok; else nope "a record field can be set (got: $setf)"; fi
 sed -i 's/ : Int !Mut {/ : Int {/' "$TMP/mod/setf.smplr"
-setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf.smplr 2>&1 )"
-if [ "$setf" = 'setf.smplr:3: bump changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "setting a field of a handed record needs !Mut (got: $setf)"; fi
+setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" what setf.smplr 2>&1 )"
+if printf '%s' "$setf" | grep -qF "handed  (in bump"; then ok; else nope "setting a field of a handed record is listed as !Mut (got: $setf)"; fi
 printf 'P = type { x : Int }\nmain(sys) {\n  p = P(x = 1)\n  p.x = "a"\n  sys.screen.print(p.x.toStr)\n}\n' > "$TMP/mod/setf2.smplr"
 setf="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run setf2.smplr 2>&1 )"
 if [ "$setf" = 'setf2.smplr:4: .x expects Int, got Str' ]; then ok; else nope "a field takes only its own type (got: $setf)"; fi
@@ -2595,8 +2605,8 @@ SMPLR
 grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run grp.smplr 2>&1 )"
 if [ "$grp" = '2' ]; then ok; else nope "rows sorted into own groups need no !Mut (got: $grp)"; fi
 sed -i 's/    g.push(\[tag\])/    for r in g {\n      r.push(tag)\n    }/' "$TMP/mod/grp.smplr"
-grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run grp.smplr 2>&1 )"
-if [ "$grp" = 'grp.smplr:1: group changes a list or map it was handed; add !Mut after its return type' ]; then ok; else nope "a change to a row inside a group needs !Mut (got: $grp)"; fi
+grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" what grp.smplr 2>&1 )"
+if printf '%s' "$grp" | grep -qF "handed  (in group"; then ok; else nope "a change to a row inside a group is listed as !Mut (got: $grp)"; fi
 
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"

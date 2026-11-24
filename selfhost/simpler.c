@@ -1239,6 +1239,7 @@ long u_handedField(long recv, long fld, long ctx);
 long u_callHanded(long name, long args, long ctx);
 long u_markFn(long f, long ctx);
 long u_markAgain(long f, long ctx);
+long u_markMut(long f);
 long u_paramFacts(long f, long sigs);
 long u_typeBase(long t);
 long u_typeKnown(long t, long sigs);
@@ -7871,6 +7872,16 @@ long u_markAgain(long f, long ctx) {
   return u_markBody(((R_Fn*)(intptr_t)f)->body, ctx);
   return 0;
 }
+long u_markMut(long f) {
+
+  if ((!u_hasName(((R_Fn*)(intptr_t)f)->effs, (long)(intptr_t)"Mut"))) {
+
+  l_push(((R_Fn*)(intptr_t)f)->effs, (long)(intptr_t)"Mut");
+  }
+
+  return 0L;
+  return 0;
+}
 long u_paramFacts(long f, long sigs) {
   long found = 0;
   long k = 0;
@@ -7888,17 +7899,17 @@ long u_paramFacts(long f, long sigs) {
 
   while ((k < l_len(((R_Fn*)(intptr_t)f)->params))) {
 
-  key = ({ long _t55 = s_concat(((R_Fn*)(intptr_t)f)->name, (long)(intptr_t)":"); long _t56 = i_tostr(k); s_concat(_t55, _t56); });
+  key = ({ long _t57 = s_concat(((R_Fn*)(intptr_t)f)->name, (long)(intptr_t)":"); long _t58 = i_tostr(k); s_concat(_t57, _t58); });
 
   needR = ((!u_plainType(((R_Fn*)(intptr_t)f)->ret)) && (!u_hasName(((R_Sigs*)(intptr_t)sigs)->retP, key)));
 
-  needM = (u_hasName(((R_Fn*)(intptr_t)f)->effs, (long)(intptr_t)"Mut") && (!u_hasName(((R_Sigs*)(intptr_t)sigs)->mutP, key)));
+  needM = (!u_hasName(((R_Sigs*)(intptr_t)sigs)->mutP, key));
 
-  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4602))) && (needR || needM))) {
+  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4611))) && (needR || needM))) {
 
   ctx = u_fnCtx(f, sigs);
 
-  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4604), ctx);
+  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4613), ctx);
 
   u_markAgain(f, ctx);
 
@@ -7917,15 +7928,17 @@ long u_paramFacts(long f, long sigs) {
 
   l_push(((R_Sigs*)(intptr_t)sigs)->mutP, key);
 
+  u_markMut(f);
+
   found = true;
   }
   }
 
-  if ((((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4618))) && u_hasName(((R_Fn*)(intptr_t)f)->effs, (long)(intptr_t)"Mut")) && (!({ long _t72 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t73 = s_concat((long)(intptr_t)"deep:", key); u_hasName(_t72, _t73); })))) {
+  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4628))) && (!({ long _t75 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t76 = s_concat((long)(intptr_t)"deep:", key); u_hasName(_t75, _t76); })))) {
 
   ctx2 = u_fnCtx(f, sigs);
 
-  u_setHolding(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4620), 1L, ctx2);
+  u_setHolding(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4630), 1L, ctx2);
 
   u_markAgain(f, ctx2);
 
@@ -7935,13 +7948,15 @@ long u_paramFacts(long f, long sigs) {
 
   if (u_hasName(used2, (long)(intptr_t)"Mut")) {
 
-  ({ long _t81 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t82 = s_concat((long)(intptr_t)"deep:", key); l_push(_t81, _t82); });
+  ({ long _t84 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t85 = s_concat((long)(intptr_t)"deep:", key); l_push(_t84, _t85); });
+
+  u_markMut(f);
 
   found = true;
   }
   }
 
-  k = i_add(k, 1L, 4629);
+  k = i_add(k, 1L, 4640);
   }
 
   return found;
@@ -7954,17 +7969,17 @@ long u_typeBase(long t) {
 
   if ((s_len(t) > 5L)) {
 
-  if (s_eq(s_slicec(t, 0L, 5L, 4638), (long)(intptr_t)"List[")) {
+  if (s_eq(s_slicec(t, 0L, 5L, 4649), (long)(intptr_t)"List[")) {
 
-  r = u_typeBase(s_slicec(t, 5L, i_sub(s_len(t), 1L, 4639), 4639));
+  r = u_typeBase(s_slicec(t, 5L, i_sub(s_len(t), 1L, 4650), 4650));
   }
   }
 
   if ((s_len(t) > 4L)) {
 
-  if (s_eq(s_slicec(t, 0L, 4L, 4643), (long)(intptr_t)"Map[")) {
+  if (s_eq(s_slicec(t, 0L, 4L, 4654), (long)(intptr_t)"Map[")) {
 
-  r = u_typeBase(s_slicec(t, 4L, i_sub(s_len(t), 1L, 4644), 4644));
+  r = u_typeBase(s_slicec(t, 4L, i_sub(s_len(t), 1L, 4655), 4655));
   }
   }
 
@@ -8003,7 +8018,7 @@ long u_asWritten(long n) {
 
   if ((s_len(b) > 2L)) {
 
-  cut = s_slicec(b, 0L, i_sub(s_len(b), 2L, 4665), 4665);
+  cut = s_slicec(b, 0L, i_sub(s_len(b), 2L, 4676), 4676);
 
   if (s_eq(u_safeName(cut, u_cTaken()), b)) {
 
@@ -8126,8 +8141,8 @@ long u_jumpStmt(long fl, long s, long inLoop, long line) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return line; }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_jumpExpr(fl, e, inLoop, line); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t149 = i_add(line, u_jumpBody(fl, t, inLoop), 4718); long _t150 = u_jumpBody(fl, el, inLoop); i_add(_t149, _t150, 4718); }); }
-  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return i_add(line, u_jumpBody(fl, b, true), 4718); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t149 = i_add(line, u_jumpBody(fl, t, inLoop), 4729); long _t150 = u_jumpBody(fl, el, inLoop); i_add(_t149, _t150, 4729); }); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return i_add(line, u_jumpBody(fl, b, true), 4729); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return line; }
   case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return n; }
   case T_Jump: { long w = ((Obj*)(intptr_t)s)->v0; return u_jumpAt(fl, w, inLoop, line); }
@@ -8158,7 +8173,7 @@ long u_jumpExpr(long fl, long e, long inLoop, long line) {
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return line; }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return line; }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return line; }
-  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return i_add(line, u_jumpBody(fl, body, true), 4737); }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return i_add(line, u_jumpBody(fl, body, true), 4748); }
   }
   return 0;
   return 0;
@@ -8349,9 +8364,9 @@ long u_bindArm(long styp, long a, long ctx) {
 
   while ((bi < l_len(((R_Arm*)(intptr_t)a)->binds))) {
 
-  ({ long _t21 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4858); long _t22 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t21, _t22); });
+  ({ long _t21 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4869); long _t22 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t21, _t22); });
 
-  bi = i_add(bi, 1L, 4859);
+  bi = i_add(bi, 1L, 4870);
   }
 
   return olds;
@@ -8395,8 +8410,8 @@ long u_markStmt(long s, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_markLet(name, e, ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_markExpr(e, ctx); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t153 = ({ long _t151 = u_markExpr(c, ctx); long _t152 = u_markBlock(t, ctx); i_add(_t151, _t152, 4889); }); long _t154 = u_markBlock(el, ctx); i_add(_t153, _t154, 4889); }); }
-  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t160 = u_markExpr(c, ctx); long _t161 = u_markBody(b, ctx); i_add(_t160, _t161, 4889); }); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t153 = ({ long _t151 = u_markExpr(c, ctx); long _t152 = u_markBlock(t, ctx); i_add(_t151, _t152, 4900); }); long _t154 = u_markBlock(el, ctx); i_add(_t153, _t154, 4900); }); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t160 = u_markExpr(c, ctx); long _t161 = u_markBody(b, ctx); i_add(_t160, _t161, 4900); }); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_markExpr(e, ctx); }
   case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   case T_Jump: { long w = ((Obj*)(intptr_t)s)->v0; return 0L; }
@@ -8435,7 +8450,7 @@ long u_dropHeld(long n0, long ctx) {
 
   while ((j < n1)) {
 
-  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 4923);
+  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 4934);
 
   if (s_starts(key, (long)(intptr_t)"__i__")) {
 
@@ -8445,18 +8460,18 @@ long u_dropHeld(long n0, long ctx) {
 
   while ((i < n0)) {
 
-  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 4928), key)) {
+  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 4939), key)) {
 
-  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 4929);
+  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 4940);
   }
 
-  i = i_add(i, 1L, 4931);
+  i = i_add(i, 1L, 4942);
   }
 
   u_envPut(((R_Ctx*)(intptr_t)ctx)->env, key, was);
   }
 
-  j = i_add(j, 1L, 4935);
+  j = i_add(j, 1L, 4946);
   }
 
   return 0L;
@@ -8567,7 +8582,7 @@ long u_markExpr(long e, long ctx) {
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_markExpr(recv, ctx); }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_markAll(es, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_markAll(args, ctx); }
-  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t248 = u_markExpr(a, ctx); long _t249 = u_markExpr(b, ctx); i_add(_t248, _t249, 4999); }); }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t248 = u_markExpr(a, ctx); long _t249 = u_markExpr(b, ctx); i_add(_t248, _t249, 5010); }); }
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
@@ -8609,7 +8624,7 @@ long u_markEach(long recv, long param, long body, long ctx) {
 
   if ((ed > 1L)) {
 
-  u_setHolding(param, i_sub(ed, 1L, 5029), ctx);
+  u_setHolding(param, i_sub(ed, 1L, 5040), ctx);
   }
   }
 
@@ -8680,7 +8695,7 @@ long u_markMethod(long recv, long name, long args, long ctx) {
 
   if ((ml >= 0L)) {
 
-  u_setHolding(root, i_add(i_add(ml, 1L, 5064), u_pathLen(recv), 5064), ctx);
+  u_setHolding(root, i_add(i_add(ml, 1L, 5075), u_pathLen(recv), 5075), ctx);
   }
   }
 
@@ -8709,7 +8724,7 @@ long u_checkEffects(long f, long ctx) {
 
   while ((k < m)) {
 
-  e = l_atc(used, k, 5079);
+  e = l_atc(used, k, 5090);
 
   if (((!u_hasName(((R_Fn*)(intptr_t)f)->effs, e)) && (!s_eq(e, (long)(intptr_t)"Fail")))) {
 
@@ -8721,7 +8736,7 @@ long u_checkEffects(long f, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"uses !", e), (long)(intptr_t)" but does not declare it"), ctx);
   }
 
-  k = i_add(k, 1L, 5087);
+  k = i_add(k, 1L, 5098);
   }
   }
 
@@ -8738,9 +8753,9 @@ long u_effBody(long body, long used, long ctx) {
 
   while ((k < m)) {
 
-  u_effStmt(l_atc(body, k, 5097), used, ctx);
+  u_effStmt(l_atc(body, k, 5108), used, ctx);
 
-  k = i_add(k, 1L, 5098);
+  k = i_add(k, 1L, 5109);
   }
 
   return 0L;
@@ -8867,7 +8882,7 @@ long u_effCallE(long name, long args, long used, long ctx) {
 
   while ((k < m)) {
 
-  g = l_atc(fns, k, 5184);
+  g = l_atc(fns, k, 5195);
 
   if (s_eq(((R_Fn*)(intptr_t)g)->name, name)) {
 
@@ -8890,22 +8905,22 @@ long u_effCallE(long name, long args, long used, long ctx) {
 
   while ((j < l_len(args))) {
 
-  if ((({ long _t66 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t69 = ({ long _t67 = s_concat(name, (long)(intptr_t)":"); long _t68 = i_tostr(j); s_concat(_t67, _t68); }); u_hasName(_t66, _t69); }) && u_handed(l_atc(args, j, 5194), ctx))) {
+  if ((({ long _t66 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t69 = ({ long _t67 = s_concat(name, (long)(intptr_t)":"); long _t68 = i_tostr(j); s_concat(_t67, _t68); }); u_hasName(_t66, _t69); }) && u_handed(l_atc(args, j, 5205), ctx))) {
 
   l_push(used, (long)(intptr_t)"Mut");
   }
 
-  if ((({ long _t72 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t75 = ({ long _t73 = s_concat(s_concat((long)(intptr_t)"deep:", name), (long)(intptr_t)":"); long _t74 = i_tostr(j); s_concat(_t73, _t74); }); u_hasName(_t72, _t75); }) && (u_holdDepth(l_atc(args, j, 5197), ctx) > 0L))) {
+  if ((({ long _t72 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t75 = ({ long _t73 = s_concat(s_concat((long)(intptr_t)"deep:", name), (long)(intptr_t)":"); long _t74 = i_tostr(j); s_concat(_t73, _t74); }); u_hasName(_t72, _t75); }) && (u_holdDepth(l_atc(args, j, 5208), ctx) > 0L))) {
 
   l_push(used, (long)(intptr_t)"Mut");
   }
 
-  j = i_add(j, 1L, 5200);
+  j = i_add(j, 1L, 5211);
   }
   }
   }
 
-  k = i_add(k, 1L, 5204);
+  k = i_add(k, 1L, 5215);
   }
 
   u_effArgs(args, used, ctx);
@@ -8973,9 +8988,9 @@ long u_effArgs(long args, long used, long ctx) {
 
   while ((k < m)) {
 
-  u_effExpr(l_atc(args, k, 5240), used, ctx);
+  u_effExpr(l_atc(args, k, 5251), used, ctx);
 
-  k = i_add(k, 1L, 5241);
+  k = i_add(k, 1L, 5252);
   }
 
   return 0L;
@@ -8991,9 +9006,9 @@ long u_addAll(long src, long dst) {
 
   while ((k < m)) {
 
-  l_push(dst, l_atc(src, k, 5250));
+  l_push(dst, l_atc(src, k, 5261));
 
-  k = i_add(k, 1L, 5251);
+  k = i_add(k, 1L, 5262);
   }
 
   return 0L;
@@ -9005,7 +9020,7 @@ long u_caseArityIn(long t, long tag) {
   long m = 0;
   long c = 0;
 
-  r = i_sub(0L, 1L, 5257);
+  r = i_sub(0L, 1L, 5268);
 
   k = 0L;
 
@@ -9013,14 +9028,14 @@ long u_caseArityIn(long t, long tag) {
 
   while ((k < m)) {
 
-  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5261);
+  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5272);
 
   if (s_eq(((R_Case*)(intptr_t)c)->cname, tag)) {
 
   r = ((R_Case*)(intptr_t)c)->arity;
   }
 
-  k = i_add(k, 1L, 5265);
+  k = i_add(k, 1L, 5276);
   }
 
   return r;
@@ -9037,14 +9052,14 @@ long u_checkCases(long t, long arms, long ctx) {
 
   while ((k < m)) {
 
-  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5274);
+  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5285);
 
   if ((!u_armCovers(arms, ((R_Case*)(intptr_t)c)->cname))) {
 
   u_failAt(({ long _t28 = s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((R_TyDef*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "); long _t29 = ((R_Case*)(intptr_t)c)->cname; s_concat(_t28, _t29); }), ctx);
   }
 
-  k = i_add(k, 1L, 5278);
+  k = i_add(k, 1L, 5289);
   }
 
   return 0L;
@@ -9063,12 +9078,12 @@ long u_armCovers(long arms, long cname) {
 
   while ((k < m)) {
 
-  if (s_eq(((R_Arm*)(intptr_t)l_atc(arms, k, 5288))->tag, cname)) {
+  if (s_eq(((R_Arm*)(intptr_t)l_atc(arms, k, 5299))->tag, cname)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 5291);
+  k = i_add(k, 1L, 5302);
   }
 
   return found;
@@ -9087,12 +9102,12 @@ long u_armHasBind(long arms) {
 
   while ((k < m)) {
 
-  if ((l_len(((R_Arm*)(intptr_t)l_atc(arms, k, 5301))->binds) > 0L)) {
+  if ((l_len(((R_Arm*)(intptr_t)l_atc(arms, k, 5312))->binds) > 0L)) {
 
   has = true;
   }
 
-  k = i_add(k, 1L, 5304);
+  k = i_add(k, 1L, 5315);
   }
 
   return has;
@@ -9152,7 +9167,7 @@ long u_hoist(long ops, long ctx) {
 
   if ((!u_calm(o))) {
 
-  busy = i_add(busy, 1L, 5354);
+  busy = i_add(busy, 1L, 5365);
   }
   }
   }
@@ -9213,7 +9228,7 @@ long u_emitBin(long op, long a, long b, long ctx) {
 
   h = u_hoist(l_with(l_with(l_new(), a), b), ctx);
 
-  return ({ long _t23 = ((R_Hoist*)(intptr_t)h)->pre; long _t26 = ({ long _t24 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5389); long _t25 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 1L, 5389); u_emitBin0(op, _t24, _t25, ctx); }); u_inOrder(_t23, _t26); });
+  return ({ long _t23 = ((R_Hoist*)(intptr_t)h)->pre; long _t26 = ({ long _t24 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5400); long _t25 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 1L, 5400); u_emitBin0(op, _t24, _t25, ctx); }); u_inOrder(_t23, _t26); });
   return 0;
 }
 long u_emitCall(long name, long args, long ctx) {
@@ -9232,7 +9247,7 @@ long u_emitMethod(long recv, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"slice") && (l_len(args) == 1L))) {
 
-  return u_emitMethod(recv, name, ({ long _t45 = l_atc(args, 0L, 5400); long _t46 = Field(recv, (long)(intptr_t)"length"); l_with(l_with(l_new(), _t45), _t46); }), ctx);
+  return u_emitMethod(recv, name, ({ long _t45 = l_atc(args, 0L, 5411); long _t46 = Field(recv, (long)(intptr_t)"length"); l_with(l_with(l_new(), _t45), _t46); }), ctx);
   }
 
   if ((s_eq(name, (long)(intptr_t)"and") || s_eq(name, (long)(intptr_t)"or"))) {
@@ -9260,12 +9275,12 @@ long u_emitMethod(long recv, long name, long args, long ctx) {
 
   while ((k < l_len(((R_Hoist*)(intptr_t)h)->ops))) {
 
-  l_push(rest, l_atc(((R_Hoist*)(intptr_t)h)->ops, k, 5413));
+  l_push(rest, l_atc(((R_Hoist*)(intptr_t)h)->ops, k, 5424));
 
-  k = i_add(k, 1L, 5414);
+  k = i_add(k, 1L, 5425);
   }
 
-  return ({ long _t63 = ((R_Hoist*)(intptr_t)h)->pre; long _t64 = u_emitMethod0(l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5416), name, rest, ctx); u_inOrder(_t63, _t64); });
+  return ({ long _t63 = ((R_Hoist*)(intptr_t)h)->pre; long _t64 = u_emitMethod0(l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5427), name, rest, ctx); u_inOrder(_t63, _t64); });
   return 0;
 }
 long u_emitList(long es, long ctx) {
@@ -9289,9 +9304,9 @@ long u_emitList0(long es, long ctx) {
 
   while ((k < m)) {
 
-  r = s_concat(({ long _t24 = s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "); long _t25 = u_emitExpr(l_atc(es, k, 5430), ctx); s_concat(_t24, _t25); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t24 = s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "); long _t25 = u_emitExpr(l_atc(es, k, 5441), ctx); s_concat(_t24, _t25); }), (long)(intptr_t)")");
 
-  k = i_add(k, 1L, 5431);
+  k = i_add(k, 1L, 5442);
   }
 
   return r;
@@ -9304,7 +9319,7 @@ long u_listType(long es, long ctx) {
 
   if ((l_len(es) > 0L)) {
 
-  r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_atc(es, 0L, 5439), ctx)), (long)(intptr_t)"]");
+  r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_atc(es, 0L, 5450), ctx)), (long)(intptr_t)"]");
   }
 
   return r;
@@ -9561,9 +9576,9 @@ long u_emitCall0(long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"assert takes one Bool", ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 5606), ctx), (long)(intptr_t)"Bool"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 5617), ctx), (long)(intptr_t)"Bool"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"assert needs a Bool, got ", u_exprType(l_atc(args, 0L, 5607), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"assert needs a Bool, got ", u_exprType(l_atc(args, 0L, 5618), ctx)), ctx);
   }
   }
 
@@ -9576,9 +9591,9 @@ long u_emitCall0(long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"exit takes the exit status, one Int", ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 5615), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 5626), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"exit takes the exit status as an Int, got ", u_exprType(l_atc(args, 0L, 5616), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"exit takes the exit status as an Int, got ", u_exprType(l_atc(args, 0L, 5627), ctx)), ctx);
   }
   }
 
@@ -9599,7 +9614,7 @@ long u_checkReturn(long f, long ctx) {
 
   if ((n > 0L)) {
 
-  ({ long _t17 = l_atc(((R_Fn*)(intptr_t)f)->body, i_sub(n, 1L, 5632), 5632); long _t18 = ((R_Fn*)(intptr_t)f)->ret; u_checkReturnStmt(_t17, _t18, ctx); });
+  ({ long _t17 = l_atc(((R_Fn*)(intptr_t)f)->body, i_sub(n, 1L, 5643), 5643); long _t18 = ((R_Fn*)(intptr_t)f)->ret; u_checkReturnStmt(_t17, _t18, ctx); });
   }
   }
 
@@ -9672,7 +9687,7 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  f = l_atc(fns, k, 5685);
+  f = l_atc(fns, k, 5696);
 
   if (s_eq(((R_Fn*)(intptr_t)f)->name, name)) {
 
@@ -9684,7 +9699,7 @@ long u_checkCall(long name, long args, long ctx) {
   u_checkArgTypes(name, ((R_Fn*)(intptr_t)f)->ptypes, args, ctx);
   }
 
-  k = i_add(k, 1L, 5692);
+  k = i_add(k, 1L, 5703);
   }
 
   recs = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->records;
@@ -9695,7 +9710,7 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 5698);
+  rec = l_atc(recs, k, 5709);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, name)) {
 
@@ -9707,7 +9722,7 @@ long u_checkCall(long name, long args, long ctx) {
   u_checkArgTypes(name, ((R_RecDef*)(intptr_t)rec)->ftypes, args, ctx);
   }
 
-  k = i_add(k, 1L, 5705);
+  k = i_add(k, 1L, 5716);
   }
 
   types = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->types;
@@ -9718,14 +9733,14 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  ar = u_caseArityIn(l_atc(types, k, 5711), name);
+  ar = u_caseArityIn(l_atc(types, k, 5722), name);
 
   if (((!(ar < 0L)) && (!(l_len(args) == ar)))) {
 
   u_failAt(({ long _t98 = s_concat(({ long _t96 = s_concat(s_concat((long)(intptr_t)"case ", name), (long)(intptr_t)" takes "); long _t97 = i_tostr(ar); s_concat(_t96, _t97); }), (long)(intptr_t)" values, got "); long _t99 = i_tostr(l_len(args)); s_concat(_t98, _t99); }), ctx);
   }
 
-  k = i_add(k, 1L, 5715);
+  k = i_add(k, 1L, 5726);
   }
 
   return 0L;
@@ -9745,16 +9760,16 @@ long u_checkArgTypes(long name, long ptypes, long args, long ctx) {
 
   while ((k < n)) {
 
-  pt = l_atc(ptypes, k, 5725);
+  pt = l_atc(ptypes, k, 5736);
 
-  at = u_exprType(l_atc(args, k, 5726), ctx);
+  at = u_exprType(l_atc(args, k, 5737), ctx);
 
   if ((!u_compatible(pt, at, ctx))) {
 
-  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr(i_add(k, 1L, 5728))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
+  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr(i_add(k, 1L, 5739))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
   }
 
-  k = i_add(k, 1L, 5730);
+  k = i_add(k, 1L, 5741);
   }
   }
 
@@ -9864,12 +9879,12 @@ long u_isVariant(long t, long ctx) {
 
   while ((k < m)) {
 
-  if (s_eq(((R_TyDef*)(intptr_t)l_atc(types, k, 5802))->name, t)) {
+  if (s_eq(((R_TyDef*)(intptr_t)l_atc(types, k, 5813))->name, t)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 5805);
+  k = i_add(k, 1L, 5816);
   }
 
   return found;
@@ -10224,7 +10239,7 @@ long u_recHasField(long t, long fld, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 6023);
+  rec = l_atc(recs, k, 6034);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, t)) {
 
@@ -10234,7 +10249,7 @@ long u_recHasField(long t, long fld, long ctx) {
   }
   }
 
-  k = i_add(k, 1L, 6029);
+  k = i_add(k, 1L, 6040);
   }
 
   return found;
@@ -10413,7 +10428,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"at") && (l_len(args) == 1L))) {
 
-  at = u_exprType(l_atc(args, 0L, 6151), ctx);
+  at = u_exprType(l_atc(args, 0L, 6162), ctx);
 
   if ((s_eq(at, (long)(intptr_t)"Str") || s_eq(at, (long)(intptr_t)"Float"))) {
 
@@ -10423,7 +10438,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if (((s_eq(name, (long)(intptr_t)"push") && u_isListType(t)) && (l_len(args) == 1L))) {
 
-  pt = u_exprType(l_atc(args, 0L, 6157), ctx);
+  pt = u_exprType(l_atc(args, 0L, 6168), ctx);
 
   if ((!u_compatible(u_elemOf(t), pt, ctx))) {
 
@@ -10433,12 +10448,12 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if (((s_eq(name, (long)(intptr_t)"set") && u_isListType(t)) && (l_len(args) == 2L))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6163), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6174), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"set on a list expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6164), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"set on a list expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6175), ctx)), ctx);
   }
 
-  pt = u_exprType(l_atc(args, 1L, 6166), ctx);
+  pt = u_exprType(l_atc(args, 1L, 6177), ctx);
 
   if ((!u_compatible(u_elemOf(t), pt, ctx))) {
 
@@ -10453,15 +10468,15 @@ long u_checkMethod(long t, long name, long args, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"join puts a list of texts together; ", t), (long)(intptr_t)" has no method join"), ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6175), ctx), (long)(intptr_t)"Str"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6186), ctx), (long)(intptr_t)"Str"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"join expects the text to put between, got ", u_exprType(l_atc(args, 0L, 6176), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"join expects the text to put between, got ", u_exprType(l_atc(args, 0L, 6187), ctx)), ctx);
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"findByte")) {
 
-  if ((((!s_eq(t, (long)(intptr_t)"Bytes")) || (!s_eq(u_exprType(l_atc(args, 0L, 6180), ctx), (long)(intptr_t)"Int"))) || (!s_eq(u_exprType(l_atc(args, 1L, 6180), ctx), (long)(intptr_t)"Int")))) {
+  if ((((!s_eq(t, (long)(intptr_t)"Bytes")) || (!s_eq(u_exprType(l_atc(args, 0L, 6191), ctx), (long)(intptr_t)"Int"))) || (!s_eq(u_exprType(l_atc(args, 1L, 6191), ctx), (long)(intptr_t)"Int")))) {
 
   u_failAt((long)(intptr_t)"findByte(n, from) gives the place of the next byte n in Bytes, or -1", ctx);
   }
@@ -10490,15 +10505,15 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"writeBytes") && (l_len(args) == 2L))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 1L, 6195), ctx), (long)(intptr_t)"List[Int]"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 1L, 6206), ctx), (long)(intptr_t)"List[Int]"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"writeBytes takes a path and a List[Int] of bytes, got ", u_exprType(l_atc(args, 1L, 6196), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"writeBytes takes a path and a List[Int] of bytes, got ", u_exprType(l_atc(args, 1L, 6207), ctx)), ctx);
   }
   }
 
   if ((((s_eq(name, (long)(intptr_t)"print") || s_eq(name, (long)(intptr_t)"part")) || s_eq(name, (long)(intptr_t)"error")) && (l_len(args) == 1L))) {
 
-  if (s_eq(u_exprType(l_atc(args, 0L, 6200), ctx), (long)(intptr_t)"Bytes")) {
+  if (s_eq(u_exprType(l_atc(args, 0L, 6211), ctx), (long)(intptr_t)"Bytes")) {
 
   u_failAt((long)(intptr_t)"Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx);
   }
@@ -10527,7 +10542,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"json") && (l_len(args) == 1L))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6215), ctx), (long)(intptr_t)"Str")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6226), ctx), (long)(intptr_t)"Str")))) {
 
   u_failAt((long)(intptr_t)"json takes a key or a place as a text, and gives the value there as a text", ctx);
   }
@@ -10535,7 +10550,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"find") && (l_len(args) == 1L))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6220), ctx), (long)(intptr_t)"Str")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6231), ctx), (long)(intptr_t)"Str")))) {
 
   u_failAt((long)(intptr_t)"find looks for a text in a text and gives its place, or -1", ctx);
   }
@@ -10543,9 +10558,9 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"remove") && u_anyMap(t))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6225), ctx), (long)(intptr_t)"Str"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6236), ctx), (long)(intptr_t)"Str"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"remove on a map expects the key as a Str, got ", u_exprType(l_atc(args, 0L, 6226), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"remove on a map expects the key as a Str, got ", u_exprType(l_atc(args, 0L, 6237), ctx)), ctx);
   }
   }
 
@@ -10556,9 +10571,9 @@ long u_checkMethod(long t, long name, long args, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"remove takes an item out of a list or a key out of a map; ", t), (long)(intptr_t)" has no method remove"), ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6233), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6244), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"remove expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6234), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"remove expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6245), ctx)), ctx);
   }
   }
   }
@@ -10590,7 +10605,7 @@ long u_checkSysField(long t, long fld, long ctx) {
 long u_methodArgs(long name) {
   long r = 0;
 
-  r = i_sub(0L, 1L, 6258);
+  r = i_sub(0L, 1L, 6269);
 
   if (((((((((((((((((((((((((((((((((((((((u_isTextMethod(name) || s_eq(name, (long)(intptr_t)"print")) || s_eq(name, (long)(intptr_t)"read")) || s_eq(name, (long)(intptr_t)"list")) || s_eq(name, (long)(intptr_t)"exists")) || s_eq(name, (long)(intptr_t)"wait")) || s_eq(name, (long)(intptr_t)"sleep")) || s_eq(name, (long)(intptr_t)"delete")) || s_eq(name, (long)(intptr_t)"remove")) || s_eq(name, (long)(intptr_t)"bitAnd")) || s_eq(name, (long)(intptr_t)"bitOr")) || s_eq(name, (long)(intptr_t)"bitXor")) || s_eq(name, (long)(intptr_t)"shl")) || s_eq(name, (long)(intptr_t)"shr")) || s_eq(name, (long)(intptr_t)"fetch")) || s_eq(name, (long)(intptr_t)"reach")) || s_eq(name, (long)(intptr_t)"part")) || s_eq(name, (long)(intptr_t)"error")) || s_eq(name, (long)(intptr_t)"atan2")) || s_eq(name, (long)(intptr_t)"pow")) || s_eq(name, (long)(intptr_t)"atan2_c")) || s_eq(name, (long)(intptr_t)"pow_c")) || s_eq(name, (long)(intptr_t)"readBytes")) || s_eq(name, (long)(intptr_t)"floatAt")) || s_eq(name, (long)(intptr_t)"secsOf")) || s_eq(name, (long)(intptr_t)"date")) || s_eq(name, (long)(intptr_t)"var")) || s_eq(name, (long)(intptr_t)"mod")) || s_eq(name, (long)(intptr_t)"atan2")) || s_eq(name, (long)(intptr_t)"get")) || s_eq(name, (long)(intptr_t)"has")) || s_eq(name, (long)(intptr_t)"ge")) || s_eq(name, (long)(intptr_t)"le")) || s_eq(name, (long)(intptr_t)"and")) || s_eq(name, (long)(intptr_t)"or")) || s_eq(name, (long)(intptr_t)"send")) || s_eq(name, (long)(intptr_t)"request")) || s_eq(name, (long)(intptr_t)"end")) || s_eq(name, (long)(intptr_t)"parallel"))) {
 
@@ -10623,11 +10638,11 @@ long u_emitSetField(long recv, long fld, long args, long ctx) {
 
   u_checkField(t, fld, ctx);
 
-  ({ long _t24 = l_atc(args, 0L, 6277); long _t25 = u_fieldType(recv, fld, ctx); long _t26 = s_concat((long)(intptr_t)".", fld); u_wantType(_t24, _t25, _t26, ctx); });
+  ({ long _t24 = l_atc(args, 0L, 6288); long _t25 = u_fieldType(recv, fld, ctx); long _t26 = s_concat((long)(intptr_t)".", fld); u_wantType(_t24, _t25, _t26, ctx); });
 
   recvC = u_emitExpr(recv, ctx);
 
-  return s_concat(({ long _t31 = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(((R_", t), (long)(intptr_t)"*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld), (long)(intptr_t)" = "); long _t32 = u_emitExpr(l_atc(args, 0L, 6279), ctx); s_concat(_t31, _t32); }), (long)(intptr_t)", 0L)");
+  return s_concat(({ long _t31 = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(((R_", t), (long)(intptr_t)"*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld), (long)(intptr_t)" = "); long _t32 = u_emitExpr(l_atc(args, 0L, 6290), ctx); s_concat(_t31, _t32); }), (long)(intptr_t)", 0L)");
   return 0;
 }
 long u_emitMethod0(long recv, long name, long args, long ctx) {
@@ -10645,7 +10660,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (u_isSetField(name)) {
 
-  return u_emitSetField(recv, s_slicec(name, 1L, s_len(name), 6284), args, ctx);
+  return u_emitSetField(recv, s_slicec(name, 1L, s_len(name), 6295), args, ctx);
   }
 
   rv = u_rootVar(recv);
@@ -10664,15 +10679,15 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"a Term has key, rows, cols, clear, stop and put(row, col, text, style)", ctx);
   }
 
-  u_wantType(l_atc(args, 0L, 6295), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 0L, 6306), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 1L, 6296), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 1L, 6307), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 2L, 6297), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 2L, 6308), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 3L, 6298), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 3L, 6309), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
 
-  return s_concat(({ long _t376 = s_concat(({ long _t374 = s_concat(({ long _t372 = s_concat(({ long _t370 = s_concat(s_concat((long)(intptr_t)"simpler_term_put(", u_emitExpr(l_atc(args, 0L, 6299), ctx)), (long)(intptr_t)", "); long _t371 = u_emitExpr(l_atc(args, 1L, 6299), ctx); s_concat(_t370, _t371); }), (long)(intptr_t)", "); long _t373 = u_emitExpr(l_atc(args, 2L, 6299), ctx); s_concat(_t372, _t373); }), (long)(intptr_t)", "); long _t375 = u_emitExpr(l_atc(args, 3L, 6299), ctx); s_concat(_t374, _t375); }), (long)(intptr_t)", "); long _t377 = u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"); s_concat(_t376, _t377); }), (long)(intptr_t)")");
+  return s_concat(({ long _t376 = s_concat(({ long _t374 = s_concat(({ long _t372 = s_concat(({ long _t370 = s_concat(s_concat((long)(intptr_t)"simpler_term_put(", u_emitExpr(l_atc(args, 0L, 6310), ctx)), (long)(intptr_t)", "); long _t371 = u_emitExpr(l_atc(args, 1L, 6310), ctx); s_concat(_t370, _t371); }), (long)(intptr_t)", "); long _t373 = u_emitExpr(l_atc(args, 2L, 6310), ctx); s_concat(_t372, _t373); }), (long)(intptr_t)", "); long _t375 = u_emitExpr(l_atc(args, 3L, 6310), ctx); s_concat(_t374, _t375); }), (long)(intptr_t)", "); long _t377 = u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"); s_concat(_t376, _t377); }), (long)(intptr_t)")");
   }
 
   u_checkCap(recv, name, ctx);
@@ -10691,14 +10706,14 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"print")) {
 
-  if (s_eq(u_exprType(l_atc(args, 0L, 6310), ctx), (long)(intptr_t)"Bytes")) {
+  if (s_eq(u_exprType(l_atc(args, 0L, 6321), ctx), (long)(intptr_t)"Bytes")) {
 
   u_failAt((long)(intptr_t)"Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx);
   }
 
   u_emitExpr(recv, ctx);
 
-  return s_concat(s_concat((long)(intptr_t)"(", u_emitPrint(l_atc(args, 0L, 6314), ctx)), (long)(intptr_t)", 0L)");
+  return s_concat(s_concat((long)(intptr_t)"(", u_emitPrint(l_atc(args, 0L, 6325), ctx)), (long)(intptr_t)", 0L)");
   }
 
   u_checkMethod(t, name, args, ctx);
@@ -10711,7 +10726,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"concat")) {
 
-  r = s_concat(({ long _t399 = s_concat(s_concat((long)(intptr_t)"s_concat(", recvC), (long)(intptr_t)", "); long _t400 = u_emitExpr(l_atc(args, 0L, 6321), ctx); s_concat(_t399, _t400); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t399 = s_concat(s_concat((long)(intptr_t)"s_concat(", recvC), (long)(intptr_t)", "); long _t400 = u_emitExpr(l_atc(args, 0L, 6332), ctx); s_concat(_t399, _t400); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"slice")) {
@@ -10723,40 +10738,40 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   cut = (long)(intptr_t)"l_slicec(";
   }
 
-  u_wantType(l_atc(args, 0L, 6328), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6339), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6329), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 1L, 6340), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t410 = s_concat(({ long _t408 = s_concat(s_concat(cut, recvC), (long)(intptr_t)", "); long _t409 = u_emitExpr(l_atc(args, 0L, 6330), ctx); s_concat(_t408, _t409); }), (long)(intptr_t)", "); long _t411 = u_emitExpr(l_atc(args, 1L, 6330), ctx); s_concat(_t410, _t411); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t410 = s_concat(({ long _t408 = s_concat(s_concat(cut, recvC), (long)(intptr_t)", "); long _t409 = u_emitExpr(l_atc(args, 0L, 6341), ctx); s_concat(_t408, _t409); }), (long)(intptr_t)", "); long _t411 = u_emitExpr(l_atc(args, 1L, 6341), ctx); s_concat(_t410, _t411); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"at")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t414 = s_concat(s_concat((long)(intptr_t)"s_atc(", recvC), (long)(intptr_t)", "); long _t415 = u_emitExpr(l_atc(args, 0L, 6333), ctx); s_concat(_t414, _t415); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t414 = s_concat(s_concat((long)(intptr_t)"s_atc(", recvC), (long)(intptr_t)", "); long _t415 = u_emitExpr(l_atc(args, 0L, 6344), ctx); s_concat(_t414, _t415); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t418 = s_concat(s_concat((long)(intptr_t)"y_atc(", recvC), (long)(intptr_t)", "); long _t419 = u_emitExpr(l_atc(args, 0L, 6335), ctx); s_concat(_t418, _t419); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t418 = s_concat(s_concat((long)(intptr_t)"y_atc(", recvC), (long)(intptr_t)", "); long _t419 = u_emitExpr(l_atc(args, 0L, 6346), ctx); s_concat(_t418, _t419); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (u_isListType(t)) {
 
-  r = s_concat(s_concat(s_concat(({ long _t422 = s_concat(s_concat((long)(intptr_t)"l_atc(", recvC), (long)(intptr_t)", "); long _t423 = u_emitExpr(l_atc(args, 0L, 6338), ctx); s_concat(_t422, _t423); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t422 = s_concat(s_concat((long)(intptr_t)"l_atc(", recvC), (long)(intptr_t)", "); long _t423 = u_emitExpr(l_atc(args, 0L, 6349), ctx); s_concat(_t422, _t423); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"push")) {
 
-  r = s_concat(({ long _t426 = s_concat(s_concat((long)(intptr_t)"l_push(", recvC), (long)(intptr_t)", "); long _t427 = u_emitExpr(l_atc(args, 0L, 6342), ctx); s_concat(_t426, _t427); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t426 = s_concat(s_concat((long)(intptr_t)"l_push(", recvC), (long)(intptr_t)", "); long _t427 = u_emitExpr(l_atc(args, 0L, 6353), ctx); s_concat(_t426, _t427); }), (long)(intptr_t)")");
   }
 
   if ((((s_eq(name, (long)(intptr_t)"run") || s_eq(name, (long)(intptr_t)"status")) || s_eq(name, (long)(intptr_t)"start")) || s_eq(name, (long)(intptr_t)"try"))) {
 
-  u_runCheck(l_atc(args, 0L, 6345), ctx);
+  u_runCheck(l_atc(args, 0L, 6356), ctx);
 
-  u_wantType(l_atc(args, 0L, 6346), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6357), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6347), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6358), (long)(intptr_t)"List[Str]", name, ctx);
 
   mid = (long)(intptr_t)", ";
 
@@ -10765,71 +10780,71 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   mid = (long)(intptr_t)", 0, ";
   }
 
-  r = s_concat(s_concat(s_concat(({ long _t438 = s_concat(({ long _t436 = s_concat(s_concat((long)(intptr_t)"simpler_", name), (long)(intptr_t)"("); long _t437 = u_emitExpr(l_atc(args, 0L, 6352), ctx); s_concat(_t436, _t437); }), (long)(intptr_t)", "); long _t439 = u_emitExpr(l_atc(args, 1L, 6352), ctx); s_concat(_t438, _t439); }), mid), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t438 = s_concat(({ long _t436 = s_concat(s_concat((long)(intptr_t)"simpler_", name), (long)(intptr_t)"("); long _t437 = u_emitExpr(l_atc(args, 0L, 6363), ctx); s_concat(_t436, _t437); }), (long)(intptr_t)", "); long _t439 = u_emitExpr(l_atc(args, 1L, 6363), ctx); s_concat(_t438, _t439); }), mid), ln), (long)(intptr_t)")");
   }
 
   if ((s_eq(name, (long)(intptr_t)"feed") || s_eq(name, (long)(intptr_t)"output"))) {
 
-  u_runCheck(l_atc(args, 0L, 6355), ctx);
+  u_runCheck(l_atc(args, 0L, 6366), ctx);
 
-  u_wantType(l_atc(args, 0L, 6356), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6367), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6357), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6368), (long)(intptr_t)"List[Str]", name, ctx);
 
-  u_wantType(l_atc(args, 2L, 6358), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 2L, 6369), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t450 = s_concat(({ long _t448 = s_concat(({ long _t446 = s_concat(s_concat((long)(intptr_t)"simpler_", s_replace(name, (long)(intptr_t)"feed", (long)(intptr_t)"run")), (long)(intptr_t)"("); long _t447 = u_emitExpr(l_atc(args, 0L, 6359), ctx); s_concat(_t446, _t447); }), (long)(intptr_t)", "); long _t449 = u_emitExpr(l_atc(args, 1L, 6359), ctx); s_concat(_t448, _t449); }), (long)(intptr_t)", "); long _t451 = u_emitExpr(l_atc(args, 2L, 6359), ctx); s_concat(_t450, _t451); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t450 = s_concat(({ long _t448 = s_concat(({ long _t446 = s_concat(s_concat((long)(intptr_t)"simpler_", s_replace(name, (long)(intptr_t)"feed", (long)(intptr_t)"run")), (long)(intptr_t)"("); long _t447 = u_emitExpr(l_atc(args, 0L, 6370), ctx); s_concat(_t446, _t447); }), (long)(intptr_t)", "); long _t449 = u_emitExpr(l_atc(args, 1L, 6370), ctx); s_concat(_t448, _t449); }), (long)(intptr_t)", "); long _t451 = u_emitExpr(l_atc(args, 2L, 6370), ctx); s_concat(_t450, _t451); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reach")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6362), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6373), ctx);
 
-  u_wantType(l_atc(args, 0L, 6363), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6374), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_reach(", u_emitExpr(l_atc(args, 0L, 6364), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_reach(", u_emitExpr(l_atc(args, 0L, 6375), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"send")) {
 
-  u_mailCheck(l_atc(args, 0L, 6367), ctx);
+  u_mailCheck(l_atc(args, 0L, 6378), ctx);
 
-  u_wantType(l_atc(args, 0L, 6368), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6379), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6369), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6380), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 2L, 6370), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 2L, 6381), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t464 = s_concat(({ long _t462 = s_concat(s_concat((long)(intptr_t)"simpler_send(", u_emitExpr(l_atc(args, 0L, 6371), ctx)), (long)(intptr_t)", "); long _t463 = u_emitExpr(l_atc(args, 1L, 6371), ctx); s_concat(_t462, _t463); }), (long)(intptr_t)", "); long _t465 = u_emitExpr(l_atc(args, 2L, 6371), ctx); s_concat(_t464, _t465); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t464 = s_concat(({ long _t462 = s_concat(s_concat((long)(intptr_t)"simpler_send(", u_emitExpr(l_atc(args, 0L, 6382), ctx)), (long)(intptr_t)", "); long _t463 = u_emitExpr(l_atc(args, 1L, 6382), ctx); s_concat(_t462, _t463); }), (long)(intptr_t)", "); long _t465 = u_emitExpr(l_atc(args, 2L, 6382), ctx); s_concat(_t464, _t465); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"fetch")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6374), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6385), ctx);
 
-  u_wantType(l_atc(args, 0L, 6375), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6386), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6376), ctx)), (long)(intptr_t)", 0, 0, "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6387), ctx)), (long)(intptr_t)", 0, 0, "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"post")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6379), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6390), ctx);
 
-  u_wantType(l_atc(args, 0L, 6380), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6391), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6381), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6392), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t475 = s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6382), ctx)), (long)(intptr_t)", "); long _t476 = u_emitExpr(l_atc(args, 1L, 6382), ctx); s_concat(_t475, _t476); }), (long)(intptr_t)", 1, "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t475 = s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6393), ctx)), (long)(intptr_t)", "); long _t476 = u_emitExpr(l_atc(args, 1L, 6393), ctx); s_concat(_t475, _t476); }), (long)(intptr_t)", 1, "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"request")) {
 
-  u_listenCheck(l_atc(args, 0L, 6385), ctx);
+  u_listenCheck(l_atc(args, 0L, 6396), ctx);
 
-  u_wantType(l_atc(args, 0L, 6386), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6397), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_request(", u_emitExpr(l_atc(args, 0L, 6387), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_request(", u_emitExpr(l_atc(args, 0L, 6398), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"parallel")) {
@@ -10839,176 +10854,176 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"drive")) {
 
-  u_runCheck(l_atc(args, 0L, 6393), ctx);
+  u_runCheck(l_atc(args, 0L, 6404), ctx);
 
-  u_wantType(l_atc(args, 0L, 6394), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6405), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6395), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6406), (long)(intptr_t)"List[Str]", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t488 = s_concat(s_concat((long)(intptr_t)"simpler_drive(", u_emitExpr(l_atc(args, 0L, 6396), ctx)), (long)(intptr_t)", "); long _t489 = u_emitExpr(l_atc(args, 1L, 6396), ctx); s_concat(_t488, _t489); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t488 = s_concat(s_concat((long)(intptr_t)"simpler_drive(", u_emitExpr(l_atc(args, 0L, 6407), ctx)), (long)(intptr_t)", "); long _t489 = u_emitExpr(l_atc(args, 1L, 6407), ctx); s_concat(_t488, _t489); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"press")) {
 
-  u_wantType(l_atc(args, 0L, 6399), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6410), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6400), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6411), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t494 = s_concat(s_concat((long)(intptr_t)"simpler_press(", u_emitExpr(l_atc(args, 0L, 6401), ctx)), (long)(intptr_t)", "); long _t495 = u_emitExpr(l_atc(args, 1L, 6401), ctx); s_concat(_t494, _t495); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t494 = s_concat(s_concat((long)(intptr_t)"simpler_press(", u_emitExpr(l_atc(args, 0L, 6412), ctx)), (long)(intptr_t)", "); long _t495 = u_emitExpr(l_atc(args, 1L, 6412), ctx); s_concat(_t494, _t495); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"shown")) {
 
-  u_wantType(l_atc(args, 0L, 6404), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6415), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6405), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 1L, 6416), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t500 = s_concat(s_concat((long)(intptr_t)"simpler_shown(", u_emitExpr(l_atc(args, 0L, 6406), ctx)), (long)(intptr_t)", "); long _t501 = u_emitExpr(l_atc(args, 1L, 6406), ctx); s_concat(_t500, _t501); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t500 = s_concat(s_concat((long)(intptr_t)"simpler_shown(", u_emitExpr(l_atc(args, 0L, 6417), ctx)), (long)(intptr_t)", "); long _t501 = u_emitExpr(l_atc(args, 1L, 6417), ctx); s_concat(_t500, _t501); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"end")) {
 
-  u_wantType(l_atc(args, 0L, 6409), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6420), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_end(", u_emitExpr(l_atc(args, 0L, 6410), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_end(", u_emitExpr(l_atc(args, 0L, 6421), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reply")) {
 
-  u_wantType(l_atc(args, 0L, 6413), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6424), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6414), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6425), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t509 = s_concat(s_concat((long)(intptr_t)"simpler_reply(", u_emitExpr(l_atc(args, 0L, 6415), ctx)), (long)(intptr_t)", "); long _t510 = u_emitExpr(l_atc(args, 1L, 6415), ctx); s_concat(_t509, _t510); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t509 = s_concat(s_concat((long)(intptr_t)"simpler_reply(", u_emitExpr(l_atc(args, 0L, 6426), ctx)), (long)(intptr_t)", "); long _t510 = u_emitExpr(l_atc(args, 1L, 6426), ctx); s_concat(_t509, _t510); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"date")) {
 
-  u_wantType(l_atc(args, 0L, 6418), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6429), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_date(", u_emitExpr(l_atc(args, 0L, 6419), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_date(", u_emitExpr(l_atc(args, 0L, 6430), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"dateAs")) {
 
-  u_wantType(l_atc(args, 0L, 6422), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6433), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6423), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6434), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(({ long _t518 = s_concat(s_concat((long)(intptr_t)"simpler_stamp(", u_emitExpr(l_atc(args, 0L, 6424), ctx)), (long)(intptr_t)", "); long _t519 = u_emitExpr(l_atc(args, 1L, 6424), ctx); s_concat(_t518, _t519); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t518 = s_concat(s_concat((long)(intptr_t)"simpler_stamp(", u_emitExpr(l_atc(args, 0L, 6435), ctx)), (long)(intptr_t)", "); long _t519 = u_emitExpr(l_atc(args, 1L, 6435), ctx); s_concat(_t518, _t519); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"sleep")) {
 
-  u_wantType(l_atc(args, 0L, 6427), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6438), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_sleep(", u_emitExpr(l_atc(args, 0L, 6428), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_sleep(", u_emitExpr(l_atc(args, 0L, 6439), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"wait")) {
 
-  ({ long _t525 = l_atc(args, 0L, 6431); long _t526 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t525, _t526, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t525 = l_atc(args, 0L, 6442); long _t526 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t525, _t526, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_wait(simpler_may(", u_emitExpr(l_atc(args, 0L, 6432), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_wait(simpler_may(", u_emitExpr(l_atc(args, 0L, 6443), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"secsOf")) {
 
-  u_wantType(l_atc(args, 0L, 6435), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6446), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_secs(", u_emitExpr(l_atc(args, 0L, 6436), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_secs(", u_emitExpr(l_atc(args, 0L, 6447), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"error")) {
 
-  u_wantType(l_atc(args, 0L, 6439), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6450), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"(fflush(stdout), fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6440), ctx)), (long)(intptr_t)", stderr), fputc(10, stderr), 0L)");
+  r = s_concat(s_concat((long)(intptr_t)"(fflush(stdout), fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6451), ctx)), (long)(intptr_t)", stderr), fputc(10, stderr), 0L)");
   }
 
   if (s_eq(name, (long)(intptr_t)"part")) {
 
-  u_wantType(l_atc(args, 0L, 6443), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6454), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"(fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6444), ctx)), (long)(intptr_t)", stdout), 0L)");
+  r = s_concat(s_concat((long)(intptr_t)"(fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6455), ctx)), (long)(intptr_t)", stdout), 0L)");
   }
 
   if (s_eq(name, (long)(intptr_t)"fetchWith")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6447), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6458), ctx);
 
-  u_wantType(l_atc(args, 0L, 6448), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6459), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6449), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6460), (long)(intptr_t)"List[Str]", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t542 = s_concat(s_concat((long)(intptr_t)"simpler_fetchwith(", u_emitExpr(l_atc(args, 0L, 6450), ctx)), (long)(intptr_t)", "); long _t543 = u_emitExpr(l_atc(args, 1L, 6450), ctx); s_concat(_t542, _t543); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t542 = s_concat(s_concat((long)(intptr_t)"simpler_fetchwith(", u_emitExpr(l_atc(args, 0L, 6461), ctx)), (long)(intptr_t)", "); long _t543 = u_emitExpr(l_atc(args, 1L, 6461), ctx); s_concat(_t542, _t543); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"var")) {
 
-  u_wantType(l_atc(args, 0L, 6453), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6464), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_env(", u_emitExpr(l_atc(args, 0L, 6454), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_env(", u_emitExpr(l_atc(args, 0L, 6465), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"setVar")) {
 
-  u_wantType(l_atc(args, 0L, 6457), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6468), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6458), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6469), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(({ long _t551 = s_concat(s_concat((long)(intptr_t)"simpler_setenv(", u_emitExpr(l_atc(args, 0L, 6459), ctx)), (long)(intptr_t)", "); long _t552 = u_emitExpr(l_atc(args, 1L, 6459), ctx); s_concat(_t551, _t552); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t551 = s_concat(s_concat((long)(intptr_t)"simpler_setenv(", u_emitExpr(l_atc(args, 0L, 6470), ctx)), (long)(intptr_t)", "); long _t552 = u_emitExpr(l_atc(args, 1L, 6470), ctx); s_concat(_t551, _t552); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"read")) {
 
-  ({ long _t555 = l_atc(args, 0L, 6462); long _t556 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t555, _t556, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t555 = l_atc(args, 0L, 6473); long _t556 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t555, _t556, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6463), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6474), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"readBytes")) {
 
-  ({ long _t560 = l_atc(args, 0L, 6466); long _t561 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t560, _t561, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t560 = l_atc(args, 0L, 6477); long _t561 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t560, _t561, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_readbytes((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6467), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_readbytes((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6478), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"writeBytes")) {
 
-  ({ long _t565 = l_atc(args, 0L, 6470); long _t566 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t565, _t566, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t565 = l_atc(args, 0L, 6481); long _t566 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t565, _t566, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(({ long _t568 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_writebytes(simpler_may(", u_emitExpr(l_atc(args, 0L, 6471), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t569 = u_emitExpr(l_atc(args, 1L, 6471), ctx); s_concat(_t568, _t569); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t568 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_writebytes(simpler_may(", u_emitExpr(l_atc(args, 0L, 6482), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t569 = u_emitExpr(l_atc(args, 1L, 6482), ctx); s_concat(_t568, _t569); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"findByte")) {
 
-  r = s_concat(({ long _t574 = s_concat(({ long _t572 = s_concat(s_concat((long)(intptr_t)"y_find(", recvC), (long)(intptr_t)", "); long _t573 = u_emitExpr(l_atc(args, 0L, 6474), ctx); s_concat(_t572, _t573); }), (long)(intptr_t)", "); long _t575 = u_emitExpr(l_atc(args, 1L, 6474), ctx); s_concat(_t574, _t575); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t574 = s_concat(({ long _t572 = s_concat(s_concat((long)(intptr_t)"y_find(", recvC), (long)(intptr_t)", "); long _t573 = u_emitExpr(l_atc(args, 0L, 6485), ctx); s_concat(_t572, _t573); }), (long)(intptr_t)", "); long _t575 = u_emitExpr(l_atc(args, 1L, 6485), ctx); s_concat(_t574, _t575); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"textAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t580 = s_concat(({ long _t578 = s_concat(s_concat((long)(intptr_t)"b_text(", recvC), (long)(intptr_t)", "); long _t579 = u_emitExpr(l_atc(args, 0L, 6477), ctx); s_concat(_t578, _t579); }), (long)(intptr_t)", "); long _t581 = u_emitExpr(l_atc(args, 1L, 6477), ctx); s_concat(_t580, _t581); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t580 = s_concat(({ long _t578 = s_concat(s_concat((long)(intptr_t)"b_text(", recvC), (long)(intptr_t)", "); long _t579 = u_emitExpr(l_atc(args, 0L, 6488), ctx); s_concat(_t578, _t579); }), (long)(intptr_t)", "); long _t581 = u_emitExpr(l_atc(args, 1L, 6488), ctx); s_concat(_t580, _t581); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t586 = s_concat(({ long _t584 = s_concat(s_concat((long)(intptr_t)"y_text(", recvC), (long)(intptr_t)", "); long _t585 = u_emitExpr(l_atc(args, 0L, 6479), ctx); s_concat(_t584, _t585); }), (long)(intptr_t)", "); long _t587 = u_emitExpr(l_atc(args, 1L, 6479), ctx); s_concat(_t586, _t587); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t586 = s_concat(({ long _t584 = s_concat(s_concat((long)(intptr_t)"y_text(", recvC), (long)(intptr_t)", "); long _t585 = u_emitExpr(l_atc(args, 0L, 6490), ctx); s_concat(_t584, _t585); }), (long)(intptr_t)", "); long _t587 = u_emitExpr(l_atc(args, 1L, 6490), ctx); s_concat(_t586, _t587); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"intAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t592 = s_concat(({ long _t590 = s_concat(s_concat((long)(intptr_t)"b_int(", recvC), (long)(intptr_t)", "); long _t591 = u_emitExpr(l_atc(args, 0L, 6483), ctx); s_concat(_t590, _t591); }), (long)(intptr_t)", "); long _t593 = u_emitExpr(l_atc(args, 1L, 6483), ctx); s_concat(_t592, _t593); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t592 = s_concat(({ long _t590 = s_concat(s_concat((long)(intptr_t)"b_int(", recvC), (long)(intptr_t)", "); long _t591 = u_emitExpr(l_atc(args, 0L, 6494), ctx); s_concat(_t590, _t591); }), (long)(intptr_t)", "); long _t593 = u_emitExpr(l_atc(args, 1L, 6494), ctx); s_concat(_t592, _t593); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t598 = s_concat(({ long _t596 = s_concat(s_concat((long)(intptr_t)"y_int(", recvC), (long)(intptr_t)", "); long _t597 = u_emitExpr(l_atc(args, 0L, 6485), ctx); s_concat(_t596, _t597); }), (long)(intptr_t)", "); long _t599 = u_emitExpr(l_atc(args, 1L, 6485), ctx); s_concat(_t598, _t599); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t598 = s_concat(({ long _t596 = s_concat(s_concat((long)(intptr_t)"y_int(", recvC), (long)(intptr_t)", "); long _t597 = u_emitExpr(l_atc(args, 0L, 6496), ctx); s_concat(_t596, _t597); }), (long)(intptr_t)", "); long _t599 = u_emitExpr(l_atc(args, 1L, 6496), ctx); s_concat(_t598, _t599); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if ((((s_eq(name, (long)(intptr_t)"atan2") || s_eq(name, (long)(intptr_t)"pow")) || s_eq(name, (long)(intptr_t)"atan2_c")) || s_eq(name, (long)(intptr_t)"pow_c"))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Float")) || (!s_eq(u_exprType(l_atc(args, 0L, 6489), ctx), (long)(intptr_t)"Float")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Float")) || (!s_eq(u_exprType(l_atc(args, 0L, 6500), ctx), (long)(intptr_t)"Float")))) {
 
   u_failAt((long)(intptr_t)"atan2 and pow work on two Float numbers: y.atan2(x), x.pow(y)", ctx);
   }
@@ -11020,150 +11035,150 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   cf = (long)(intptr_t)"atan2";
   }
 
-  r = s_concat(({ long _t607 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(", cf), (long)(intptr_t)"(l2d("), recvC), (long)(intptr_t)"), l2d("); long _t608 = u_emitExpr(l_atc(args, 0L, 6496), ctx); s_concat(_t607, _t608); }), (long)(intptr_t)")))");
+  r = s_concat(({ long _t607 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(", cf), (long)(intptr_t)"(l2d("), recvC), (long)(intptr_t)"), l2d("); long _t608 = u_emitExpr(l_atc(args, 0L, 6507), ctx); s_concat(_t607, _t608); }), (long)(intptr_t)")))");
   }
 
   if (s_eq(name, (long)(intptr_t)"floatAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t611 = s_concat(s_concat((long)(intptr_t)"b_float(", recvC), (long)(intptr_t)", "); long _t612 = u_emitExpr(l_atc(args, 0L, 6499), ctx); s_concat(_t611, _t612); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t611 = s_concat(s_concat((long)(intptr_t)"b_float(", recvC), (long)(intptr_t)", "); long _t612 = u_emitExpr(l_atc(args, 0L, 6510), ctx); s_concat(_t611, _t612); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t615 = s_concat(s_concat((long)(intptr_t)"y_float(", recvC), (long)(intptr_t)", "); long _t616 = u_emitExpr(l_atc(args, 0L, 6501), ctx); s_concat(_t615, _t616); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t615 = s_concat(s_concat((long)(intptr_t)"y_float(", recvC), (long)(intptr_t)", "); long _t616 = u_emitExpr(l_atc(args, 0L, 6512), ctx); s_concat(_t615, _t616); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"write")) {
 
-  ({ long _t619 = l_atc(args, 0L, 6505); long _t620 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t619, _t620, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t619 = l_atc(args, 0L, 6516); long _t620 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t619, _t620, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(({ long _t622 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(simpler_may(", u_emitExpr(l_atc(args, 0L, 6506), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t623 = u_emitExpr(l_atc(args, 1L, 6506), ctx); s_concat(_t622, _t623); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t622 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(simpler_may(", u_emitExpr(l_atc(args, 0L, 6517), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t623 = u_emitExpr(l_atc(args, 1L, 6517), ctx); s_concat(_t622, _t623); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"append")) {
 
-  ({ long _t626 = l_atc(args, 0L, 6509); long _t627 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t626, _t627, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t626 = l_atc(args, 0L, 6520); long _t627 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t626, _t627, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(({ long _t629 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(simpler_may(", u_emitExpr(l_atc(args, 0L, 6510), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t630 = u_emitExpr(l_atc(args, 1L, 6510), ctx); s_concat(_t629, _t630); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t629 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(simpler_may(", u_emitExpr(l_atc(args, 0L, 6521), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t630 = u_emitExpr(l_atc(args, 1L, 6521), ctx); s_concat(_t629, _t630); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"list")) {
 
-  ({ long _t633 = l_atc(args, 0L, 6513); long _t634 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t633, _t634, (long)(intptr_t)"list", (long)(intptr_t)"reads", ctx); });
+  ({ long _t633 = l_atc(args, 0L, 6524); long _t634 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t633, _t634, (long)(intptr_t)"list", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_list(simpler_may(simpler_dir(", u_emitExpr(l_atc(args, 0L, 6514), ctx)), (long)(intptr_t)"), simpler_rd, "), ln), (long)(intptr_t)", \"list\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_list(simpler_may(simpler_dir(", u_emitExpr(l_atc(args, 0L, 6525), ctx)), (long)(intptr_t)"), simpler_rd, "), ln), (long)(intptr_t)", \"list\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"exists")) {
 
-  ({ long _t638 = l_atc(args, 0L, 6517); long _t639 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t638, _t639, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t638 = l_atc(args, 0L, 6528); long _t639 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t638, _t639, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_exists(simpler_may(", u_emitExpr(l_atc(args, 0L, 6518), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_exists(simpler_may(", u_emitExpr(l_atc(args, 0L, 6529), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"rename")) {
 
-  ({ long _t643 = l_atc(args, 0L, 6521); long _t644 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t643, _t644, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t643 = l_atc(args, 0L, 6532); long _t644 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t643, _t644, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  ({ long _t646 = l_atc(args, 1L, 6522); long _t647 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t646, _t647, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t646 = l_atc(args, 1L, 6533); long _t647 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t646, _t647, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(({ long _t649 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_rename(simpler_may(", u_emitExpr(l_atc(args, 0L, 6523), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), simpler_may("); long _t650 = u_emitExpr(l_atc(args, 1L, 6523), ctx); s_concat(_t649, _t650); }), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(({ long _t649 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_rename(simpler_may(", u_emitExpr(l_atc(args, 0L, 6534), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), simpler_may("); long _t650 = u_emitExpr(l_atc(args, 1L, 6534), ctx); s_concat(_t649, _t650); }), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"delete")) {
 
-  ({ long _t653 = l_atc(args, 0L, 6526); long _t654 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t653, _t654, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t653 = l_atc(args, 0L, 6537); long _t654 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t653, _t654, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_delete(simpler_may(", u_emitExpr(l_atc(args, 0L, 6527), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_delete(simpler_may(", u_emitExpr(l_atc(args, 0L, 6538), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"split")) {
 
-  r = s_concat(({ long _t658 = s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "); long _t659 = u_emitExpr(l_atc(args, 0L, 6530), ctx); s_concat(_t658, _t659); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t658 = s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "); long _t659 = u_emitExpr(l_atc(args, 0L, 6541), ctx); s_concat(_t658, _t659); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"contains")) {
 
-  r = s_concat(({ long _t662 = s_concat(s_concat((long)(intptr_t)"s_contains(", recvC), (long)(intptr_t)", "); long _t663 = u_emitExpr(l_atc(args, 0L, 6533), ctx); s_concat(_t662, _t663); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t662 = s_concat(s_concat((long)(intptr_t)"s_contains(", recvC), (long)(intptr_t)", "); long _t663 = u_emitExpr(l_atc(args, 0L, 6544), ctx); s_concat(_t662, _t663); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"find")) {
 
-  r = s_concat(({ long _t666 = s_concat(s_concat((long)(intptr_t)"s_find(", recvC), (long)(intptr_t)", "); long _t667 = u_emitExpr(l_atc(args, 0L, 6536), ctx); s_concat(_t666, _t667); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t666 = s_concat(s_concat((long)(intptr_t)"s_find(", recvC), (long)(intptr_t)", "); long _t667 = u_emitExpr(l_atc(args, 0L, 6547), ctx); s_concat(_t666, _t667); }), (long)(intptr_t)")");
   }
 
   if ((((s_eq(name, (long)(intptr_t)"reTest") || s_eq(name, (long)(intptr_t)"reFind")) || s_eq(name, (long)(intptr_t)"reAll")) || s_eq(name, (long)(intptr_t)"reSplit"))) {
 
-  r = s_concat(s_concat(s_concat(({ long _t670 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"re_", s_case(s_slicec(name, 2L, s_len(name), 6539), 0)), (long)(intptr_t)"("), recvC), (long)(intptr_t)", "); long _t671 = u_emitExpr(l_atc(args, 0L, 6539), ctx); s_concat(_t670, _t671); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t670 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"re_", s_case(s_slicec(name, 2L, s_len(name), 6550), 0)), (long)(intptr_t)"("), recvC), (long)(intptr_t)", "); long _t671 = u_emitExpr(l_atc(args, 0L, 6550), ctx); s_concat(_t670, _t671); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reReplace")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t676 = s_concat(({ long _t674 = s_concat(s_concat((long)(intptr_t)"re_replace(", recvC), (long)(intptr_t)", "); long _t675 = u_emitExpr(l_atc(args, 0L, 6542), ctx); s_concat(_t674, _t675); }), (long)(intptr_t)", "); long _t677 = u_emitExpr(l_atc(args, 1L, 6542), ctx); s_concat(_t676, _t677); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t676 = s_concat(({ long _t674 = s_concat(s_concat((long)(intptr_t)"re_replace(", recvC), (long)(intptr_t)", "); long _t675 = u_emitExpr(l_atc(args, 0L, 6553), ctx); s_concat(_t674, _t675); }), (long)(intptr_t)", "); long _t677 = u_emitExpr(l_atc(args, 1L, 6553), ctx); s_concat(_t676, _t677); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"json")) {
 
-  r = s_concat(({ long _t680 = s_concat(s_concat((long)(intptr_t)"s_json(", recvC), (long)(intptr_t)", "); long _t681 = u_emitExpr(l_atc(args, 0L, 6545), ctx); s_concat(_t680, _t681); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t680 = s_concat(s_concat((long)(intptr_t)"s_json(", recvC), (long)(intptr_t)", "); long _t681 = u_emitExpr(l_atc(args, 0L, 6556), ctx); s_concat(_t680, _t681); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"join")) {
 
-  r = s_concat(({ long _t684 = s_concat(s_concat((long)(intptr_t)"l_join(", recvC), (long)(intptr_t)", "); long _t685 = u_emitExpr(l_atc(args, 0L, 6548), ctx); s_concat(_t684, _t685); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t684 = s_concat(s_concat((long)(intptr_t)"l_join(", recvC), (long)(intptr_t)", "); long _t685 = u_emitExpr(l_atc(args, 0L, 6559), ctx); s_concat(_t684, _t685); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"startsWith")) {
 
-  r = s_concat(({ long _t688 = s_concat(s_concat((long)(intptr_t)"s_starts(", recvC), (long)(intptr_t)", "); long _t689 = u_emitExpr(l_atc(args, 0L, 6551), ctx); s_concat(_t688, _t689); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t688 = s_concat(s_concat((long)(intptr_t)"s_starts(", recvC), (long)(intptr_t)", "); long _t689 = u_emitExpr(l_atc(args, 0L, 6562), ctx); s_concat(_t688, _t689); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"endsWith")) {
 
-  r = s_concat(({ long _t692 = s_concat(s_concat((long)(intptr_t)"s_ends(", recvC), (long)(intptr_t)", "); long _t693 = u_emitExpr(l_atc(args, 0L, 6554), ctx); s_concat(_t692, _t693); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t692 = s_concat(s_concat((long)(intptr_t)"s_ends(", recvC), (long)(intptr_t)", "); long _t693 = u_emitExpr(l_atc(args, 0L, 6565), ctx); s_concat(_t692, _t693); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"replace")) {
 
-  r = s_concat(({ long _t698 = s_concat(({ long _t696 = s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "); long _t697 = u_emitExpr(l_atc(args, 0L, 6557), ctx); s_concat(_t696, _t697); }), (long)(intptr_t)", "); long _t699 = u_emitExpr(l_atc(args, 1L, 6557), ctx); s_concat(_t698, _t699); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t698 = s_concat(({ long _t696 = s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "); long _t697 = u_emitExpr(l_atc(args, 0L, 6568), ctx); s_concat(_t696, _t697); }), (long)(intptr_t)", "); long _t699 = u_emitExpr(l_atc(args, 1L, 6568), ctx); s_concat(_t698, _t699); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"mod")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t702 = s_concat(s_concat((long)(intptr_t)"i_mod(", recvC), (long)(intptr_t)", "); long _t703 = u_emitExpr(l_atc(args, 0L, 6560), ctx); s_concat(_t702, _t703); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t702 = s_concat(s_concat((long)(intptr_t)"i_mod(", recvC), (long)(intptr_t)", "); long _t703 = u_emitExpr(l_atc(args, 0L, 6571), ctx); s_concat(_t702, _t703); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"atan2")) {
 
-  r = s_concat(({ long _t706 = s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("); long _t707 = u_emitExpr(l_atc(args, 0L, 6563), ctx); s_concat(_t706, _t707); }), (long)(intptr_t)")))");
+  r = s_concat(({ long _t706 = s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("); long _t707 = u_emitExpr(l_atc(args, 0L, 6574), ctx); s_concat(_t706, _t707); }), (long)(intptr_t)")))");
   }
 
   if (s_eq(name, (long)(intptr_t)"padLeft")) {
 
-  r = s_concat(({ long _t710 = s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "); long _t711 = u_emitExpr(l_atc(args, 0L, 6566), ctx); s_concat(_t710, _t711); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t710 = s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "); long _t711 = u_emitExpr(l_atc(args, 0L, 6577), ctx); s_concat(_t710, _t711); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"padRight")) {
 
-  r = s_concat(({ long _t714 = s_concat(s_concat((long)(intptr_t)"s_padright(", recvC), (long)(intptr_t)", "); long _t715 = u_emitExpr(l_atc(args, 0L, 6569), ctx); s_concat(_t714, _t715); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t714 = s_concat(s_concat((long)(intptr_t)"s_padright(", recvC), (long)(intptr_t)", "); long _t715 = u_emitExpr(l_atc(args, 0L, 6580), ctx); s_concat(_t714, _t715); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"set")) {
 
-  r = s_concat(({ long _t720 = s_concat(({ long _t718 = s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "); long _t719 = u_emitExpr(l_atc(args, 0L, 6572), ctx); s_concat(_t718, _t719); }), (long)(intptr_t)", "); long _t721 = u_emitExpr(l_atc(args, 1L, 6572), ctx); s_concat(_t720, _t721); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t720 = s_concat(({ long _t718 = s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "); long _t719 = u_emitExpr(l_atc(args, 0L, 6583), ctx); s_concat(_t718, _t719); }), (long)(intptr_t)", "); long _t721 = u_emitExpr(l_atc(args, 1L, 6583), ctx); s_concat(_t720, _t721); }), (long)(intptr_t)")");
 
   if (u_isListType(t)) {
 
-  r = s_concat(s_concat(s_concat(({ long _t726 = s_concat(({ long _t724 = s_concat(s_concat((long)(intptr_t)"l_setc(", recvC), (long)(intptr_t)", "); long _t725 = u_emitExpr(l_atc(args, 0L, 6574), ctx); s_concat(_t724, _t725); }), (long)(intptr_t)", "); long _t727 = u_emitExpr(l_atc(args, 1L, 6574), ctx); s_concat(_t726, _t727); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t726 = s_concat(({ long _t724 = s_concat(s_concat((long)(intptr_t)"l_setc(", recvC), (long)(intptr_t)", "); long _t725 = u_emitExpr(l_atc(args, 0L, 6585), ctx); s_concat(_t724, _t725); }), (long)(intptr_t)", "); long _t727 = u_emitExpr(l_atc(args, 1L, 6585), ctx); s_concat(_t726, _t727); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"remove")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t730 = s_concat(s_concat((long)(intptr_t)"l_removec(", recvC), (long)(intptr_t)", "); long _t731 = u_emitExpr(l_atc(args, 0L, 6578), ctx); s_concat(_t730, _t731); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t730 = s_concat(s_concat((long)(intptr_t)"l_removec(", recvC), (long)(intptr_t)", "); long _t731 = u_emitExpr(l_atc(args, 0L, 6589), ctx); s_concat(_t730, _t731); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (u_anyMap(t)) {
 
-  r = s_concat(({ long _t734 = s_concat(s_concat((long)(intptr_t)"m_remove(", recvC), (long)(intptr_t)", "); long _t735 = u_emitExpr(l_atc(args, 0L, 6580), ctx); s_concat(_t734, _t735); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t734 = s_concat(s_concat((long)(intptr_t)"m_remove(", recvC), (long)(intptr_t)", "); long _t735 = u_emitExpr(l_atc(args, 0L, 6591), ctx); s_concat(_t734, _t735); }), (long)(intptr_t)")");
   }
   }
 
@@ -11171,7 +11186,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   u_wantType(recv, (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 0L, 6585), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6596), (long)(intptr_t)"Int", name, ctx);
 
   bop = (long)(intptr_t)"&";
 
@@ -11185,59 +11200,59 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   bop = (long)(intptr_t)"^";
   }
 
-  r = s_concat(({ long _t745 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" "), bop), (long)(intptr_t)" "); long _t746 = u_emitExpr(l_atc(args, 0L, 6593), ctx); s_concat(_t745, _t746); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t745 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" "), bop), (long)(intptr_t)" "); long _t746 = u_emitExpr(l_atc(args, 0L, 6604), ctx); s_concat(_t745, _t746); }), (long)(intptr_t)")");
 
   if (s_eq(name, (long)(intptr_t)"shl")) {
 
-  r = s_concat(({ long _t749 = s_concat(s_concat((long)(intptr_t)"(long)((unsigned long)", recvC), (long)(intptr_t)" << ("); long _t750 = u_emitExpr(l_atc(args, 0L, 6595), ctx); s_concat(_t749, _t750); }), (long)(intptr_t)" & 63))");
+  r = s_concat(({ long _t749 = s_concat(s_concat((long)(intptr_t)"(long)((unsigned long)", recvC), (long)(intptr_t)" << ("); long _t750 = u_emitExpr(l_atc(args, 0L, 6606), ctx); s_concat(_t749, _t750); }), (long)(intptr_t)" & 63))");
   }
 
   if (s_eq(name, (long)(intptr_t)"shr")) {
 
-  r = s_concat(({ long _t753 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >> ("); long _t754 = u_emitExpr(l_atc(args, 0L, 6598), ctx); s_concat(_t753, _t754); }), (long)(intptr_t)" & 63))");
+  r = s_concat(({ long _t753 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >> ("); long _t754 = u_emitExpr(l_atc(args, 0L, 6609), ctx); s_concat(_t753, _t754); }), (long)(intptr_t)" & 63))");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"get")) {
 
-  r = s_concat(({ long _t757 = s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "); long _t758 = u_emitExpr(l_atc(args, 0L, 6602), ctx); s_concat(_t757, _t758); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t757 = s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "); long _t758 = u_emitExpr(l_atc(args, 0L, 6613), ctx); s_concat(_t757, _t758); }), (long)(intptr_t)")");
 
   mv = u_mapValueOf(t);
 
   if (s_eq(mv, (long)(intptr_t)"Str")) {
 
-  r = s_concat(({ long _t762 = s_concat(s_concat((long)(intptr_t)"m_gets(", recvC), (long)(intptr_t)", "); long _t763 = u_emitExpr(l_atc(args, 0L, 6606), ctx); s_concat(_t762, _t763); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t762 = s_concat(s_concat((long)(intptr_t)"m_gets(", recvC), (long)(intptr_t)", "); long _t763 = u_emitExpr(l_atc(args, 0L, 6617), ctx); s_concat(_t762, _t763); }), (long)(intptr_t)")");
   }
 
   if ((u_isMapType(t) && (!u_plainType(mv)))) {
 
-  r = s_concat(s_concat(s_concat(({ long _t766 = s_concat(s_concat((long)(intptr_t)"m_getp(", recvC), (long)(intptr_t)", "); long _t767 = u_emitExpr(l_atc(args, 0L, 6610), ctx); s_concat(_t766, _t767); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t766 = s_concat(s_concat((long)(intptr_t)"m_getp(", recvC), (long)(intptr_t)", "); long _t767 = u_emitExpr(l_atc(args, 0L, 6621), ctx); s_concat(_t766, _t767); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"has")) {
 
-  r = s_concat(({ long _t770 = s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "); long _t771 = u_emitExpr(l_atc(args, 0L, 6614), ctx); s_concat(_t770, _t771); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t770 = s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "); long _t771 = u_emitExpr(l_atc(args, 0L, 6625), ctx); s_concat(_t770, _t771); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"ge")) {
 
-  r = s_concat(({ long _t774 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "); long _t775 = u_emitExpr(l_atc(args, 0L, 6617), ctx); s_concat(_t774, _t775); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t774 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "); long _t775 = u_emitExpr(l_atc(args, 0L, 6628), ctx); s_concat(_t774, _t775); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"le")) {
 
-  r = s_concat(({ long _t778 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" <= "); long _t779 = u_emitExpr(l_atc(args, 0L, 6620), ctx); s_concat(_t778, _t779); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t778 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" <= "); long _t779 = u_emitExpr(l_atc(args, 0L, 6631), ctx); s_concat(_t778, _t779); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"and")) {
 
-  r = s_concat(({ long _t782 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" && "); long _t783 = u_emitExpr(l_atc(args, 0L, 6623), ctx); s_concat(_t782, _t783); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t782 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" && "); long _t783 = u_emitExpr(l_atc(args, 0L, 6634), ctx); s_concat(_t782, _t783); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"or")) {
 
-  r = s_concat(({ long _t786 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" || "); long _t787 = u_emitExpr(l_atc(args, 0L, 6626), ctx); s_concat(_t786, _t787); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t786 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" || "); long _t787 = u_emitExpr(l_atc(args, 0L, 6637), ctx); s_concat(_t786, _t787); }), (long)(intptr_t)")");
   }
 
   return r;
@@ -11258,9 +11273,9 @@ long u_cEscape(long s) {
 
   while ((k < n)) {
 
-  c = s_code(s_atc(s, k, 6638));
+  c = s_code(s_atc(s, k, 6649));
 
-  piece = s_atc(s, k, 6639);
+  piece = s_atc(s, k, 6650);
 
   if ((c == 34L)) {
 
@@ -11289,7 +11304,7 @@ long u_cEscape(long s) {
 
   out = s_concat(out, piece);
 
-  k = i_add(k, 1L, 6656);
+  k = i_add(k, 1L, 6667);
   }
 
   return out;
@@ -11299,7 +11314,7 @@ long u_caseArity(long name, long ctx) {
   long r = 0;
   long a = 0;
 
-  r = i_sub(0L, 1L, 6664);
+  r = i_sub(0L, 1L, 6675);
 
   {
   long _lst = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->types;
@@ -11375,9 +11390,9 @@ long u_emitArgs(long args, long ctx) {
   out = s_concat(out, (long)(intptr_t)", ");
   }
 
-  out = s_concat(out, u_emitExpr(l_atc(args, k, 6705), ctx));
+  out = s_concat(out, u_emitExpr(l_atc(args, k, 6716), ctx));
 
-  k = i_add(k, 1L, 6706);
+  k = i_add(k, 1L, 6717);
   }
 
   return out;
@@ -11454,7 +11469,7 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   if ((l_len(arms) > 0L)) {
 
-  a = l_atc(arms, 0L, 6760);
+  a = l_atc(arms, 0L, 6771);
 
   styp = u_exprType(scrut, ctx);
 
@@ -11464,9 +11479,9 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   while ((bi < l_len(((R_Arm*)(intptr_t)a)->binds))) {
 
-  ({ long _t37 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 6765); long _t38 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t37, _t38); });
+  ({ long _t37 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 6776); long _t38 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t37, _t38); });
 
-  bi = i_add(bi, 1L, 6766);
+  bi = i_add(bi, 1L, 6777);
   }
 
   r = u_exprType(((R_Arm*)(intptr_t)a)->body, ctx);
@@ -11630,14 +11645,14 @@ long u_recFieldType(long tyName, long fld, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 6863);
+  rec = l_atc(recs, k, 6874);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, tyName)) {
 
   r = u_fieldTypeIn(rec, fld);
   }
 
-  k = i_add(k, 1L, 6867);
+  k = i_add(k, 1L, 6878);
   }
 
   return r;
@@ -11656,12 +11671,12 @@ long u_fieldTypeIn(long rec, long fld) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 6877), fld)) {
+  if (s_eq(l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 6888), fld)) {
 
-  r = l_atc(((R_RecDef*)(intptr_t)rec)->ftypes, k, 6878);
+  r = l_atc(((R_RecDef*)(intptr_t)rec)->ftypes, k, 6889);
   }
 
-  k = i_add(k, 1L, 6880);
+  k = i_add(k, 1L, 6891);
   }
 
   return r;
@@ -11879,7 +11894,7 @@ long u_isWord(long toks, long i, long w) {
 }
 long u_isAssign(long toks, long i) {
 
-  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 7026), (long)(intptr_t)"="));
+  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 7037), (long)(intptr_t)"="));
   return 0;
 }
 long u_identAt(long toks, long i) {
@@ -11961,27 +11976,27 @@ long u_lex(long src, long files) {
 
   i = 0L;
 
-  line = i_add(i_mul(i_sub(l_len(files), 1L, 7082), 1000000L, 7082), 1L, 7082);
+  line = i_add(i_mul(i_sub(l_len(files), 1L, 7093), 1000000L, 7093), 1L, 7093);
 
   while ((i < n)) {
 
-  c = s_code(s_atc(src, i, 7084));
+  c = s_code(s_atc(src, i, 7095));
 
   if (u_isSpace(c)) {
 
   if ((c == 10L)) {
 
-  line = i_add(line, 1L, 7087);
+  line = i_add(line, 1L, 7098);
   }
 
-  i = i_add(i, 1L, 7089);
+  i = i_add(i, 1L, 7100);
   } else {
 
   if (u_isComment(src, i, n)) {
 
-  while (((i < n) && (!(s_code(s_atc(src, i, 7092)) == 10L)))) {
+  while (((i < n) && (!(s_code(s_atc(src, i, 7103)) == 10L)))) {
 
-  i = i_add(i, 1L, 7093);
+  i = i_add(i, 1L, 7104);
   }
   } else {
 
@@ -11993,27 +12008,27 @@ long u_lex(long src, long files) {
 
   l_push(lines, line);
 
-  line = i_add(line, ((R_Here*)(intptr_t)h)->nl, 7100);
+  line = i_add(line, ((R_Here*)(intptr_t)h)->nl, 7111);
 
   i = ((R_Here*)(intptr_t)h)->upto;
   } else {
 
   if (((c == 34L) || (c == 39L))) {
 
-  j = i_add(i, 1L, 7104);
+  j = i_add(i, 1L, 7115);
 
   s = (long)(intptr_t)"";
 
-  while (((j < n) && (!(s_code(s_atc(src, j, 7106)) == c)))) {
+  while (((j < n) && (!(s_code(s_atc(src, j, 7117)) == c)))) {
 
-  if ((s_code(s_atc(src, j, 7107)) == 10L)) {
+  if ((s_code(s_atc(src, j, 7118)) == 10L)) {
 
   fail(s_concat(u_spot(files, line), (long)(intptr_t)"a text is missing its closing quote"));
   }
 
-  if ((s_code(s_atc(src, j, 7110)) == 92L)) {
+  if ((s_code(s_atc(src, j, 7121)) == 92L)) {
 
-  j = i_add(j, 1L, 7111);
+  j = i_add(j, 1L, 7122);
 
   if ((j == n)) {
 
@@ -12023,10 +12038,10 @@ long u_lex(long src, long files) {
   s = s_concat(s, u_esc(src, j));
   } else {
 
-  s = s_concat(s, s_atc(src, j, 7117));
+  s = s_concat(s, s_atc(src, j, 7128));
   }
 
-  j = i_add(j, 1L, 7119);
+  j = i_add(j, 1L, 7130);
   }
 
   if ((j == n)) {
@@ -12038,7 +12053,7 @@ long u_lex(long src, long files) {
 
   l_push(lines, line);
 
-  i = i_add(j, 1L, 7126);
+  i = i_add(j, 1L, 7137);
   } else {
 
   if (u_isDigit(c)) {
@@ -12047,43 +12062,43 @@ long u_lex(long src, long files) {
 
   num = 0L;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7131))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7142))))) {
 
-  num = i_add(i_mul(num, 10L, 7132), i_sub(s_code(s_atc(src, i, 7132)), 48L, 7132), 7132);
+  num = i_add(i_mul(num, 10L, 7143), i_sub(s_code(s_atc(src, i, 7143)), 48L, 7143), 7143);
 
-  i = i_add(i, 1L, 7133);
+  i = i_add(i, 1L, 7144);
   }
 
-  if ((((i_add(i, 1L, 7137) < n) && (s_code(s_atc(src, i, 7137)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 7137), 7137))))) {
+  if ((((i_add(i, 1L, 7148) < n) && (s_code(s_atc(src, i, 7148)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 7148), 7148))))) {
 
-  i = i_add(i, 1L, 7138);
-
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7139))))) {
-
-  i = i_add(i, 1L, 7140);
-  }
-
-  if (((i < n) && ((s_code(s_atc(src, i, 7143)) == 101L) || (s_code(s_atc(src, i, 7143)) == 69L)))) {
-
-  j = i_add(i, 1L, 7144);
-
-  if (((j < n) && ((s_code(s_atc(src, j, 7145)) == 43L) || (s_code(s_atc(src, j, 7145)) == 45L)))) {
-
-  j = i_add(j, 1L, 7146);
-  }
-
-  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 7148))))) {
-
-  i = j;
+  i = i_add(i, 1L, 7149);
 
   while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7150))))) {
 
   i = i_add(i, 1L, 7151);
   }
+
+  if (((i < n) && ((s_code(s_atc(src, i, 7154)) == 101L) || (s_code(s_atc(src, i, 7154)) == 69L)))) {
+
+  j = i_add(i, 1L, 7155);
+
+  if (((j < n) && ((s_code(s_atc(src, j, 7156)) == 43L) || (s_code(s_atc(src, j, 7156)) == 45L)))) {
+
+  j = i_add(j, 1L, 7157);
+  }
+
+  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 7159))))) {
+
+  i = j;
+
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7161))))) {
+
+  i = i_add(i, 1L, 7162);
+  }
   }
   }
 
-  l_push(toks, Float(s_slicec(src, start, i, 7155)));
+  l_push(toks, Float(s_slicec(src, start, i, 7166)));
 
   l_push(lines, line);
   } else {
@@ -12098,12 +12113,12 @@ long u_lex(long src, long files) {
 
   j = i;
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7164))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7175))))) {
 
-  j = i_add(j, 1L, 7165);
+  j = i_add(j, 1L, 7176);
   }
 
-  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 7167), taken)));
+  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 7178), taken)));
 
   l_push(lines, line);
 
@@ -12112,26 +12127,26 @@ long u_lex(long src, long files) {
 
   if (u_isTwoCharOp(src, i, n)) {
 
-  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 7172), 7172)));
+  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 7183), 7183)));
 
   l_push(lines, line);
 
-  i = i_add(i, 2L, 7174);
+  i = i_add(i, 2L, 7185);
   } else {
 
-  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 7180), 7180) == line)));
+  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 7191), 7191) == line)));
 
-  if (((s_code(s_atc(src, i, 7181)) == 40L) && fol)) {
+  if (((s_code(s_atc(src, i, 7192)) == 40L) && fol)) {
 
   l_push(toks, Punct((long)(intptr_t)"s("));
   } else {
 
-  l_push(toks, Punct(s_atc(src, i, 7184)));
+  l_push(toks, Punct(s_atc(src, i, 7195)));
   }
 
   l_push(lines, line);
 
-  i = i_add(i, 1L, 7187);
+  i = i_add(i, 1L, 7198);
   }
   }
   }
@@ -12150,7 +12165,7 @@ long u_lex(long src, long files) {
 }
 long u_isHere(long src, long i, long n) {
 
-  return ((((i_add(i, 2L, 7211) < n) && (s_code(s_atc(src, i, 7211)) == 60L)) && (s_code(s_atc(src, i_add(i, 1L, 7211), 7211)) == 60L)) && u_isAlpha(s_code(s_atc(src, i_add(i, 2L, 7211), 7211))));
+  return ((((i_add(i, 2L, 7222) < n) && (s_code(s_atc(src, i, 7222)) == 60L)) && (s_code(s_atc(src, i_add(i, 1L, 7222), 7222)) == 60L)) && u_isAlpha(s_code(s_atc(src, i_add(i, 2L, 7222), 7222))));
   return 0;
 }
 long u_hereText(long src, long i, long n, long files, long line) {
@@ -12166,28 +12181,28 @@ long u_hereText(long src, long i, long n, long files, long line) {
   long s = 0;
   long r = 0;
 
-  j = i_add(i, 2L, 7215);
+  j = i_add(i, 2L, 7226);
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7216))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7227))))) {
 
-  j = i_add(j, 1L, 7217);
+  j = i_add(j, 1L, 7228);
   }
 
-  word = s_slicec(src, i_add(i, 2L, 7219), j, 7219);
+  word = s_slicec(src, i_add(i, 2L, 7230), j, 7230);
 
-  while ((((j < n) && u_isSpace(s_code(s_atc(src, j, 7220)))) && (!(s_code(s_atc(src, j, 7220)) == 10L)))) {
+  while ((((j < n) && u_isSpace(s_code(s_atc(src, j, 7231)))) && (!(s_code(s_atc(src, j, 7231)) == 10L)))) {
 
-  j = i_add(j, 1L, 7221);
+  j = i_add(j, 1L, 7232);
   }
 
-  if (((j < n) && (!(s_code(s_atc(src, j, 7223)) == 10L)))) {
+  if (((j < n) && (!(s_code(s_atc(src, j, 7234)) == 10L)))) {
 
   fail(s_concat(s_concat(s_concat(u_spot(files, line), (long)(intptr_t)"<<"), word), (long)(intptr_t)" must end its line; the text starts on the next line"));
   }
 
   rows = l_new();
 
-  j = i_add(j, 1L, 7227);
+  j = i_add(j, 1L, 7238);
 
   found = false;
 
@@ -12197,12 +12212,12 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   e = j;
 
-  while (((e < n) && (!(s_code(s_atc(src, e, 7232)) == 10L)))) {
+  while (((e < n) && (!(s_code(s_atc(src, e, 7243)) == 10L)))) {
 
-  e = i_add(e, 1L, 7233);
+  e = i_add(e, 1L, 7244);
   }
 
-  row = s_slicec(src, j, e, 7235);
+  row = s_slicec(src, j, e, 7246);
 
   if (s_eq(s_trim(row), word)) {
 
@@ -12210,18 +12225,18 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   k = 0L;
 
-  while (((k < s_len(row)) && ((s_code(s_atc(row, k, 7239)) == 32L) || (s_code(s_atc(row, k, 7239)) == 9L)))) {
+  while (((k < s_len(row)) && ((s_code(s_atc(row, k, 7250)) == 32L) || (s_code(s_atc(row, k, 7250)) == 9L)))) {
 
-  k = i_add(k, 1L, 7240);
+  k = i_add(k, 1L, 7251);
   }
 
-  indent = s_slicec(row, 0L, k, 7242);
+  indent = s_slicec(row, 0L, k, 7253);
   } else {
 
   l_push(rows, row);
   }
 
-  j = i_add(e, 1L, 7246);
+  j = i_add(e, 1L, 7257);
   }
 
   if ((!found)) {
@@ -12237,22 +12252,22 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   while ((r < l_len(rows))) {
 
-  row = l_atc(rows, r, 7255);
+  row = l_atc(rows, r, 7266);
 
-  if (((s_len(row) >= w) && s_eq(s_slicec(row, 0L, w, 7256), indent))) {
+  if (((s_len(row) >= w) && s_eq(s_slicec(row, 0L, w, 7267), indent))) {
 
-  s = s_concat(s, s_slicec(row, w, s_len(row), 7257));
+  s = s_concat(s, s_slicec(row, w, s_len(row), 7268));
   } else {
 
   if ((!s_eq(s_trim(row), (long)(intptr_t)""))) {
 
-  fail(s_concat(s_concat(s_concat(s_concat(u_spot(files, i_add(i_add(line, 1L, 7260), r, 7260)), (long)(intptr_t)"this line of the <<"), word), (long)(intptr_t)" text starts left of its end word "), word));
+  fail(s_concat(s_concat(s_concat(s_concat(u_spot(files, i_add(i_add(line, 1L, 7271), r, 7271)), (long)(intptr_t)"this line of the <<"), word), (long)(intptr_t)" text starts left of its end word "), word));
   }
   }
 
   s = s_concat(s, (long)(intptr_t)"\n");
 
-  r = i_add(r, 1L, 7264);
+  r = i_add(r, 1L, 7275);
   }
 
   if ((j > n)) {
@@ -12260,16 +12275,16 @@ long u_hereText(long src, long i, long n, long files, long line) {
   j = n;
   }
 
-  return Here(s, j, i_add(l_len(rows), 2L, 7269));
+  return Here(s, j, i_add(l_len(rows), 2L, 7280));
   return 0;
 }
 long u_esc(long src, long j) {
   long c = 0;
   long r = 0;
 
-  c = s_code(s_atc(src, j, 7273));
+  c = s_code(s_atc(src, j, 7284));
 
-  r = s_atc(src, j, 7274);
+  r = s_atc(src, j, 7285);
 
   if ((c == 110L)) {
 
@@ -12296,7 +12311,7 @@ long u_esc(long src, long j) {
 }
 long u_isComment(long src, long i, long n) {
 
-  return (((i_add(i, 1L, 7285) < n) && (s_code(s_atc(src, i, 7285)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 7285), 7285)) == 47L));
+  return (((i_add(i, 1L, 7296) < n) && (s_code(s_atc(src, i, 7296)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 7296), 7296)) == 47L));
   return 0;
 }
 long u_isTwoCharOp(long src, long i, long n) {
@@ -12306,7 +12321,7 @@ long u_isTwoCharOp(long src, long i, long n) {
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
 
-  return (((i_add(i, 1L, 7293) < n) && (s_code(s_atc(src, i, 7293)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 7293), 7293)) == b));
+  return (((i_add(i, 1L, 7304) < n) && (s_code(s_atc(src, i, 7304)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 7304), 7304)) == b));
   return 0;
 }
 long u_isDigit(long c) {
@@ -12331,9 +12346,9 @@ long u_safeName(long s, long taken) {
 
   if ((n > 1L)) {
 
-  c0 = s_code(s_atc(s, 0L, 7318));
+  c0 = s_code(s_atc(s, 0L, 7329));
 
-  c1 = s_code(s_atc(s, 1L, 7319));
+  c1 = s_code(s_atc(s, 1L, 7330));
 
   if (((c0 == 95L) || ((c1 == 95L) && (((((((c0 == 108L) || (c0 == 115L)) || (c0 == 109L)) || (c0 == 105L)) || (c0 == 102L)) || (c0 == 117L)) || (c0 == 84L))))) {
 
@@ -12347,7 +12362,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 3L)) {
 
-  if (s_eq(s_slicec(s, 0L, 4L, 7327), (long)(intptr_t)"cmp_")) {
+  if (s_eq(s_slicec(s, 0L, 4L, 7338), (long)(intptr_t)"cmp_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
@@ -12355,7 +12370,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 7L)) {
 
-  if (s_eq(s_slicec(s, 0L, 8L, 7332), (long)(intptr_t)"simpler_")) {
+  if (s_eq(s_slicec(s, 0L, 8L, 7343), (long)(intptr_t)"simpler_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }

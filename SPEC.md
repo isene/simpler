@@ -161,7 +161,7 @@ p.x                                  // read a field -> 3
 
 A field is set with `p.x = 5` (the value must have the field's type). A record
 is shared, never copied: after `q = p`, `q.x = 5` changes `p` too. A function
-that sets a field of a record it was handed must say `!Mut`.
+that sets a field of a record it was handed is `!Mut` (the compiler works that out).
 
 Construction is **positional in declaration order**; the `field =` names are
 optional sugar and are not checked, so the values must be in order.
@@ -346,10 +346,10 @@ and has no `!IO`. Each core runs a process of its own with its own memory.
 ## 9. Effects and capabilities
 
 **Pure by default.** Anything that touches the world is marked in the
-signature: `!IO` (input/output) and `!Mut` (changes a list or map it was handed). A
-function must declare each of the two it uses, whether directly or by calling
-a function that has it; `main` is exempt. `!Fail` (can fail) may be written,
-but the compiler works it out and never asks for it. This keeps
+signature: `!IO` (input/output). A function must declare it when it uses it,
+whether directly or by calling a function that has it; `main` is exempt.
+`!Mut` (changes a list or map it was handed) and `!Fail` (can fail) may be
+written, but the compiler works them out and never asks for them. This keeps
 cost visible at every call site.
 
 ```
@@ -360,9 +360,10 @@ shout(screen : Screen, who : Str) !IO {
 
 **`!Mut`.** A list, map or record handed to a function is the caller's own,
 not a copy. A function that changes one (`.push`, `.set` or `.remove` on it, on a part of
-it, or by passing it to a `!Mut` function that changes it) must say `!Mut`.
-Building and returning a new list needs no mark, and neither does changing a
-list the function made itself.
+it, or by passing it to a `!Mut` function that changes it) is `!Mut`. The
+mark may be written, but the compiler works it out, and `simpler what` lists
+every function that has it. Building and returning a new list is not `!Mut`,
+and neither is changing a list the function made itself.
 
 ```
 add(xs : List[Int], n : Int) !Mut {
@@ -687,7 +688,7 @@ these; they do not exist:
   type-specific method like `Map.byValue`, not a comparator argument).
 - No exceptions (failure is `!Fail` and `?`; `fail` aborts).
 - A list, map or record is handed over as itself, not as a copy; only a
-  `!Mut` function may change one it was handed.
+  `!Mut` function changes one it was handed, and `simpler what` lists those.
 - No tuples, no null. A `Map` returns a typed default (`0` or `""`) for a
   missing key.
 
