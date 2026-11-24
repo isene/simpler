@@ -2162,6 +2162,21 @@ homout="$( cd "$TMP/ex" && HOME="$TMP/rh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="
 homout="$(printf '%s' "$homout" | tr '\n' '|')"
 if [ "$homout" = "hi from home|3|rc=0" ]; then ok; else nope "runs ~/ and Ctrl+C (got: $homout)"; fi
 
+# A * in a runs line matches when the program is built and when it runs.
+reject "a runs star that does not match" 'runs "ech*"
+main(sys) { sys.programs.status("ls", []) }' 'may not run "ls"'
+cat > "$TMP/ex/star.smplr" <<'STR'
+runs "ech*"
+main(sys) {
+  n = "ec" + "ho"
+  sys.programs.status("echo", ["one"])
+  sys.programs.status(n, ["two"])
+}
+STR
+starout="$( cd "$TMP/ex" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run star.smplr 2>&1; echo "rc=$?" )"
+starout="$(printf '%s' "$starout" | tr '\n' '|')"
+if [ "$starout" = "one|two|rc=0" ]; then ok; else nope "runs star (got: $starout)"; fi
+
 # simpler room keeps a copy of the folder first, and --undo puts it back. A stand-in
 # for Claude shows the lock: it may write in the folder and not next to it.
 mkdir -p "$TMP/rh/box" "$TMP/rh/.local/bin"; printf 'first\n' > "$TMP/rh/box/a.txt"
