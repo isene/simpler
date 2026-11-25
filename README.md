@@ -14,6 +14,27 @@ Let an AI write the program, then run it without reading it.
 
 <br clear="left"/>
 
+## Start
+
+1. Install it (needs a C compiler, curl and tar):
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/install.sh | sh
+   ```
+
+   Or clone the repo and call `./simpler` there.
+
+2. Ask Claude Code: "Write me a tool in Simpler that counts the words in a file."
+   The install gave Claude the skill. Any other AI gets the page that
+   `simpler prompt all` prints.
+
+3. See what the program can touch, then run it:
+
+   ```bash
+   simpler what count.smplr
+   simpler run count.smplr notes.txt
+   ```
+
 What keeps an unread program safe:
 
 - **A locked room.** The top lines of a program name the files it may read and
@@ -87,8 +108,8 @@ Five goalposts, each with a measure:
 |------|---------|---------------|
 | Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; six fault types stop, whole-number overflow among them |
 | Nothing is touched unseen | one command lists every file, program, host, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, the programs it may run and the hosts it may reach, and anything else is refused |
-| As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, 16 of 100 to 250 lines, and 10 of 200 to 900 lines that are then changed | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust; big, three runs: 22 of 30 on the first try in Simpler, 25 in Rust, 26 in Python, all 30 within three tries; ten harder ones with 43 to 55 rules each, four runs: 35 of 40 on the first try in Simpler, 28 in Rust, 33 in Python, all 40 within three tries |
-| No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, 1.7 times on the big programs, 1.4 times on the harder ones (1.3 times with two whole programs on the page); the code is 1.2 times, the rest is the model thinking |
+| As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, 16 of 100 to 250 lines, and 10 of 200 to 900 lines that are then changed | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust; big, three runs: 22 of 30 on the first try in Simpler, 25 in Rust, 26 in Python, all 30 within three tries; ten harder ones with 43 to 55 rules each, four runs: 35 of 40 on the first try in Simpler, 28 in Rust, 33 in Python, all 40 within three tries; the same ten with Haiku and Opus, one run each: 7 and 8 in Simpler, 9 and 9 in Rust, 9 and 10 in Python |
+| No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, 1.7 times on the big programs, 1.4 times on the harder ones (1.3 times with two whole programs on the page; 1.3 with Haiku, 1.5 with Opus); the code is 1.2 times, the rest is the model thinking |
 | The whole language fits in a prompt | size of `PROMPT.md`, the page a model gets | about 2,000 tokens |
 
 Speed and code a person likes to read are not goals.
@@ -121,23 +142,7 @@ them into a tree of message-sends, checks types, effects, and capabilities,
 then emits portable C and hands it to the system C compiler. Effects and
 capabilities are compile-time only, so they cost nothing at runtime.
 
-## Try it
-
-Install it (needs a C compiler and curl):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/install.sh | sh
-```
-
-Or clone the repo and call `./simpler` there.
-
-With Claude Code, add the skill, and Claude writes Simpler when asked ("write me a tool in Simpler that ..."):
-
-```bash
-mkdir -p ~/.claude/skills/simpler && curl -fsSL https://raw.githubusercontent.com/isene/simpler/master/skill/simpler/SKILL.md -o ~/.claude/skills/simpler/SKILL.md
-```
-
-Then:
+## The commands
 
 ```bash
 simpler run hello.smplr        # compile and run
