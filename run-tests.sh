@@ -2640,6 +2640,16 @@ printf 'writes "notes.txt"\nmain(sys) {\n  sys.files.write("notes.txt", "hi")\n 
 nt="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run notes.smplr 2>&1 )"
 if [ "$nt" = 'ok' ]; then ok; else nope "a program may write a file that has its own name (got: $nt)"; fi
 
+# install.sh from the repo: the installed command has every page part and every module.
+ih="$TMP/insthome"; mkdir -p "$ih/.claude" "$ih/w"
+HOME="$ih" sh ./install.sh > /dev/null 2>&1
+printf 'main(sys) {\n  sys.screen.print("hello")\n}\n' > "$ih/w/hello.smplr"
+inst="$( cd "$ih/w" && HOME="$ih" "$ih/.local/bin/simpler" run hello.smplr 2>&1; HOME="$ih" "$ih/.local/bin/simpler" prompt all 2>&1 | grep -c '^simpler: '; for m in $(cd "$OLDPWD/lib" && echo *.smplr); do HOME="$ih" "$ih/.local/bin/simpler" prompt "${m%.smplr}" 2>&1 | grep -c '^simpler: '; done | sort -u; [ -f "$ih/.claude/skills/simpler/SKILL.md" ] && echo skill )"
+if [ "$inst" = 'hello
+0
+0
+skill' ]; then ok; else nope "an installed simpler runs, has all pages and modules, and the skill (got: $inst)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
