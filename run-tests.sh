@@ -2655,6 +2655,58 @@ printf 'steps(A0 : Int, B0 : Int) : Int {\n  ECHO = A0 + B0\n  SIGINT = ECHO * 2
 cp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run caps.smplr 2>&1 )"
 if [ "$cp" = '6' ]; then ok; else nope "names in capitals that C headers define (got: $cp)"; fi
 
+# Each call that touches the world, used on a thing the top lines do not name. The target comes
+# from an argument, so only the check while running and the kernel lock can stop it. Each must
+# say "may not" and leave no trace.
+refuse_run() { # name  argument  body of main (t is the argument)  shell test, true when nothing happened
+    rm -rf "$TMP/rf"; mkdir -p "$TMP/rf/dir"
+    printf TOPSECRET > "$TMP/rf/secret.txt"; printf fine > "$TMP/rf/ok.txt"; printf i > "$TMP/rf/dir/inner.txt"
+    printf OUTSIDE > "$TMP/rf-outside.txt"; ln -s "$TMP/rf-outside.txt" "$TMP/rf/link.txt"
+    printf '#!/bin/sh\ntouch "%s/rf/mailed"\n' "$TMP" > "$TMP/rf/sm.sh"; chmod +x "$TMP/rf/sm.sh"
+    printf 'reads "ok.txt"\nwrites "ok.txt"\nruns "true"\nfetches "example.invalid"\nlistens 8790\nmails "a@example.com"\nmain(sys) {\n  t = sys.args.at(0)\n  %s\n}\n' "$3" > "$TMP/rf/p.smplr"
+    rfout="$( cd "$TMP/rf" && SIMPLER_SENDMAIL="$TMP/rf/sm.sh" SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run p.smplr "$2" 2>&1 < /dev/null )"
+    if printf '%s' "$rfout" | grep -q 'may not' && ( cd "$TMP/rf" && eval "$4" ); then ok; else nope "refused: $1 (got: $rfout)"; fi
+}
+rf_read='x = sys.files.read(t)?
+  sys.screen.print("got:" + x)'
+rf_secret='[ "$(cat secret.txt)" = TOPSECRET ] && ! printf "%s" "$rfout" | grep -q "TOPSECRET\|OUTSIDE\|len:9\|name:\|there:true"'
+rf_canary='[ ! -e canary ]'
+refuse_run "read" secret.txt "$rf_read" "$rf_secret"
+refuse_run "read with ../" ../rf-outside.txt "$rf_read" "$rf_secret"
+refuse_run "read by a full path" "$TMP/rf-outside.txt" "$rf_read" "$rf_secret"
+refuse_run "read through a link" link.txt "$rf_read" "$rf_secret"
+refuse_run "readBytes" secret.txt 'b = sys.files.readBytes(t)
+  sys.screen.print("len:" + b.length.toStr)' "$rf_secret"
+refuse_run "list" dir/ 'for n in sys.files.list(t) {
+    sys.screen.print("name:" + n)
+  }' "$rf_secret"
+refuse_run "exists" secret.txt 'sys.screen.print("there:" + sys.files.exists(t).toStr)' "$rf_secret"
+refuse_run "write a new file" new.txt 'sys.files.write(t, "x")' '[ ! -e new.txt ]'
+refuse_run "write over a file" secret.txt 'sys.files.write(t, "x")' "$rf_secret"
+refuse_run "writeBytes" new.txt 'sys.files.writeBytes(t, "x".bytes)' '[ ! -e new.txt ]'
+refuse_run "append" secret.txt 'sys.files.append(t, "x")' "$rf_secret"
+refuse_run "rename to a new name" moved.txt 'sys.files.rename("ok.txt", t)' '[ ! -e moved.txt ] && [ -e ok.txt ]'
+refuse_run "rename a file away" secret.txt 'sys.files.rename(t, "ok.txt")' "$rf_secret"
+refuse_run "delete" secret.txt 'sys.files.delete(t)' "$rf_secret"
+refuse_run "run" touch 'sys.screen.print(sys.programs.run(t, ["canary"]))' "$rf_canary"
+refuse_run "run by a full path" /usr/bin/touch 'sys.screen.print(sys.programs.run(t, ["canary"]))' "$rf_canary"
+refuse_run "feed" touch 'sys.screen.print(sys.programs.feed(t, ["canary"], ""))' "$rf_canary"
+refuse_run "output" touch 'sys.screen.print(sys.programs.output(t, ["canary"], ""))' "$rf_canary"
+refuse_run "try" touch 'sys.screen.print(sys.programs.try(t, ["canary"]))' "$rf_canary"
+refuse_run "status" touch 'sys.screen.print(sys.programs.status(t, ["canary"]))' "$rf_canary"
+refuse_run "start" touch 'sys.screen.print(sys.programs.start(t, ["canary"]))
+  sys.clock.sleep(300)' "$rf_canary"
+refuse_run "drive" touch 'd = sys.programs.drive(t, ["canary"])
+  sys.clock.sleep(300)
+  sys.screen.print(sys.programs.end(d))' "$rf_canary"
+refuse_run "fetch" http://127.0.0.1:8766/hit 'sys.screen.print(sys.net.fetch(t))' true
+refuse_run "fetchWith" http://127.0.0.1:8766/hit 'sys.screen.print(sys.net.fetchWith(t, ["X-A: b"]))' true
+refuse_run "reach" http://127.0.0.1:8766/hit 'sys.screen.print(sys.net.reach(t))' true
+refuse_run "post" http://127.0.0.1:8766/hit 'sys.screen.print(sys.net.post(t, "body"))' true
+refuse_run "request on another port" 8791 'r = sys.net.request(t.toInt)
+  sys.screen.print(r.get("path"))' true
+refuse_run "mail" b@example.com 'sys.screen.print(sys.mail.send(t, "s", "b"))' '[ ! -e mailed ]'
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"
