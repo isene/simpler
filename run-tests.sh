@@ -2650,6 +2650,11 @@ if [ "$inst" = 'hello
 0
 skill' ]; then ok; else nope "an installed simpler runs, has all pages and modules, and the skill (got: $inst)"; fi
 
+# A name in capitals that a C header also defines (B0, ECHO, SIGINT, EINTR) is fine as a name.
+printf 'steps(A0 : Int, B0 : Int) : Int {\n  ECHO = A0 + B0\n  SIGINT = ECHO * 2\n  SIGINT\n}\nmain(sys) {\n  EINTR = steps(1, 2)\n  sys.screen.print(EINTR)\n}\n' > "$TMP/mod/caps.smplr"
+cp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run caps.smplr 2>&1 )"
+if [ "$cp" = '6' ]; then ok; else nope "names in capitals that C headers define (got: $cp)"; fi
+
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"
 echo "$pass passed, $fail failed"

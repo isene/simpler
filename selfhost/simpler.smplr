@@ -7334,7 +7334,7 @@ safeName(s : Str, taken : List[Str]) : Str {
     if c0 == 95 || (c1 == 95 && (c0 == 108 || c0 == 115 || c0 == 109 || c0 == 105 || c0 == 102 || c0 == 117 || c0 == 84)) {
       r = s.concat("_c")
     } else {
-      if hasName(taken, s) {
+      if hasName(taken, s) || (capsName(s) && s != "IO") {
         r = s.concat("_c")
       }
       if n > 3 {
@@ -7348,6 +7348,19 @@ safeName(s : Str, taken : List[Str]) : Str {
         }
       }
     }
+  }
+  r
+}
+
+// A name in capitals, digits and _ only, such as B0 or ECHO: the C headers define hundreds of
+// those, so each gets another name in the C that is written out.
+capsName(s : Str) : Bool {
+  r = s.at(0).code >= 65 && s.at(0).code <= 90
+  i = 1
+  while r && i < s.length {
+    c = s.at(i).code
+    r = (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95
+    i = i + 1
   }
   r
 }

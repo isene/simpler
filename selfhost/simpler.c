@@ -1381,6 +1381,7 @@ long u_twoIs(long src, long i, long n, long a, long b);
 long u_isDigit(long c);
 long u_cTaken();
 long u_safeName(long s, long taken);
+long u_capsName(long s);
 long u_isAlpha(long c);
 long u_isAlnum(long c);
 long u_isSpace(long c);
@@ -12365,7 +12366,7 @@ long u_safeName(long s, long taken) {
   r = s_concat(s, (long)(intptr_t)"_c");
   } else {
 
-  if (u_hasName(taken, s)) {
+  if ((u_hasName(taken, s) || (u_capsName(s) && (!s_eq(s, (long)(intptr_t)"IO"))))) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
@@ -12386,6 +12387,27 @@ long u_safeName(long s, long taken) {
   }
   }
   }
+  }
+
+  return r;
+  return 0;
+}
+long u_capsName(long s) {
+  long r = 0;
+  long i = 0;
+  long c = 0;
+
+  r = ((s_code(s_atc(s, 0L, 7358)) >= 65L) && (s_code(s_atc(s, 0L, 7358)) <= 90L));
+
+  i = 1L;
+
+  while ((r && (i < s_len(s)))) {
+
+  c = s_code(s_atc(s, i, 7361));
+
+  r = ((((c >= 65L) && (c <= 90L)) || ((c >= 48L) && (c <= 57L))) || (c == 95L));
+
+  i = i_add(i, 1L, 7363);
   }
 
   return r;
