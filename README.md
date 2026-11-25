@@ -88,7 +88,7 @@ Five goalposts, each with a measure:
 | Nothing goes wrong silently | broken programs the compiler answers badly; run-time faults that stop with a line | 0 of 21,000; six fault types stop, whole-number overflow among them |
 | Nothing is touched unseen | one command lists every file, program, host, screen and mail use of a program; a function that changes the caller's list or map must say `!Mut` | `./simpler what` does it; `!Mut` is checked; a program names the files it may read and write, the programs it may run and the hosts it may reach, and anything else is refused |
 | As right as Rust on the first try | tools written by a model, compiled, run and compared: 20 small ones, 16 of 100 to 250 lines, and 10 of 200 to 900 lines that are then changed | small: 19 to 20 in Simpler, 20 in Rust; larger: 16 of 16 in Simpler, 15 to 16 in Rust; big, three runs: 22 of 30 on the first try in Simpler, 25 in Rust, 26 in Python, all 30 within three tries; ten harder ones with 43 to 55 rules each, four runs: 35 of 40 on the first try in Simpler, 28 in Rust, 33 in Python, all 40 within three tries |
-| No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, 1.7 times on the big programs, 1.4 times on the harder ones; the code is 1.2 times, the rest is the model thinking |
+| No dearer than Rust | output tokens per working program | 1.8 to 2.1 times Rust, 1.7 times on the big programs, 1.4 times on the harder ones (1.3 times with two whole programs on the page); the code is 1.2 times, the rest is the model thinking |
 | The whole language fits in a prompt | size of `PROMPT.md`, the page a model gets | about 2,000 tokens |
 
 Speed and code a person likes to read are not goals.
@@ -146,7 +146,7 @@ simpler pieces hello.smplr     # list each function: what it takes, what it touc
 simpler build hello.smplr      # make the program file ./hello
 simpler test hello.smplr       # run its test_ functions
 simpler prompt                 # the one page to give an AI that writes Simpler
-simpler prompt regex json      # the page with parts added: regex json bytes net screen, or all
+simpler prompt regex json      # the page with parts added: regex json bytes net screen programs, or all
 simpler prompt tui             # the page with a module added (tui, opts, astro)
 ```
 

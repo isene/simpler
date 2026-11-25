@@ -15,7 +15,7 @@
 #   simpler test prog.smplr              run its test_ functions
 #   simpler c prog.smplr                 print the C it compiles to
 #   simpler prompt [part ...]            print the one page to give an AI, with the parts named
-#                                        (regex json bytes net screen, or all) and modules (tui opts astro)
+#                                        (regex json bytes net screen programs, or all) and modules (tui opts astro)
 set -e
 
 self=$0
@@ -165,9 +165,9 @@ cmd=${1:-help}
 case $cmd in
     help|-h|--help) usage ;;
     prompt)
-        # The one page, then each part (regex json bytes net screen, or all) or
+        # The one page, then each part (regex json bytes net screen programs, or all) or
         # module page (tui opts astro) that is named.
-        [ "$1" = all ] && set -- regex json bytes net screen
+        [ "$1" = all ] && set -- regex json bytes net screen programs
         cat "$home/PROMPT.md"
         for p in "$@"; do
             echo
