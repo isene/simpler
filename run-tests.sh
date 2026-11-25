@@ -2405,8 +2405,8 @@ rc=7" ]; then ok; else nope "exit with a status (got: $exitout)"; fi
 
 # start (no waiting), millis and char.
 printf 'runs "sleep", "sh"\nmain(sys) {\n  sys.screen.print(65.char + 229.char + 8364.char + 128512.char + "|" + 0.char + "|" + "€".code.toStr + " " + "a".code.toStr)\n  a = sys.clock.millis\n  pid = sys.programs.start("sleep", ["0.3"])\n  b = sys.clock.millis\n  sys.screen.print((pid > 1).toStr + " " + (b - a < 200).toStr + " " + (a > sys.clock.now * 1000 - 2000).toStr)\n  sys.screen.print(sys.programs.status("sh", ["-c", "kill -0 " + pid.toStr]))\n  p = "s" + "h"\n  q = "ech" + "o"\n  sys.programs.start(p, [])\n  sys.programs.start(q, [])\n}\n' > "$TMP/mod/start.smplr"
-stout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run start.smplr 2>&1 | tr '\n' '~' )"
-if [ "$stout" = 'Aå€😀||8364 97~true true true~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
+stout="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run start.smplr 2>&1 | tr '\n\0' '~0' )"
+if [ "$stout" = 'Aå€😀|0|8364 97~true true true~0~start.smplr:12: this program may not run "echo"~' ]; then ok; else nope "start, millis and char (got: $stout)"; fi
 
 # setVar reaches a started program; self is the source under run.
 printf 'runs "sh"\nmain(sys) {\n  sys.screen.print(sys.env.self.reFind("[^/]+$").at(0))\n  sys.env.setVar("GREETING", "hi there")\n  sys.screen.print(sys.env.var("GREETING") + sys.env.setVar("A=B", "x").toStr)\n  sys.screen.print(sys.programs.run("sh", ["-c", "echo $GREETING [$SIMPLER_SELF]"]).trim)\n}\n' > "$TMP/mod/envset.smplr"
@@ -2607,6 +2607,38 @@ if [ "$grp" = '2' ]; then ok; else nope "rows sorted into own groups need no !Mu
 sed -i 's/    g.push(\[tag\])/    for r in g {\n      r.push(tag)\n    }/' "$TMP/mod/grp.smplr"
 grp="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" what grp.smplr 2>&1 )"
 if printf '%s' "$grp" | grep -qF "handed  (in group"; then ok; else nope "a change to a row inside a group is listed as !Mut (got: $grp)"; fi
+
+# The character with number 0 lives in a text like any other: one letter, code 0, a real 0 byte on the way out and in.
+cat > "$TMP/mod/nul.smplr" <<'SMPLR'
+writes "nul.bin"
+reads "nul.bin"
+main(sys) {
+  z = 0.char
+  s = "a".concat(z).concat("b")
+  sys.screen.print(s.length)
+  sys.screen.print(s.bytes.length)
+  sys.screen.print(s.bytes.at(1))
+  sys.screen.print(s.at(1).code)
+  sys.files.write("nul.bin", s)
+  r = sys.files.read("nul.bin")?
+  sys.screen.print(r == s)
+  l = sys.stdinLine
+  sys.screen.print(l.length)
+  sys.screen.print(l.bytes.textAt(0, 3) == "x".concat(z).concat("y"))
+  sys.screen.part(sys.stdin)
+  sys.screen.print(s)
+  sys.screen.error(z)
+}
+SMPLR
+nul="$( cd "$TMP/mod" && printf 'x\0y\np\0q' | SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run nul.smplr 2>"$TMP/mod/nul.err" | od -An -c | tr -s ' \n' ' ' )"
+if [ "$nul" = ' 3 \n 3 \n 0 \n 0 \n t r u e \n 4 \n t r u e \n p \0 q a \0 b \n ' ]; then ok; else nope "a text holds the character with number 0 (got: $nul)"; fi
+if [ "$(od -An -c "$TMP/mod/nul.bin" | tr -s ' ' ' ')" = ' a \0 b' ]; then ok; else nope "a written file gets a real 0 byte"; fi
+if [ "$(od -An -c "$TMP/mod/nul.err" | tr -s ' ' ' ')" = ' \0 \n' ]; then ok; else nope "an error line gets a real 0 byte"; fi
+
+# A file name inside a text is no module call: notes.smplr may write "notes.txt".
+printf 'writes "notes.txt"\nmain(sys) {\n  sys.files.write("notes.txt", "hi")\n  sys.screen.print("ok")\n}\n' > "$TMP/mod/notes.smplr"
+nt="$( cd "$TMP/mod" && SIMPLERC="$TMP/seedc" XDG_CACHE_HOME="$TMP/cache" "$OLDPWD/simpler" run notes.smplr 2>&1 )"
+if [ "$nt" = 'ok' ]; then ok; else nope "a program may write a file that has its own name (got: $nt)"; fi
 
 # --- summary ------------------------------------------------------------------
 echo "------------------------------------"

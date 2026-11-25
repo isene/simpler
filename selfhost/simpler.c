@@ -338,10 +338,13 @@ long y_int(long yp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(s
 long y_float(long yp, long i, long line) { SBytes* y = y_need(yp, i, 8, line, "floatAt"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }
 long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, "%s: a byte is a number from 0 to 255, but place %ld has %ld\n", simpler_at(line), k, l->data[k]); exit(1); } if (simpler_would("write", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, "wb"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }
 static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, "%s: %s wants %ld bytes from place %ld, but the list has %ld\n", simpler_at(line), what, n, i, l->len); exit(1); } return l; }
-long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, "textAt"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }
+// A text is a C string, so the character with number 0 is kept inside it as the two bytes 192 128. It becomes a real 0 byte again where a text leaves the program, and a 0 byte read in becomes those two bytes.
+static int simpler_puts(const char* s, FILE* f) { if (!strchr(s, 192)) return fputs(s, f); for (; *s; s++) { if ((unsigned char)s[0] == 192 && (unsigned char)s[1] == 128) { fputc(0, f); s++; } else fputc(*s, f); } return 0; }
+static char* simpler_nul(char* b, long n) { if (!memchr(b, 0, (size_t)n)) return b; long z = 0; for (long k = 0; k < n; k++) z += b[k] == 0; char* r = (char*)gc_atomic(n + z + 1); long o = 0; for (long k = 0; k < n; k++) { if (b[k]) r[o++] = b[k]; else { r[o++] = (char)192; r[o++] = (char)128; } } r[o] = 0; return r; }
+long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, "textAt"); char* r = (char*)gc_atomic(2 * n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) { r[o++] = (char)192; r[o++] = (char)128; continue; } r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }
 long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, "%s: intAt reads 1 to 8 bytes, got %ld\n", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, "intAt"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }
 long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, "floatAt"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }
-long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { l_push(l, *p); p++; } return l; }
+long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { if (p[0] == 192 && p[1] == 128) { l_push(l, 0); p += 2; continue; } l_push(l, *p); p++; } return l; }
 enum { RC = 1, RANY, RSET, RBOL, REOL, RWB, RNWB, RSTART, REND, RGRP, RALT, RREP, RBREF, RLOOK };
 #define RE_MAXG 32
 #define RE_INF 1073741824
@@ -466,10 +469,10 @@ long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c
 int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }
 int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }
 long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }
-const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; size_t cap = 4096, got = 0, n; char* buf = (char*)gc_atomic(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return buf; }
+const char* simpler_read(const char* path) { FILE* f = fopen(path, "rb"); if (!f) return ""; size_t cap = 4096, got = 0, n; char* buf = (char*)gc_atomic(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return simpler_nul(buf, (long)got); }
 void simpler_wrote(const char* p); static FILE* simpler_tmp(void);
-long simpler_write(long path, long content) { if (simpler_would("write", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
-long simpler_append(long path, long content) { if (simpler_would("append to", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, "a"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }
+long simpler_write(long path, long content) { if (simpler_would("write", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, "w"); if (f) { simpler_wrote((const char*)(intptr_t)path); simpler_puts((const char*)(intptr_t)content, f); fclose(f); } return 0; }
+long simpler_append(long path, long content) { if (simpler_would("append to", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, "a"); if (f) { simpler_wrote((const char*)(intptr_t)path); simpler_puts((const char*)(intptr_t)content, f); fclose(f); } return 0; }
 long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }
 static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }
 static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, "."); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; if ((strncmp(rd, "/sys", 4) == 0 && strncmp(rp, "/sys/", 5) == 0) || (strncmp(rd, "/proc", 5) == 0 && strncmp(rp, "/proc/", 6) == 0)) return; fprintf(stderr, "%s: this program may not %s \"%s\": a link leads out of \"%s\"\n", simpler_at(line), verb, p, dir); exit(1); }
@@ -723,7 +726,7 @@ void simpler_leave(int c) { if (c != 0) simpler_rsave(); (exit)(c); }
 static void simpler_rinit(void) { if (simpler_dry || getenv("SIMPLER_REPLAY")) return; char f[PATH_MAX]; if (!simpler_rpath(f, sizeof f)) return; simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); if (simpler_rfd < 0 && errno == ENOENT) { for (char* c = f + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(f, 0700); *c = '/'; } simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); } }
 static void simpler_replay(void) { const char* mode = getenv("SIMPLER_REPLAY"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, "rb") : 0; int n = 0; if (!r || fscanf(r, "simpler-replay 1\nargs %d", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, "simpler: no failed run is kept for this program\n"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, "show") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, "%ld", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)gc_atomic(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf("argument %d: %s\n", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, "stdin %ld", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)gc_atomic(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf("input (%ld bytes):\n%s", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }
 extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv("SIMPLER_EXAMPLES")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, "%sexample fails: the left side %s\n", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)gc_atomic(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, "example %d fails. Wanted:\n%.*s\nGot:\n%s\n", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, "%d of %d examples fail\n", bad, n); exit(1); } exit(0); }
-static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf("would run"); for (int k = 0; av[k]; k++) printf(" %s", av[k]); printf("\n"); *code = 0; return (long)(intptr_t)""; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)""; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)""; } if (pid == 0) { if (simpler_quiet && !freopen("/dev/null", "w", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); struct sigaction ign, oi, oq; if (!capture) { memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, &oi); sigaction(SIGQUIT, &ign, &oq); } long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {} if (!capture) { sigaction(SIGINT, &oi, 0); sigaction(SIGQUIT, &oq, 0); } *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }
+static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf("would run"); for (int k = 0; av[k]; k++) printf(" %s", av[k]); printf("\n"); *code = 0; return (long)(intptr_t)""; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { simpler_puts((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)""; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)""; } if (pid == 0) { if (simpler_quiet && !freopen("/dev/null", "w", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); struct sigaction ign, oi, oq; if (!capture) { memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, &oi); sigaction(SIGQUIT, &ign, &oq); } long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {} if (!capture) { sigaction(SIGINT, &oi, 0); sigaction(SIGQUIT, &oq, 0); } *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)simpler_nul(buf, len); }
 char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }
 long simpler_runok(long name, long line) { const char* p = simpler_home((const char*)(intptr_t)name); for (int k = 0; simpler_rn[k]; k++) if (simpler_glob(simpler_home(simpler_rn[k]), p)) return (long)(intptr_t)p; fprintf(stderr, "%s: this program may not run \"%s\"\n", simpler_at(line), p); exit(1); return 0; }
 int simpler_mailok(const char* t) { size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } return ok; }
@@ -735,9 +738,9 @@ long simpler_try(long name, long args, long line) { int code = 0; simpler_quiet 
 long simpler_output(long name, long args, long input, long line) { int code = 0; return simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); }
 long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }
 long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, "https://", 8) == 0) h = u + 8; else if (strncmp(u, "http://", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, "/?#"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, ":/?#"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; if (simpler_hostok(hb)) return url; } } } fprintf(stderr, "%s: this program may not fetch \"%s\"\n", simpler_at(line), u); exit(1); return 0; }
-long i_char(long n) { char* o = (char*)gc_atomic(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }
+long i_char(long n) { char* o = (char*)gc_atomic(5); int k = 0; if (n == 0) { o[k++] = (char)192; o[k++] = (char)128; } else if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }
 long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); gc_idle(); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }
-long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); gc_idle(); if (getline(&buf, &cap, stdin) < 0) { free(buf); return (long)(intptr_t)""; } char* r = strdup(buf); free(buf); simpler_note(r, (long)strlen(r)); return (long)(intptr_t)r; }
+long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); gc_idle(); ssize_t got = getline(&buf, &cap, stdin); if (got < 0) { free(buf); return (long)(intptr_t)""; } char* r = simpler_nul(buf, (long)got); if (r == buf) { r = strdup(buf); } free(buf); simpler_note(r, (long)strlen(r)); return (long)(intptr_t)r; }
 long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); gc_idle(); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, "line %ld: cannot wait for a change in %s: %s\n", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, "line %ld: the wait for a change in %s failed\n", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : ""); } }
 long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }
 long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); if (simpler_dry) { printf("would start"); for (int k = 0; av[k]; k++) printf(" %s", av[k]); printf("\n"); return 0; } int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen("/dev/null", "r", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }
@@ -937,7 +940,7 @@ long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt)
 long simpler_setenv(long name, long value) { const char* n = (const char*)(intptr_t)name; if (!n[0] || strchr(n, 61)) return 0; setenv(n, (const char*)(intptr_t)value, 1); return 1; }
 static char* simpler_selfp = 0; void simpler_self_init() { const char* e = getenv("SIMPLER_SELF"); if (e) { simpler_selfp = strdup(e); unsetenv("SIMPLER_SELF"); } } long simpler_self() { if (!simpler_selfp) { char b[4096]; ssize_t n = readlink("/proc/self/exe", b, sizeof b - 1); if (n > 0) { b[n] = 0; simpler_selfp = strdup(b); } else { char* r = realpath(simpler_argv[0], 0); simpler_selfp = r ? r : simpler_argv[0]; } } return (long)(intptr_t)simpler_selfp; }
 long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : ""); }
-long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)gc_trealloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)buf; }
+long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)gc_trealloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)simpler_nul(buf, len); }
 long fail(long msg) { fprintf(stderr, "%s\n", (const char*)(intptr_t)msg); exit(1); return 0; }
 long simpler_exit(long c) { exit((int)c); return 0; }
 long simpler_failed = 0;
@@ -1477,7 +1480,7 @@ int main(int argc, char** argv) {
   }
   }
 
-  (printf("%s\n", (const char*)(intptr_t)u_piecesProg(prog, sigs)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_piecesProg(prog, sigs), stdout), fputc(10, stdout)), 0L);
 
   return 0L;
   }
@@ -1501,50 +1504,50 @@ int main(int argc, char** argv) {
   }
   }
 
-  (printf("%s\n", (const char*)(intptr_t)u_whatProg(prog, sigs)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_whatProg(prog, sigs), stdout), fputc(10, stdout)), 0L);
 
   return 0L;
   }
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define _GNU_SOURCE");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define _GNU_SOURCE", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdio.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <stdio.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdlib.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <stdlib.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stdint.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <stdint.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <math.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <math.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <string.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <string.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <dirent.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <dirent.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/stat.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/stat.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <errno.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <errno.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <unistd.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <unistd.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/wait.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/wait.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <time.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <time.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <limits.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <limits.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <termios.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <termios.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/ioctl.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/ioctl.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <signal.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <signal.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <poll.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <poll.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/inotify.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/inotify.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/resource.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/resource.h>", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_gcRuntime()), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_gcRuntime(), stdout), fputc(10, stdout)), 0L);
 
   fl = (long)(intptr_t)"static const char* simpler_fl[] = {";
 
@@ -1552,452 +1555,458 @@ int main(int argc, char** argv) {
 
   while ((q < l_len(files))) {
 
-  fl = s_concat(({ long _t610 = s_concat(fl, (long)(intptr_t)"\""); long _t611 = l_atc(files, q, 307); s_concat(_t610, _t611); }), (long)(intptr_t)"\", ");
+  fl = s_concat(({ long _t613 = s_concat(fl, (long)(intptr_t)"\""); long _t614 = l_atc(files, q, 307); s_concat(_t613, _t614); }), (long)(intptr_t)"\", ");
 
   q = i_add(q, 1L, 308);
   }
 
-  (printf("%s\n", (const char*)(intptr_t)s_concat(fl, (long)(intptr_t)"0};")), 0L);
+  ((simpler_puts((const char*)(intptr_t)s_concat(fl, (long)(intptr_t)"0};"), stdout), fputc(10, stdout)), 0L);
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_at(long line) { static char b[300]; snprintf(b, sizeof b, \"%s:%ld\", simpler_fl[line / 1000000], line % 1000000); return b; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_at(long line) { static char b[300]; snprintf(b, sizeof b, \"%s:%ld\", simpler_fl[line / 1000000], line % 1000000); return b; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_dry = 0; void simpler_keep(const char* path); void simpler_note(const char* p, long n); __attribute__((noreturn)) void simpler_leave(int c);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_dry = 0; void simpler_keep(const char* path); void simpler_note(const char* p, long n); __attribute__((noreturn)) void simpler_leave(int c);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define exit(c) simpler_leave(c)");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define exit(c) simpler_leave(c)", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_would(const char* what, const char* a, const char* to, const char* b) { if (!simpler_dry) return 0; if (b) printf(\"would %s \\\"%s\\\" %s \\\"%s\\\"\\n\", what, a, to, b); else printf(\"would %s \\\"%s\\\"\\n\", what, a); return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_would(const char* what, const char* a, const char* to, const char* b) { if (!simpler_dry) return 0; if (b) printf(\"would %s \\\"%s\\\" %s \\\"%s\\\"\\n\", what, a, to, b); else printf(\"would %s \\\"%s\\\"\\n\", what, a); return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { int tag; long v0; long v1; long v2; long v3; long v4; long v5; long v6; long v7; } Obj;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { int tag; long v0; long v1; long v2; long v3; long v4; long v5; long v6; long v7; } Obj;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(4 * sizeof(long)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long mk(int tag, long v0, long v1, long v2) { Obj* o = malloc(4 * sizeof(long)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; return (long)(intptr_t)o; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long mk8(int tag, long v0, long v1, long v2, long v3, long v4, long v5, long v6, long v7) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; o->v3 = v3; o->v4 = v4; o->v5 = v5; o->v6 = v6; o->v7 = v7; return (long)(intptr_t)o; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long mk8(int tag, long v0, long v1, long v2, long v3, long v4, long v5, long v6, long v7) { Obj* o = malloc(sizeof(Obj)); o->tag = tag; o->v0 = v0; o->v1 = v1; o->v2 = v2; o->v3 = v3; o->v4 = v4; o->v5 = v5; o->v6 = v6; o->v7 = v7; return (long)(intptr_t)o; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* data; long len; long cap; } SList;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* data; long len; long cap; } SList;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_new() { SList* l = (SList*)malloc(sizeof(SList)); l->cap = 8; l->len = 0; l->data = (long*)malloc(sizeof(long) * l->cap); return (long)(intptr_t)l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_push(long lp, long x) { SList* l = (SList*)(intptr_t)lp; if (l->len == l->cap) { l->cap = l->cap * 2; l->data = (long*)realloc(l->data, sizeof(long) * l->cap); } l->data[l->len] = x; l->len = l->len + 1; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_with(long lp, long x) { l_push(lp, x); return lp; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_with(long lp, long x) { l_push(lp, x); return lp; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_at(long lp, long i) { return ((SList*)(intptr_t)lp)->data[i]; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (x->data[i] != y->data[i]) return 0; return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (x->data[i] != y->data[i]) return 0; return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long ls_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (strcmp((const char*)(intptr_t)x->data[i], (const char*)(intptr_t)y->data[i]) != 0) return 0; return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long ls_eq(long a, long b) { SList* x = (SList*)(intptr_t)a; SList* y = (SList*)(intptr_t)b; if (x == y) return 1; if (x->len != y->len) return 0; for (long i = 0; i < x->len; i++) if (strcmp((const char*)(intptr_t)x->data[i], (const char*)(intptr_t)y->data[i]) != 0) return 0; return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_len(long lp) { return ((SList*)(intptr_t)lp)->len; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { const char* p; long nb, nl, cl, cb; } SL; static SL sl_e[8]; static int sl_k[2]; static SL* sl_last = sl_e; static SL* s_info_slow(const char* p) { for (int k = 0; k < 8; k++) if (sl_e[k].p == p) { sl_last = &sl_e[k]; return sl_last; } long n = strlen(p), m = 0; for (long k = 0; k < n; k++) m += ((unsigned char)p[k] & 192) == 128; int big = n >= 512; SL* e = &sl_e[big * 4 + sl_k[big]]; sl_k[big] = (sl_k[big] + 1) & 3; sl_last = e; e->p = p; e->nb = n; e->nl = n - m; e->cl = 0; e->cb = 0; return e; } static inline SL* s_info(const char* p) { if (sl_last->p == p) return sl_last; return s_info_slow(p); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { const char* p; long nb, nl, cl, cb; } SL; static SL sl_e[8]; static int sl_k[2]; static SL* sl_last = sl_e; static SL* s_info_slow(const char* p) { for (int k = 0; k < 8; k++) if (sl_e[k].p == p) { sl_last = &sl_e[k]; return sl_last; } long n = strlen(p), m = 0; for (long k = 0; k < n; k++) m += ((unsigned char)p[k] & 192) == 128; int big = n >= 512; SL* e = &sl_e[big * 4 + sl_k[big]]; sl_k[big] = (sl_k[big] + 1) & 3; sl_last = e; e->p = p; e->nb = n; e->nl = n - m; e->cl = 0; e->cb = 0; return e; } static inline SL* s_info(const char* p) { if (sl_last->p == p) return sl_last; return s_info_slow(p); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long s_off_slow(SL* e, long i) { if (i >= e->nl) return e->nb; if (i <= 0) return 0; const unsigned char* p = (const unsigned char*)e->p; long l = e->cl, b = e->cb; if (i < l - i) { l = 0; b = 0; } while (l < i) { b++; while ((p[b] & 192) == 128) b++; l++; } while (l > i) { b--; while (b > 0 && (p[b] & 192) == 128) b--; l--; } e->cl = l; e->cb = b; return b; } static inline long s_off(SL* e, long i) { if (e->nb == e->nl) return i; return s_off_slow(e, i); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long s_off_slow(SL* e, long i) { if (i >= e->nl) return e->nb; if (i <= 0) return 0; const unsigned char* p = (const unsigned char*)e->p; long l = e->cl, b = e->cb; if (i < l - i) { l = 0; b = 0; } while (l < i) { b++; while ((p[b] & 192) == 128) b++; l++; } while (l > i) { b--; while (b > 0 && (p[b] & 192) == 128) b--; l--; } e->cl = l; e->cb = b; return b; } static inline long s_off(SL* e, long i) { if (e->nb == e->nl) return i; return s_off_slow(e, i); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static char* s_alloc(long n) { return (char*)gc_atomic(n); } static long s_part(const char* p, long a, long b) { long n = b - a; char* r = s_alloc(n + 1); memcpy(r, p + a, n); r[n] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static char* s_alloc(long n) { return (char*)gc_atomic(n); } static long s_part(const char* p, long a, long b) { long n = b - a; char* r = s_alloc(n + 1); memcpy(r, p + a, n); r[n] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static char s_one[512]; static char* s_mb[1024]; static long s_let(const char* p, long a, long b) { long n = b - a; if (n == 1) { if (!s_one[2]) for (int k = 0; k < 256; k++) s_one[2 * k] = (char)k; return (long)(intptr_t)&s_one[2 * (unsigned char)p[a]]; } if (n < 1) return s_part(p, a, a); unsigned h = 0; for (long k = 0; k < n; k++) h = h * 31 + (unsigned char)p[a + k]; char** e = &s_mb[h & 1023]; if (*e && strncmp(*e, p + a, n) == 0 && (*e)[n] == 0) return (long)(intptr_t)*e; *e = (char*)(intptr_t)s_part(p, a, b); return (long)(intptr_t)*e; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static char s_one[512]; static char* s_mb[1024]; static long s_let(const char* p, long a, long b) { long n = b - a; if (n == 1) { if (!s_one[2]) for (int k = 0; k < 256; k++) s_one[2 * k] = (char)k; return (long)(intptr_t)&s_one[2 * (unsigned char)p[a]]; } if (n < 1) return s_part(p, a, a); unsigned h = 0; for (long k = 0; k < n; k++) h = h * 31 + (unsigned char)p[a + k]; char** e = &s_mb[h & 1023]; if (*e && strncmp(*e, p + a, n) == 0 && (*e)[n] == 0) return (long)(intptr_t)*e; *e = (char*)(intptr_t)s_part(p, a, b); return (long)(intptr_t)*e; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_each(long s, long* b) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long a = *b, e = a + 1; while ((p[e] & 192) == 128) e++; *b = e; return s_let((const char*)p, a, e); } long s_lenp(const char* p) { return s_info(p)->nl; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_each(long s, long* b) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long a = *b, e = a + 1; while ((p[e] & 192) == 128) e++; *b = e; return s_let((const char*)p, a, e); } long s_lenp(const char* p) { return s_info(p)->nl; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_len(long s) { return s_info((const char*)(intptr_t)s)->nl; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_len(long s) { return s_info((const char*)(intptr_t)s)->nl; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_setc(long lp, long i, long x, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } l->data[i] = x; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_setc(long lp, long i, long x, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } l->data[i] = x; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_removec(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } long x = l->data[i]; for (long k = i; k + 1 < l->len; k++) l->data[k] = l->data[k + 1]; l->len = l->len - 1; return x; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_removec(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } long x = l->data[i]; for (long k = i; k + 1 < l->len; k++) l->data[k] = l->data[k + 1]; l->len = l->len - 1; return x; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } return l->data[i]; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_atc(long lp, long i, long line) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || i >= l->len) { fprintf(stderr, \"%s: list index %ld, but the list has %ld items\\n\", simpler_at(line), i, l->len); exit(1); } return l->data[i]; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) { fprintf(stderr, \"%s: text index %ld, but the text has %ld characters\\n\", simpler_at(line), i, e->nl); exit(1); } long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_atc(long s, long i, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) { fprintf(stderr, \"%s: text index %ld, but the text has %ld characters\\n\", simpler_at(line), i, e->nl); exit(1); } long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (a < 0 || b > e->nl) { fprintf(stderr, \"%s: slice %ld to %ld, but the text has %ld characters\\n\", simpler_at(line), a, b, e->nl); exit(1); } if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_slicec(long s, long a, long b, long line) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (a < 0 || b > e->nl) { fprintf(stderr, \"%s: slice %ld to %ld, but the text has %ld characters\\n\", simpler_at(line), a, b, e->nl); exit(1); } if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"__attribute__((noreturn, cold)) static void i_over(long line) { fprintf(stderr, \"%s: whole number too big (the limit is 9223372036854775807)\\n\", simpler_at(line)); exit(1); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"__attribute__((noreturn, cold)) static void i_over(long line) { fprintf(stderr, \"%s: whole number too big (the limit is 9223372036854775807)\\n\", simpler_at(line)); exit(1); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long i_add(long a, long b, long line) { long r; if (__builtin_add_overflow(a, b, &r)) i_over(line); return r; } static inline long i_sub(long a, long b, long line) { long r; if (__builtin_sub_overflow(a, b, &r)) i_over(line); return r; } static inline long i_mul(long a, long b, long line) { long r; if (__builtin_mul_overflow(a, b, &r)) i_over(line); return r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long i_add(long a, long b, long line) { long r; if (__builtin_add_overflow(a, b, &r)) i_over(line); return r; } static inline long i_sub(long a, long b, long line) { long r; if (__builtin_sub_overflow(a, b, &r)) i_over(line); return r; } static inline long i_mul(long a, long b, long line) { long r; if (__builtin_mul_overflow(a, b, &r)) i_over(line); return r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long i_neg(long a, long line) { if (a == -9223372036854775807L - 1) i_over(line); return -a; } static inline long i_abs(long a, long line) { return a < 0 ? i_neg(a, line) : a; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long i_neg(long a, long line) { if (a == -9223372036854775807L - 1) i_over(line); return -a; } static inline long i_abs(long a, long line) { return a < 0 ? i_neg(a, line) : a; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_isint(long s) { const char* p = (const char*)(intptr_t)s; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; if (*p == 45 || *p == 43) p++; if (*p < 48 || *p > 57) return 0; while (*p >= 48 && *p <= 57) p++; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; return *p == 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_isint(long s) { const char* p = (const char*)(intptr_t)s; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; if (*p == 45 || *p == 43) p++; if (*p < 48 || *p > 57) return 0; while (*p >= 48 && *p <= 57) p++; while (*p == 32 || *p == 9 || *p == 13 || *p == 10) p++; return *p == 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"%s: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", simpler_at(line), (const char*)(intptr_t)s); exit(1); } errno = 0; long v = strtol((const char*)(intptr_t)s, 0, 10); if (errno == ERANGE) i_over(line); return v; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_tointc(long s, long line) { if (!s_isint(s)) { fprintf(stderr, \"%s: \\\"%s\\\" is not a whole number; test with .isInt first\\n\", simpler_at(line), (const char*)(intptr_t)s); exit(1); } errno = 0; long v = strtol((const char*)(intptr_t)s, 0, 10); if (errno == ERANGE) i_over(line); return v; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return i_neg(a, line); return a / b; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long i_div(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return i_neg(a, line); return a / b; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return 0; return a % b; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long i_mod(long a, long b, long line) { if (b == 0) { fprintf(stderr, \"%s: division by zero\\n\", simpler_at(line)); exit(1); } if (b == -1) return 0; return a % b; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) return (long)(intptr_t)\"\"; long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_at(long s, long i) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (i < 0 || i >= e->nl) return (long)(intptr_t)\"\"; long a = s_off(e, i); long b = a + 1; while (((unsigned char)p[b] & 192) == 128) b++; return s_let(p, a, b); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_code(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long c = p[0]; int n = c >= 240 ? 3 : c >= 224 ? 2 : c >= 192 ? 1 : 0; long v = c & (63 >> n); for (int k = 1; k <= n; k++) { if ((p[k] & 192) != 128) return c; v = (v << 6) | (p[k] & 63); } return n ? v : c; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_code(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long c = p[0]; int n = c >= 240 ? 3 : c >= 224 ? 2 : c >= 192 ? 1 : 0; long v = c & (63 >> n); for (int k = 1; k <= n; k++) { if ((p[k] & 192) != 128) return c; v = (v << 6) | (p[k] & 63); } return n ? v : c; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_slice(long s, long a, long b) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); if (b < a) b = a; long x = s_off(e, a); return s_part(p, x, s_off(e, b)); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)gc_atomic(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_concat(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; char* r = (char*)gc_atomic(strlen(x) + strlen(y) + 1); strcpy(r, x); strcat(r, y); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static inline long s_eq(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; return x == y || (x[0] == y[0] && strcmp(x, y) == 0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static inline long s_eq(long a, long b) { const char* x = (const char*)(intptr_t)a; const char* y = (const char*)(intptr_t)b; return x == y || (x[0] == y[0] && strcmp(x, y) == 0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)gc_atomic(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long i_tostr(long n) { char* r = (char*)gc_atomic(24); sprintf(r, \"%ld\", n); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"double l2d(long x) { union { long l; double d; } u; u.l = x; return u.d; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long d2l(double x) { union { long l; double d; } u; u.d = x; return u.l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_tostr(long x) { char* r = (char*)gc_atomic(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long f_tostr(long x) { char* r = (char*)gc_atomic(32); snprintf(r, 32, \"%.15g\", l2d(x)); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_tofloat(long s) { return d2l(atof((const char*)(intptr_t)s)); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_tof(long n) { return d2l((double)n); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long i_tof(long n) { return d2l((double)n); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long f_toi(long x) { return (long)l2d(x); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long f_toi(long x) { return (long)l2d(x); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_toint(long s) { return atol((const char*)(intptr_t)s); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_toint(long s) { return atol((const char*)(intptr_t)s); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)gc_atomic(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_split(long s, long d) { const char* p = (const char*)(intptr_t)s; const char* dl = (const char*)(intptr_t)d; long dn = strlen(dl); long l = l_new(); while (1) { const char* q = dn ? strstr(p, dl) : 0; long n = q ? (long)(q - p) : (long)strlen(p); char* r = (char*)gc_atomic(n + 1); memcpy(r, p, n); r[n] = 0; l_push(l, (long)(intptr_t)r); if (!q) break; p = q + dn; } return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_range(long a, long b) { long l = l_new(); for (long k = a; k < b; k++) l_push(l, k); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_range(long a, long b) { long l = l_new(); for (long k = a; k < b; k++) l_push(l, k); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_slicec(long lp, long a, long b, long line) { SList* s = (SList*)(intptr_t)lp; if (a < 0 || b > s->len) { fprintf(stderr, \"%s: slice %ld to %ld, but the list has %ld items\\n\", simpler_at(line), a, b, s->len); exit(1); } long l = l_new(); for (long k = a; k < b; k++) l_push(l, s->data[k]); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_slicec(long lp, long a, long b, long line) { SList* s = (SList*)(intptr_t)lp; if (a < 0 || b > s->len) { fprintf(stderr, \"%s: slice %ld to %ld, but the list has %ld items\\n\", simpler_at(line), a, b, s->len); exit(1); } long l = l_new(); for (long k = a; k < b; k++) l_push(l, s->data[k]); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_starts(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; return strncmp(p, q, strlen(q)) == 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_starts(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; return strncmp(p, q, strlen(q)) == 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_ends(long s, long t) { const char* p = (const char*)(intptr_t)s; const char* q = (const char*)(intptr_t)t; size_t a = strlen(p); size_t b = strlen(q); return b <= a && strcmp(p + a - b, q) == 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_contains(long h, long n) { return strstr((const char*)(intptr_t)h, (const char*)(intptr_t)n) != 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)gc_atomic(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_trim(long s) { const char* p = (const char*)(intptr_t)s; long n = strlen(p); long a = 0; while (a < n && (p[a] == 32 || p[a] == 9 || p[a] == 13 || p[a] == 10)) a = a + 1; long b = n; while (b > a && (p[b - 1] == 32 || p[b - 1] == 9 || p[b - 1] == 13 || p[b - 1] == 10)) b = b - 1; long len = b - a; char* r = (char*)gc_atomic(len + 1); for (long k = 0; k < len; k++) r[k] = p[a + k]; r[len] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_find(long h, long n) { const char* p = (const char*)(intptr_t)h; const char* q = strstr(p, (const char*)(intptr_t)n); if (!q) return -1; long m = 0; for (const char* c = p; c < q; c++) m += c == p || ((unsigned char)*c & 192) != 128; return m; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_find(long h, long n) { const char* p = (const char*)(intptr_t)h; const char* q = strstr(p, (const char*)(intptr_t)n); if (!q) return -1; long m = 0; for (const char* c = p; c < q; c++) m += c == p || ((unsigned char)*c & 192) != 128; return m; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* js_ws(const char* p) { while (*p == 32 || *p == 9 || *p == 10 || *p == 13) p++; return p; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* js_ws(const char* p) { while (*p == 32 || *p == 9 || *p == 10 || *p == 13) p++; return p; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* js_str(const char* p) { p++; while (*p && *p != 34) { if (*p == 92 && p[1]) p++; p++; } if (*p) p++; return p; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* js_str(const char* p) { p++; while (*p && *p != 34) { if (*p == 92 && p[1]) p++; p++; } if (*p) p++; return p; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* js_skip(const char* p) { p = js_ws(p); if (*p == 34) return js_str(p); if (*p == 123 || *p == 91) { long d = 0; while (*p) { if (*p == 34) { p = js_str(p); continue; } if (*p == 123 || *p == 91) d++; if (*p == 125 || *p == 93) { d--; if (d == 0) return p + 1; } p++; } return p; } while (*p && *p != 44 && *p != 125 && *p != 93 && *p != 32 && *p != 9 && *p != 10 && *p != 13) p++; return p; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* js_skip(const char* p) { p = js_ws(p); if (*p == 34) return js_str(p); if (*p == 123 || *p == 91) { long d = 0; while (*p) { if (*p == 34) { p = js_str(p); continue; } if (*p == 123 || *p == 91) d++; if (*p == 125 || *p == 93) { d--; if (d == 0) return p + 1; } p++; } return p; } while (*p && *p != 44 && *p != 125 && *p != 93 && *p != 32 && *p != 9 && *p != 10 && *p != 13) p++; return p; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long js_hex(const char* p) { long u = 0; for (int k = 0; k < 4; k++) { char h = p[k]; long v; if (h >= 48 && h <= 57) v = h - 48; else if ((h | 32) >= 97 && (h | 32) <= 102) v = (h | 32) - 87; else return -1; u = u * 16 + v; } return u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long js_hex(const char* p) { long u = 0; for (int k = 0; k < 4; k++) { char h = p[k]; long v; if (h >= 48 && h <= 57) v = h - 48; else if ((h | 32) >= 97 && (h | 32) <= 102) v = (h | 32) - 87; else return -1; u = u * 16 + v; } return u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long js_val(const char* p) { p = js_ws(p); const char* e = js_skip(p); char* r = (char*)gc_atomic((e - p) + 1); long o = 0; if (*p != 34) { o = e - p; memcpy(r, p, o); r[o] = 0; return (long)(intptr_t)r; } p++; while (*p && *p != 34) { if (*p != 92 || p[1] == 0) { r[o++] = *p++; continue; } p++; char c = *p++; if (c == 110) r[o++] = 10; else if (c == 116) r[o++] = 9; else if (c == 114) r[o++] = 13; else if (c == 98) r[o++] = 8; else if (c == 102) r[o++] = 12; else if (c == 117) { long u = js_hex(p); if (u < 0) continue; p += 4; if (u >= 0xD800 && u <= 0xDBFF && p[0] == 92 && p[1] == 117) { long lo = js_hex(p + 2); if (lo >= 0xDC00 && lo <= 0xDFFF) { u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00); p += 6; } } if (u == 0) continue; if (u < 0x80) r[o++] = (char)u; else if (u < 0x800) { r[o++] = (char)(0xC0 | (u >> 6)); r[o++] = (char)(0x80 | (u & 63)); } else if (u < 0x10000) { r[o++] = (char)(0xE0 | (u >> 12)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } else { r[o++] = (char)(0xF0 | (u >> 18)); r[o++] = (char)(0x80 | ((u >> 12) & 63)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } } else r[o++] = c; } r[o] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long js_val(const char* p) { p = js_ws(p); const char* e = js_skip(p); char* r = (char*)gc_atomic((e - p) + 1); long o = 0; if (*p != 34) { o = e - p; memcpy(r, p, o); r[o] = 0; return (long)(intptr_t)r; } p++; while (*p && *p != 34) { if (*p != 92 || p[1] == 0) { r[o++] = *p++; continue; } p++; char c = *p++; if (c == 110) r[o++] = 10; else if (c == 116) r[o++] = 9; else if (c == 114) r[o++] = 13; else if (c == 98) r[o++] = 8; else if (c == 102) r[o++] = 12; else if (c == 117) { long u = js_hex(p); if (u < 0) continue; p += 4; if (u >= 0xD800 && u <= 0xDBFF && p[0] == 92 && p[1] == 117) { long lo = js_hex(p + 2); if (lo >= 0xDC00 && lo <= 0xDFFF) { u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00); p += 6; } } if (u == 0) continue; if (u < 0x80) r[o++] = (char)u; else if (u < 0x800) { r[o++] = (char)(0xC0 | (u >> 6)); r[o++] = (char)(0x80 | (u & 63)); } else if (u < 0x10000) { r[o++] = (char)(0xE0 | (u >> 12)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } else { r[o++] = (char)(0xF0 | (u >> 18)); r[o++] = (char)(0x80 | ((u >> 12) & 63)); r[o++] = (char)(0x80 | ((u >> 6) & 63)); r[o++] = (char)(0x80 | (u & 63)); } } else r[o++] = c; } r[o] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* js_next(const char* p) { p = js_ws(js_skip(p)); return *p == 44 ? js_ws(p + 1) : 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_json(long t, long k) { const char* p = js_ws((const char*)(intptr_t)t); const char* key = (const char*)(intptr_t)k; if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { long kv = js_val(p); p = js_ws(js_str(p)); if (*p == 58) p++; if (strcmp((const char*)(intptr_t)kv, key) == 0) return js_val(p); p = js_next(p); } } else if (*p == 91) { char* end; long want = strtol(key, &end, 10); long i = 0; if (end != key && *end == 0 && want >= 0) { p = js_ws(p + 1); while (p && *p && *p != 93) { if (i == want) return js_val(p); i++; p = js_next(p); } } } return (long)(intptr_t)strdup(\"\"); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_jsonlist(long t, long keys) { long l = l_new(); const char* p = js_ws((const char*)(intptr_t)t); if (*p == 91 && !keys) { p = js_ws(p + 1); while (p && *p && *p != 93) { l_push(l, js_val(p)); p = js_next(p); } } else if (*p == 123) { p = js_ws(p + 1); while (p && *p == 34) { if (keys) l_push(l, js_val(p)); p = js_ws(js_str(p)); if (*p == 58) p++; if (!keys) l_push(l, js_val(p)); p = js_next(p); } } return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long len; unsigned char* data; } SBytes;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { long len; unsigned char* data; } SBytes;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)gc_atomic(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_readbytes(const char* path) { SBytes* y = (SBytes*)malloc(sizeof(SBytes)); y->len = 0; size_t cap = 4096, got = 0, n; struct stat st; FILE* f = fopen(path, \"rb\"); if (f && fstat(fileno(f), &st) == 0 && st.st_size > 0) cap = (size_t)st.st_size + 1; y->data = (unsigned char*)gc_atomic(cap); if (f) { while ((n = fread(y->data + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; y->data = (unsigned char*)realloc(y->data, cap); } } fclose(f); } y->len = (long)got; return (long)(intptr_t)y; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_find(long yp, long v, long from) { SBytes* y = (SBytes*)(intptr_t)yp; if (from < 0) from = 0; if (from >= y->len || v < 0 || v > 255) return -1; unsigned char* q = (unsigned char*)memchr(y->data + from, (int)v, (size_t)(y->len - from)); return q ? (long)(q - y->data) : -1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_find(long yp, long v, long from) { SBytes* y = (SBytes*)(intptr_t)yp; if (from < 0) from = 0; if (from >= y->len || v < 0 || v > 255) return -1; unsigned char* q = (unsigned char*)memchr(y->data + from, (int)v, (size_t)(y->len - from)); return q ? (long)(q - y->data) : -1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_len(long yp) { return ((SBytes*)(intptr_t)yp)->len; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_len(long yp) { return ((SBytes*)(intptr_t)yp)->len; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_atc(long yp, long i, long line) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || i >= y->len) { fprintf(stderr, \"%s: byte %ld, but there are %ld bytes\\n\", simpler_at(line), i, y->len); exit(1); } return y->data[i]; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_atc(long yp, long i, long line) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || i >= y->len) { fprintf(stderr, \"%s: byte %ld, but there are %ld bytes\\n\", simpler_at(line), i, y->len); exit(1); } return y->data[i]; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static SBytes* y_need(long yp, long i, long n, long line, const char* what) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || n < 0 || i + n > y->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but there are %ld\\n\", simpler_at(line), what, n, i, y->len); exit(1); } return y; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static SBytes* y_need(long yp, long i, long n, long line, const char* what) { SBytes* y = (SBytes*)(intptr_t)yp; if (i < 0 || n < 0 || i + n > y->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but there are %ld\\n\", simpler_at(line), what, n, i, y->len); exit(1); } return y; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_text(long yp, long i, long n, long line) { SBytes* y = y_need(yp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { unsigned char v = y->data[i + k]; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_text(long yp, long i, long n, long line) { SBytes* y = y_need(yp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { unsigned char v = y->data[i + k]; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_int(long yp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SBytes* y = y_need(yp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_int(long yp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SBytes* y = y_need(yp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long y_float(long yp, long i, long line) { SBytes* y = y_need(yp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long y_float(long yp, long i, long line) { SBytes* y = y_need(yp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | y->data[i + k]; return (long)u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, \"%s: a byte is a number from 0 to 255, but place %ld has %ld\\n\", simpler_at(line), k, l->data[k]); exit(1); } if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"wb\"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_writebytes(long path, long lp, long line) { SList* l = (SList*)(intptr_t)lp; for (long k = 0; k < l->len; k++) if (l->data[k] < 0 || l->data[k] > 255) { fprintf(stderr, \"%s: a byte is a number from 0 to 255, but place %ld has %ld\\n\", simpler_at(line), k, l->data[k]); exit(1); } if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"wb\"); if (f) { for (long k = 0; k < l->len; k++) fputc((int)l->data[k], f); fclose(f); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but the list has %ld\\n\", simpler_at(line), what, n, i, l->len); exit(1); } return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static SList* b_need(long lp, long i, long n, long line, const char* what) { SList* l = (SList*)(intptr_t)lp; if (i < 0 || n < 0 || i + n > l->len) { fprintf(stderr, \"%s: %s wants %ld bytes from place %ld, but the list has %ld\\n\", simpler_at(line), what, n, i, l->len); exit(1); } return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) break; r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"// A text is a C string, so the character with number 0 is kept inside it as the two bytes 192 128. It becomes a real 0 byte again where a text leaves the program, and a 0 byte read in becomes those two bytes.", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_puts(const char* s, FILE* f) { if (!strchr(s, 192)) return fputs(s, f); for (; *s; s++) { if ((unsigned char)s[0] == 192 && (unsigned char)s[1] == 128) { fputc(0, f); s++; } else fputc(*s, f); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static char* simpler_nul(char* b, long n) { if (!memchr(b, 0, (size_t)n)) return b; long z = 0; for (long k = 0; k < n; k++) z += b[k] == 0; char* r = (char*)gc_atomic(n + z + 1); long o = 0; for (long k = 0; k < n; k++) { if (b[k]) r[o++] = b[k]; else { r[o++] = (char)192; r[o++] = (char)128; } } r[o] = 0; return r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { l_push(l, *p); p++; } return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long b_text(long lp, long i, long n, long line) { SList* l = b_need(lp, i, n, line, \"textAt\"); char* r = (char*)gc_atomic(2 * n + 1); long o = 0; for (long k = 0; k < n; k++) { long v = l->data[i + k] & 255; if (v == 0) { r[o++] = (char)192; r[o++] = (char)128; continue; } r[o++] = (char)v; } r[o] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"enum { RC = 1, RANY, RSET, RBOL, REOL, RWB, RNWB, RSTART, REND, RGRP, RALT, RREP, RBREF, RLOOK };");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long b_int(long lp, long i, long n, long line) { if (n < 1 || n > 8) { fprintf(stderr, \"%s: intAt reads 1 to 8 bytes, got %ld\\n\", simpler_at(line), n); exit(1); } SList* l = b_need(lp, i, n, line, \"intAt\"); unsigned long u = 0; for (long k = n - 1; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define RE_MAXG 32");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long b_float(long lp, long i, long line) { SList* l = b_need(lp, i, 8, line, \"floatAt\"); unsigned long u = 0; for (long k = 7; k >= 0; k--) u = (u << 8) | (unsigned long)(l->data[i + k] & 255); return (long)u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define RE_INF 1073741824");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_bytes(long s) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long l = l_new(); while (*p) { if (p[0] == 192 && p[1] == 128) { l_push(l, 0); p += 2; continue; } l_push(l, *p); p++; } return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct RNode { int t, lo, hi, lazy, neg, g, nrg; long c; long* rg; struct RNode* sub; struct RNode* alt; struct RNode* next; } RNode;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"enum { RC = 1, RANY, RSET, RBOL, REOL, RWB, RNWB, RSTART, REND, RGRP, RALT, RREP, RBREF, RLOOK };", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { RNode* root; int ng, fi, fm, fs, open, head; unsigned char first[256]; char* key; long line; const char* pp; const char* b; const char* e; const char* end; const char* cs[RE_MAXG]; const char* ce[RE_MAXG]; long steps, limit; const char* base; } RE;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define RE_MAXG 32", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct RK { int kind; RNode* n; struct RK* up; long count; const char* last; } RK;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define RE_INF 1073741824", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void re_die(RE* R, const char* why) { fprintf(stderr, \"%s: the pattern \\\"%s\\\" %s\\n\", simpler_at(R->line), R->key, why); exit(1); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct RNode { int t, lo, hi, lazy, neg, g, nrg; long c; long* rg; struct RNode* sub; struct RNode* alt; struct RNode* next; } RNode;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_new(int t) { RNode* n = (RNode*)calloc(1, sizeof(RNode)); n->t = t; return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { RNode* root; int ng, fi, fm, fs, open, head; unsigned char first[256]; char* key; long line; const char* pp; const char* b; const char* e; const char* end; const char* cs[RE_MAXG]; const char* ce[RE_MAXG]; long steps, limit; const char* base; } RE;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* re_dec(const char* p, long* c) { const unsigned char* u = (const unsigned char*)p; if (u[0] < 0x80) { *c = u[0]; return p + 1; } if (u[0] >= 0xC0 && u[0] < 0xE0 && (u[1] & 0xC0) == 0x80) { *c = ((long)(u[0] & 31) << 6) | (u[1] & 63); return p + 2; } if (u[0] >= 0xE0 && u[0] < 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80) { *c = ((long)(u[0] & 15) << 12) | ((long)(u[1] & 63) << 6) | (u[2] & 63); return p + 3; } if (u[0] >= 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80 && (u[3] & 0xC0) == 0x80) { *c = ((long)(u[0] & 7) << 18) | ((long)(u[1] & 63) << 12) | ((long)(u[2] & 63) << 6) | (u[3] & 63); return p + 4; } *c = 0x110000 + u[0]; return p + 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct RK { int kind; RNode* n; struct RK* up; long count; const char* last; } RK;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const unsigned int re_wt[] = {170,170,178,179,181,181,185,186,188,190,192,214,216,246,248,705,710,721,736,740,748,748,750,750,880,884,886,893,895,895,902,902,904,1013,1015,1153,1162,1369,1376,1416,1488,1522,1568,1610,1632,1641,1646,1647,1649,1747,1749,1749,1765,1766,1774,1788,1791,1791,1808,1808,1810,1839,1869,1957,1969,2026,2036,2037,2042,2042,2048,2069,2074,2074,2084,2084,2088,2088,2112,2136,2144,2183,2185,2190,2208,2249,2308,2361,2365,2365,2384,2384,2392,2401,2406,2415,2417,2432,2437,2489,2493,2493,2510,2510,2524,2529,2534,2545,2548,2553,2556,2556,2565,2617,2649,2671,2674,2676,2693,2745,2749,2749,2768,2785,2790,2799,2809,2809,2821,2873,2877,2877,2908,2913,2918,2927,2929,2935,2947,3001,3024,3024,3046,3058,3077,3129,3133,3133,3160,3169,3174,3183,3192,3198,3200,3200,3205,3257,3261,3261,3293,3297,3302,3314,3332,3386,3389,3389,3406,3406,3412,3414,3416,3425,3430,3448,3450,3455,3461,3526,3558,3567,3585,3632,3634,3635,3648,3654,3664,3673,3713,3760,3762,3763,3773,3782,3792,3840,3872,3891,3904,3948,3976,3980,4096,4138,4159,4169,4176,4181,4186,4189,4193,4193,4197,4198,4206,4208,4213,4225,4238,4238,4240,4249,4256,4346,4348,4954,4969,5007,5024,5117,5121,5740,5743,5759,5761,5786,5792,5866,5870,5905,5919,5937,5952,5969,5984,6000,6016,6067,6103,6103,6108,6108,6112,6137,6160,6276,6279,6312,6314,6430,6470,6618,6656,6678,6688,6740,6784,6809,6823,6823,6917,6963,6981,6988,6992,7001,7043,7072,7086,7141,7168,7203,7232,7293,7296,7359,7401,7404,7406,7411,7413,7414,7418,7615,7680,8124,8126,8126,8130,8140,8144,8155,8160,8172,8178,8188,8304,8313,8319,8329,8336,8348,8450,8450,8455,8455,8458,8467,8469,8469,8473,8477,8484,8484,8486,8486,8488,8488,8490,8493,8495,8505,8508,8511,8517,8521,8526,8526,8528,8585,9312,9371,9450,9471,10102,10131,11264,11492,11499,11502,11506,11507,11517,11517,11520,11631,11648,11742,11823,11823,12293,12295,12321,12329,12337,12341,12344,12348,12353,12438,12445,12447,12449,12538,12540,12686,12690,12693,12704,12735,12784,12799,12832,12841,12872,12879,12881,12895,12928,12937,12977,12991,13312,19903,19968,42124,42192,42237,42240,42508,42512,42606,42623,42653,42656,42735,42775,42783,42786,42888,42891,43009,43011,43013,43015,43018,43020,43042,43056,43061,43072,43123,43138,43187,43216,43225,43250,43255,43259,43259,43261,43262,43264,43301,43312,43334,43360,43388,43396,43442,43471,43481,43488,43492,43494,43560,43584,43586,43588,43595,43600,43609,43616,43638,43642,43642,43646,43695,43697,43697,43701,43702,43705,43709,43712,43712,43714,43741,43744,43754,43762,43764,43777,43866,43868,43881,43888,44002,44016,55291,63744,64285,64287,64296,64298,64433,64467,64829,64848,64967,65008,65019,65136,65276,65296,65305,65313,65338,65345,65370,65382,65500,65536,65786,65799,65843,65856,65912,65930,65931,66176,66256,66273,66421,66432,66461,66464,66511,66513,66915,66928,67669,67672,67702,67705,67867,67872,67897,67968,68096,68112,68149,68160,68168,68192,68222,68224,68295,68297,68324,68331,68335,68352,68405,68416,68497,68521,68899,68912,68965,68975,68997,69216,69289,69296,69316,69376,69445,69457,69460,69488,69505,69552,69622,69635,69687,69714,69743,69745,69746,69749,69749,69763,69807,69840,69881,69891,69926,69942,69951,69956,69956,69959,70002,70006,70006,70019,70066,70081,70084,70096,70106,70108,70108,70113,70187,70207,70208,70272,70312,70320,70366,70384,70393,70405,70457,70461,70461,70480,70480,70493,70497,70528,70583,70609,70609,70611,70611,70656,70708,70727,70730,70736,70745,70751,70831,70852,70853,70855,71086,71128,71131,71168,71215,71236,71257,71296,71338,71352,71352,71360,71450,71472,71483,71488,71723,71840,71983,71999,71999,72001,72001,72016,72144,72161,72161,72163,72163,72192,72192,72203,72242,72250,72250,72272,72272,72284,72329,72349,72349,72368,72440,72640,72672,72688,72750,72768,72768,72784,72812,72818,72847,72960,73008,73030,73030,73040,73097,73112,73458,73474,73474,73476,73523,73552,73561,73648,73684,73728,74862,74880,77808,77824,78895,78913,78918,78944,90397,90416,92777,92784,92909,92928,92975,92992,92995,93008,93548,93552,93846,93952,94026,94032,94032,94099,94177,94179,94179,94208,113817,118000,118009,119488,119539,119648,120512,120514,120538,120540,120570,120572,120596,120598,120628,120630,120654,120656,120686,120688,120712,120714,120744,120746,120770,120772,120831,122624,122666,122928,122989,123136,123180,123191,123214,123536,123565,123584,123627,123632,123641,124112,124139,124144,124397,124400,124410,124896,125135,125184,125251,125259,125273,126065,126123,126125,126127,126129,126253,126255,126651,127232,127244,130032,195101}; static int re_word(long c) { if (c < 128) return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; int lo = 0, hi = (int)(sizeof(re_wt) / sizeof(re_wt[0]) / 2) - 1; while (lo <= hi) { int mid = (lo + hi) / 2; if (c < (long)re_wt[2 * mid]) hi = mid - 1; else if (c > (long)re_wt[2 * mid + 1]) lo = mid + 1; else return 1; } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void re_die(RE* R, const char* why) { fprintf(stderr, \"%s: the pattern \\\"%s\\\" %s\\n\", simpler_at(R->line), R->key, why); exit(1); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_low(long c) { if ((c >= 'A' && c <= 'Z') || (c >= 0xC0 && c <= 0xDE && c != 0xD7)) return c + 32; return c; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_new(int t) { RNode* n = (RNode*)calloc(1, sizeof(RNode)); n->t = t; return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_up(long c) { if ((c >= 'a' && c <= 'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) return c - 32; return c; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* re_dec(const char* p, long* c) { const unsigned char* u = (const unsigned char*)p; if (u[0] < 0x80) { *c = u[0]; return p + 1; } if (u[0] >= 0xC0 && u[0] < 0xE0 && (u[1] & 0xC0) == 0x80) { *c = ((long)(u[0] & 31) << 6) | (u[1] & 63); return p + 2; } if (u[0] >= 0xE0 && u[0] < 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80) { *c = ((long)(u[0] & 15) << 12) | ((long)(u[1] & 63) << 6) | (u[2] & 63); return p + 3; } if (u[0] >= 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80 && (u[3] & 0xC0) == 0x80) { *c = ((long)(u[0] & 7) << 18) | ((long)(u[1] & 63) << 12) | ((long)(u[2] & 63) << 6) | (u[3] & 63); return p + 4; } *c = 0x110000 + u[0]; return p + 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_cls(long cls, long c) { int r; long l = cls | 32; if (l == 'd') r = c >= '0' && c <= '9'; else if (l == 'w') r = re_word(c); else r = c == 32 || (c >= 9 && c <= 13); return (cls & 32) ? r : !r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const unsigned int re_wt[] = {170,170,178,179,181,181,185,186,188,190,192,214,216,246,248,705,710,721,736,740,748,748,750,750,880,884,886,893,895,895,902,902,904,1013,1015,1153,1162,1369,1376,1416,1488,1522,1568,1610,1632,1641,1646,1647,1649,1747,1749,1749,1765,1766,1774,1788,1791,1791,1808,1808,1810,1839,1869,1957,1969,2026,2036,2037,2042,2042,2048,2069,2074,2074,2084,2084,2088,2088,2112,2136,2144,2183,2185,2190,2208,2249,2308,2361,2365,2365,2384,2384,2392,2401,2406,2415,2417,2432,2437,2489,2493,2493,2510,2510,2524,2529,2534,2545,2548,2553,2556,2556,2565,2617,2649,2671,2674,2676,2693,2745,2749,2749,2768,2785,2790,2799,2809,2809,2821,2873,2877,2877,2908,2913,2918,2927,2929,2935,2947,3001,3024,3024,3046,3058,3077,3129,3133,3133,3160,3169,3174,3183,3192,3198,3200,3200,3205,3257,3261,3261,3293,3297,3302,3314,3332,3386,3389,3389,3406,3406,3412,3414,3416,3425,3430,3448,3450,3455,3461,3526,3558,3567,3585,3632,3634,3635,3648,3654,3664,3673,3713,3760,3762,3763,3773,3782,3792,3840,3872,3891,3904,3948,3976,3980,4096,4138,4159,4169,4176,4181,4186,4189,4193,4193,4197,4198,4206,4208,4213,4225,4238,4238,4240,4249,4256,4346,4348,4954,4969,5007,5024,5117,5121,5740,5743,5759,5761,5786,5792,5866,5870,5905,5919,5937,5952,5969,5984,6000,6016,6067,6103,6103,6108,6108,6112,6137,6160,6276,6279,6312,6314,6430,6470,6618,6656,6678,6688,6740,6784,6809,6823,6823,6917,6963,6981,6988,6992,7001,7043,7072,7086,7141,7168,7203,7232,7293,7296,7359,7401,7404,7406,7411,7413,7414,7418,7615,7680,8124,8126,8126,8130,8140,8144,8155,8160,8172,8178,8188,8304,8313,8319,8329,8336,8348,8450,8450,8455,8455,8458,8467,8469,8469,8473,8477,8484,8484,8486,8486,8488,8488,8490,8493,8495,8505,8508,8511,8517,8521,8526,8526,8528,8585,9312,9371,9450,9471,10102,10131,11264,11492,11499,11502,11506,11507,11517,11517,11520,11631,11648,11742,11823,11823,12293,12295,12321,12329,12337,12341,12344,12348,12353,12438,12445,12447,12449,12538,12540,12686,12690,12693,12704,12735,12784,12799,12832,12841,12872,12879,12881,12895,12928,12937,12977,12991,13312,19903,19968,42124,42192,42237,42240,42508,42512,42606,42623,42653,42656,42735,42775,42783,42786,42888,42891,43009,43011,43013,43015,43018,43020,43042,43056,43061,43072,43123,43138,43187,43216,43225,43250,43255,43259,43259,43261,43262,43264,43301,43312,43334,43360,43388,43396,43442,43471,43481,43488,43492,43494,43560,43584,43586,43588,43595,43600,43609,43616,43638,43642,43642,43646,43695,43697,43697,43701,43702,43705,43709,43712,43712,43714,43741,43744,43754,43762,43764,43777,43866,43868,43881,43888,44002,44016,55291,63744,64285,64287,64296,64298,64433,64467,64829,64848,64967,65008,65019,65136,65276,65296,65305,65313,65338,65345,65370,65382,65500,65536,65786,65799,65843,65856,65912,65930,65931,66176,66256,66273,66421,66432,66461,66464,66511,66513,66915,66928,67669,67672,67702,67705,67867,67872,67897,67968,68096,68112,68149,68160,68168,68192,68222,68224,68295,68297,68324,68331,68335,68352,68405,68416,68497,68521,68899,68912,68965,68975,68997,69216,69289,69296,69316,69376,69445,69457,69460,69488,69505,69552,69622,69635,69687,69714,69743,69745,69746,69749,69749,69763,69807,69840,69881,69891,69926,69942,69951,69956,69956,69959,70002,70006,70006,70019,70066,70081,70084,70096,70106,70108,70108,70113,70187,70207,70208,70272,70312,70320,70366,70384,70393,70405,70457,70461,70461,70480,70480,70493,70497,70528,70583,70609,70609,70611,70611,70656,70708,70727,70730,70736,70745,70751,70831,70852,70853,70855,71086,71128,71131,71168,71215,71236,71257,71296,71338,71352,71352,71360,71450,71472,71483,71488,71723,71840,71983,71999,71999,72001,72001,72016,72144,72161,72161,72163,72163,72192,72192,72203,72242,72250,72250,72272,72272,72284,72329,72349,72349,72368,72440,72640,72672,72688,72750,72768,72768,72784,72812,72818,72847,72960,73008,73030,73030,73040,73097,73112,73458,73474,73474,73476,73523,73552,73561,73648,73684,73728,74862,74880,77808,77824,78895,78913,78918,78944,90397,90416,92777,92784,92909,92928,92975,92992,92995,93008,93548,93552,93846,93952,94026,94032,94032,94099,94177,94179,94179,94208,113817,118000,118009,119488,119539,119648,120512,120514,120538,120540,120570,120572,120596,120598,120628,120630,120654,120656,120686,120688,120712,120714,120744,120746,120770,120772,120831,122624,122666,122928,122989,123136,123180,123191,123214,123536,123565,123584,123627,123632,123641,124112,124139,124144,124397,124400,124410,124896,125135,125184,125251,125259,125273,126065,126123,126125,126127,126129,126253,126255,126651,127232,127244,130032,195101}; static int re_word(long c) { if (c < 128) return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; int lo = 0, hi = (int)(sizeof(re_wt) / sizeof(re_wt[0]) / 2) - 1; while (lo <= hi) { int mid = (lo + hi) / 2; if (c < (long)re_wt[2 * mid]) hi = mid - 1; else if (c > (long)re_wt[2 * mid + 1]) lo = mid + 1; else return 1; } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_inset(RE* R, RNode* n, long c) { long l = re_low(c), u = re_up(c); for (int i = 0; i < n->nrg; i += 2) { long lo = n->rg[i], hi = n->rg[i + 1]; if (lo == -1) { if (re_cls(hi, c)) return 1; } else if (c >= lo && c <= hi) return 1; else if (R->fi && ((l >= lo && l <= hi) || (u >= lo && u <= hi))) return 1; } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_low(long c) { if ((c >= 'A' && c <= 'Z') || (c >= 0xC0 && c <= 0xDE && c != 0xD7)) return c + 32; return c; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void re_setadd(RNode* n, long lo, long hi) { n->rg = (long*)realloc(n->rg, sizeof(long) * (n->nrg + 2)); n->rg[n->nrg++] = lo; n->rg[n->nrg++] = hi; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_up(long c) { if ((c >= 'a' && c <= 'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) return c - 32; return c; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_hex(RE* R, int digits) { long u = 0; for (int k = 0; k < digits; k++) { char h = *R->pp; long v; if (h >= '0' && h <= '9') v = h - '0'; else if ((h | 32) >= 'a' && (h | 32) <= 'f') v = (h | 32) - 'a' + 10; else re_die(R, \"has a \\\\x or \\\\u without its hex digits\"); u = u * 16 + v; R->pp++; } return u; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_cls(long cls, long c) { int r; long l = cls | 32; if (l == 'd') r = c >= '0' && c <= '9'; else if (l == 'w') r = re_word(c); else r = c == 32 || (c >= 9 && c <= 13); return (cls & 32) ? r : !r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_escc(RE* R, int* cls) { long c; *cls = 0; if (!*R->pp) re_die(R, \"ends in a backslash\"); R->pp = re_dec(R->pp, &c); switch (c) { case 'n': return 10; case 't': return 9; case 'r': return 13; case 'f': return 12; case 'v': return 11; case 'e': return 27; case 'b': return 8; case 'x': return re_hex(R, 2); case 'u': return re_hex(R, 4); case 'd': case 'D': case 'w': case 'W': case 's': case 'S': *cls = (int)c; return 0; } if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) re_die(R, \"has a backslash before a letter that means nothing\"); return c; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_inset(RE* R, RNode* n, long c) { long l = re_low(c), u = re_up(c); for (int i = 0; i < n->nrg; i += 2) { long lo = n->rg[i], hi = n->rg[i + 1]; if (lo == -1) { if (re_cls(hi, c)) return 1; } else if (c >= lo && c <= hi) return 1; else if (R->fi && ((l >= lo && l <= hi) || (u >= lo && u <= hi))) return 1; } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_set(RE* R) { RNode* n = re_new(RSET); int first = 1; if (*R->pp == '^') { n->neg = 1; R->pp++; } while (1) { long lo, hi; int cls = 0; if (!*R->pp) re_die(R, \"has a [ with no ]\"); if (*R->pp == ']' && !first) { R->pp++; break; } first = 0; if (*R->pp == '\\\\') { R->pp++; lo = re_escc(R, &cls); } else R->pp = re_dec(R->pp, &lo); if (cls) { re_setadd(n, -1, cls); continue; } hi = lo; if (*R->pp == '-' && R->pp[1] && R->pp[1] != ']') { int c2 = 0; R->pp++; if (*R->pp == '\\\\') { R->pp++; hi = re_escc(R, &c2); if (c2) re_die(R, \"has a range that ends in a class\"); } else R->pp = re_dec(R->pp, &hi); if (hi < lo) re_die(R, \"has a range that runs backwards\"); } re_setadd(n, lo, hi); } return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void re_setadd(RNode* n, long lo, long hi) { n->rg = (long*)realloc(n->rg, sizeof(long) * (n->nrg + 2)); n->rg[n->nrg++] = lo; n->rg[n->nrg++] = hi; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_alt(RE* R, int depth);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_hex(RE* R, int digits) { long u = 0; for (int k = 0; k < digits; k++) { char h = *R->pp; long v; if (h >= '0' && h <= '9') v = h - '0'; else if ((h | 32) >= 'a' && (h | 32) <= 'f') v = (h | 32) - 'a' + 10; else re_die(R, \"has a \\\\x or \\\\u without its hex digits\"); u = u * 16 + v; R->pp++; } return u; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_atom(RE* R, int depth) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_escc(RE* R, int* cls) { long c; *cls = 0; if (!*R->pp) re_die(R, \"ends in a backslash\"); R->pp = re_dec(R->pp, &c); switch (c) { case 'n': return 10; case 't': return 9; case 'r': return 13; case 'f': return 12; case 'v': return 11; case 'e': return 27; case 'b': return 8; case 'x': return re_hex(R, 2); case 'u': return re_hex(R, 4); case 'd': case 'D': case 'w': case 'W': case 's': case 'S': *cls = (int)c; return 0; } if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) re_die(R, \"has a backslash before a letter that means nothing\"); return c; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  long c; char c0 = *R->pp; RNode* n;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_set(RE* R) { RNode* n = re_new(RSET); int first = 1; if (*R->pp == '^') { n->neg = 1; R->pp++; } while (1) { long lo, hi; int cls = 0; if (!*R->pp) re_die(R, \"has a [ with no ]\"); if (*R->pp == ']' && !first) { R->pp++; break; } first = 0; if (*R->pp == '\\\\') { R->pp++; lo = re_escc(R, &cls); } else R->pp = re_dec(R->pp, &lo); if (cls) { re_setadd(n, -1, cls); continue; } hi = lo; if (*R->pp == '-' && R->pp[1] && R->pp[1] != ']') { int c2 = 0; R->pp++; if (*R->pp == '\\\\') { R->pp++; hi = re_escc(R, &c2); if (c2) re_die(R, \"has a range that ends in a class\"); } else R->pp = re_dec(R->pp, &hi); if (hi < lo) re_die(R, \"has a range that runs backwards\"); } re_setadd(n, lo, hi); } return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '(') { n = re_new(RGRP); R->pp++; int cap = 1;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_alt(RE* R, int depth);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (*R->pp == '?') { char f = R->pp[1]; cap = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_atom(RE* R, int depth) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"      if (f == ':') R->pp += 2;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  long c; char c0 = *R->pp; RNode* n;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"      else if (f == '=' || f == '!') { n->t = RLOOK; n->c = 1; n->neg = f == '!'; R->pp += 2; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '(') { n = re_new(RGRP); R->pp++; int cap = 1;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"      else if (f == '<' && (R->pp[2] == '=' || R->pp[2] == '!')) { n->t = RLOOK; n->c = 2; n->neg = R->pp[2] == '!'; R->pp += 3; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (*R->pp == '?') { char f = R->pp[1]; cap = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"      else if (f == '<' || (f == 'P' && R->pp[2] == '<')) { while (*R->pp && *R->pp != '>') R->pp++; if (!*R->pp) re_die(R, \"has a group name with no >\"); R->pp++; cap = 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"      if (f == ':') R->pp += 2;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"      else { const char* q = R->pp + 1; while (*q == 'i' || *q == 'm' || *q == 's') q++; if (*q != ')' || q == R->pp + 1) re_die(R, \"has a (? form that is not known\"); for (q = R->pp + 1; *q != ')'; q++) { if (*q == 'i') R->fi = 1; if (*q == 'm') R->fm = 1; if (*q == 's') R->fs = 1; } R->pp = q + 1; return n; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"      else if (f == '=' || f == '!') { n->t = RLOOK; n->c = 1; n->neg = f == '!'; R->pp += 2; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (cap) { if (R->ng + 1 >= RE_MAXG) re_die(R, \"has more than 31 groups\"); n->g = ++R->ng; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"      else if (f == '<' && (R->pp[2] == '=' || R->pp[2] == '!')) { n->t = RLOOK; n->c = 2; n->neg = R->pp[2] == '!'; R->pp += 3; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    n->sub = re_alt(R, depth + 1); if (*R->pp != ')') re_die(R, \"has a ( with no )\"); R->pp++; return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"      else if (f == '<' || (f == 'P' && R->pp[2] == '<')) { while (*R->pp && *R->pp != '>') R->pp++; if (!*R->pp) re_die(R, \"has a group name with no >\"); R->pp++; cap = 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '[') { R->pp++; return re_set(R); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"      else { const char* q = R->pp + 1; while (*q == 'i' || *q == 'm' || *q == 's') q++; if (*q != ')' || q == R->pp + 1) re_die(R, \"has a (? form that is not known\"); for (q = R->pp + 1; *q != ')'; q++) { if (*q == 'i') R->fi = 1; if (*q == 'm') R->fm = 1; if (*q == 's') R->fs = 1; } R->pp = q + 1; return n; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '.') { R->pp++; return re_new(RANY); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (cap) { if (R->ng + 1 >= RE_MAXG) re_die(R, \"has more than 31 groups\"); n->g = ++R->ng; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '^') { R->pp++; return re_new(RBOL); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    n->sub = re_alt(R, depth + 1); if (*R->pp != ')') re_die(R, \"has a ( with no )\"); R->pp++; return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '$') { R->pp++; return re_new(REOL); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '[') { R->pp++; return re_set(R); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '*' || c0 == '+' || c0 == '?') re_die(R, \"has a * + or ? with nothing before it\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '.') { R->pp++; return re_new(RANY); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '\\\\') { int cls; char e = R->pp[1]; R->pp++;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '^') { R->pp++; return re_new(RBOL); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (e == 'b') { R->pp++; return re_new(RWB); } if (e == 'B') { R->pp++; return re_new(RNWB); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '$') { R->pp++; return re_new(REOL); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (e == 'A') { R->pp++; return re_new(RSTART); } if (e == 'Z' || e == 'z') { R->pp++; return re_new(REND); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '*' || c0 == '+' || c0 == '?') re_die(R, \"has a * + or ? with nothing before it\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (e >= '1' && e <= '9') { R->pp++; n = re_new(RBREF); n->g = e - '0'; return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (c0 == '\\\\') { int cls; char e = R->pp[1]; R->pp++;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    c = re_escc(R, &cls); if (cls) { n = re_new(RSET); re_setadd(n, -1, cls); return n; } n = re_new(RC); n->c = c; return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (e == 'b') { R->pp++; return re_new(RWB); } if (e == 'B') { R->pp++; return re_new(RNWB); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  R->pp = re_dec(R->pp, &c); n = re_new(RC); n->c = c; return n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (e == 'A') { R->pp++; return re_new(RSTART); } if (e == 'Z' || e == 'z') { R->pp++; return re_new(REND); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_seq(RE* R, int depth) { RNode* head = 0; RNode** tail = &head; while (*R->pp && *R->pp != '|' && *R->pp != ')') { RNode* a = re_atom(R, depth); while (1) { long lo, hi; const char* q = R->pp; char c = *q; if (c == '*') { lo = 0; hi = RE_INF; q++; } else if (c == '+') { lo = 1; hi = RE_INF; q++; } else if (c == '?') { lo = 0; hi = 1; q++; } else if (c == '{' && ((q[1] >= '0' && q[1] <= '9') || (q[1] == ',' && q[2] >= '0' && q[2] <= '9'))) { char* t = (char*)q + 1; lo = 0; if (*t != ',') lo = strtol(q + 1, &t, 10); hi = lo; if (*t == ',') { t++; if (*t == '}') hi = RE_INF; else if (*t >= '0' && *t <= '9') hi = strtol(t, &t, 10); else break; } if (*t != '}') break; q = t + 1; if (hi < lo) re_die(R, \"has a count that runs backwards\"); if (lo > 1000 || (hi != RE_INF && hi > 1000)) re_die(R, \"has a count above 1000\"); } else break; RNode* r = re_new(RREP); r->lo = (int)lo; r->hi = (int)hi; r->sub = a; if (*q == '?') { r->lazy = 1; q++; } else if (*q == '+') q++; R->pp = q; a = r; } *tail = a; tail = &a->next; } return head; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (e >= '1' && e <= '9') { R->pp++; n = re_new(RBREF); n->g = e - '0'; return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RNode* re_alt(RE* R, int depth) { if (depth > 200) re_die(R, \"has groups more than 200 deep\"); RNode* first = re_seq(R, depth); if (*R->pp != '|') return first; RNode* head = re_new(RALT); RNode* cur = head; head->sub = first; while (*R->pp == '|') { RNode* a = re_new(RALT); R->pp++; a->sub = re_seq(R, depth); cur->alt = a; cur = a; } return head; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    c = re_escc(R, &cls); if (cls) { n = re_new(RSET); re_setadd(n, -1, cls); return n; } n = re_new(RC); n->c = c; return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void re_enc(RE* R, long c) { if (c < 0x80) R->first[c] = 1; else if (c < 0x800) R->first[0xC0 | (c >> 6)] = 1; else if (c < 0x10000) R->first[0xE0 | (c >> 12)] = 1; else if (c < 0x110000) R->first[0xF0 | (c >> 18)] = 1; else R->first[(c - 0x110000) & 255] = 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  R->pp = re_dec(R->pp, &c); n = re_new(RC); n->c = c; return n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_first(RE* R, RNode* n) { for (; n; n = n->next) { int nul = 1; switch (n->t) { case RC: re_enc(R, n->c); if (R->fi) { re_enc(R, re_low(n->c)); re_enc(R, re_up(n->c)); } nul = 0; break; case RANY: memset(R->first, 1, 256); nul = 0; break; case RSET: for (long b = 0; b < 128; b++) if (re_inset(R, n, b) != n->neg) R->first[b] = 1; memset(R->first + 128, 1, 128); nul = 0; break; case RGRP: nul = re_first(R, n->sub); break; case RALT: nul = 0; for (RNode* a = n; a; a = a->alt) if (re_first(R, a->sub)) nul = 1; break; case RREP: nul = re_first(R, n->sub); if (n->lo == 0) nul = 1; break; case RBREF: memset(R->first, 1, 256); break; default: break; } if (!nul) return 0; } return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_seq(RE* R, int depth) { RNode* head = 0; RNode** tail = &head; while (*R->pp && *R->pp != '|' && *R->pp != ')') { RNode* a = re_atom(R, depth); while (1) { long lo, hi; const char* q = R->pp; char c = *q; if (c == '*') { lo = 0; hi = RE_INF; q++; } else if (c == '+') { lo = 1; hi = RE_INF; q++; } else if (c == '?') { lo = 0; hi = 1; q++; } else if (c == '{' && ((q[1] >= '0' && q[1] <= '9') || (q[1] == ',' && q[2] >= '0' && q[2] <= '9'))) { char* t = (char*)q + 1; lo = 0; if (*t != ',') lo = strtol(q + 1, &t, 10); hi = lo; if (*t == ',') { t++; if (*t == '}') hi = RE_INF; else if (*t >= '0' && *t <= '9') hi = strtol(t, &t, 10); else break; } if (*t != '}') break; q = t + 1; if (hi < lo) re_die(R, \"has a count that runs backwards\"); if (lo > 1000 || (hi != RE_INF && hi > 1000)) re_die(R, \"has a count above 1000\"); } else break; RNode* r = re_new(RREP); r->lo = (int)lo; r->hi = (int)hi; r->sub = a; if (*q == '?') { r->lazy = 1; q++; } else if (*q == '+') q++; R->pp = q; a = r; } *tail = a; tail = &a->next; } return head; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RE* re_comp(long pat, long line) { static RE* cache[512]; const char* src = (const char*)(intptr_t)pat; unsigned long h = 5381; for (const unsigned char* q = (const unsigned char*)src; *q; q++) h = h * 33 + *q; RE* R = cache[h & 511]; if (R && strcmp(R->key, src) == 0) { R->line = line; return R; } R = (RE*)calloc(1, sizeof(RE)); R->key = strdup(src); R->pp = R->key; R->line = line; R->root = re_alt(R, 0); if (*R->pp == ')') re_die(R, \"has a ) with no (\"); R->open = re_first(R, R->root); R->head = R->root && !R->fm && (R->root->t == RSTART || R->root->t == RBOL); if (R->root && R->root->t == RSTART) R->head = 1; cache[h & 511] = R; return R; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RNode* re_alt(RE* R, int depth) { if (depth > 200) re_die(R, \"has groups more than 200 deep\"); RNode* first = re_seq(R, depth); if (*R->pp != '|') return first; RNode* head = re_new(RALT); RNode* cur = head; head->sub = first; while (*R->pp == '|') { RNode* a = re_new(RALT); R->pp++; a->sub = re_seq(R, depth); cur->alt = a; cur = a; } return head; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_m(RE* R, RNode* n, const char* p, RK* k);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void re_enc(RE* R, long c) { if (c < 0x80) R->first[c] = 1; else if (c < 0x800) R->first[0xC0 | (c >> 6)] = 1; else if (c < 0x10000) R->first[0xE0 | (c >> 12)] = 1; else if (c < 0x110000) R->first[0xF0 | (c >> 18)] = 1; else R->first[(c - 0x110000) & 255] = 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* re_one(RE* R, RNode* n, const char* p) { long c; const char* q; if (p >= R->e) return 0; q = re_dec(p, &c); if (n->t == RC) return (c == n->c || (R->fi && re_low(c) == re_low(n->c))) ? q : 0; if (n->t == RANY) return (c != 10 || R->fs) ? q : 0; return re_inset(R, n, c) != n->neg ? q : 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_first(RE* R, RNode* n) { for (; n; n = n->next) { int nul = 1; switch (n->t) { case RC: re_enc(R, n->c); if (R->fi) { re_enc(R, re_low(n->c)); re_enc(R, re_up(n->c)); } nul = 0; break; case RANY: memset(R->first, 1, 256); nul = 0; break; case RSET: for (long b = 0; b < 128; b++) if (re_inset(R, n, b) != n->neg) R->first[b] = 1; memset(R->first + 128, 1, 128); nul = 0; break; case RGRP: nul = re_first(R, n->sub); break; case RALT: nul = 0; for (RNode* a = n; a; a = a->alt) if (re_first(R, a->sub)) nul = 1; break; case RREP: nul = re_first(R, n->sub); if (n->lo == 0) nul = 1; break; case RBREF: memset(R->first, 1, 256); break; default: break; } if (!nul) return 0; } return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_rep(RE* R, RNode* n, const char* p, RK* k, long count, const char* last) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RE* re_comp(long pat, long line) { static RE* cache[512]; const char* src = (const char*)(intptr_t)pat; unsigned long h = 5381; for (const unsigned char* q = (const unsigned char*)src; *q; q++) h = h * 33 + *q; RE* R = cache[h & 511]; if (R && strcmp(R->key, src) == 0) { R->line = line; return R; } R = (RE*)calloc(1, sizeof(RE)); R->key = strdup(src); R->pp = R->key; R->line = line; R->root = re_alt(R, 0); if (*R->pp == ')') re_die(R, \"has a ) with no (\"); R->open = re_first(R, R->root); R->head = R->root && !R->fm && (R->root->t == RSTART || R->root->t == RBOL); if (R->root && R->root->t == RSTART) R->head = 1; cache[h & 511] = R; return R; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  RNode* s = n->sub;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_m(RE* R, RNode* n, const char* p, RK* k);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (s && !s->next && (s->t == RC || s->t == RANY || s->t == RSET)) { const char* q = p; const char* r; long c = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* re_one(RE* R, RNode* n, const char* p) { long c; const char* q; if (p >= R->e) return 0; q = re_dec(p, &c); if (n->t == RC) return (c == n->c || (R->fi && re_low(c) == re_low(n->c))) ? q : 0; if (n->t == RANY) return (c != 10 || R->fs) ? q : 0; return re_inset(R, n, c) != n->neg ? q : 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    if (!n->lazy) { while (c < n->hi && (r = re_one(R, s, q))) { q = r; c++; } if (c < n->lo) return 0; while (1) { if (re_m(R, n->next, q, k)) return 1; if (c == n->lo || q == p) return 0; q--; while (q > p && ((unsigned char)*q & 0xC0) == 0x80) q--; c--; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_rep(RE* R, RNode* n, const char* p, RK* k, long count, const char* last) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    while (c < n->lo) { r = re_one(R, s, q); if (!r) return 0; q = r; c++; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  RNode* s = n->sub;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    while (1) { if (re_m(R, n->next, q, k)) return 1; if (c >= n->hi) return 0; r = re_one(R, s, q); if (!r) return 0; q = r; c++; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (s && !s->next && (s->t == RC || s->t == RANY || s->t == RSET)) { const char* q = p; const char* r; long c = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (count > 0 && p == last && count >= n->lo) return re_m(R, n->next, p, k);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    if (!n->lazy) { while (c < n->hi && (r = re_one(R, s, q))) { q = r; c++; } if (c < n->lo) return 0; while (1) { if (re_m(R, n->next, q, k)) return 1; if (c == n->lo || q == p) return 0; q--; while (q > p && ((unsigned char)*q & 0xC0) == 0x80) q--; c--; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  RK kk = { 1, n, k, count + 1, p };");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    while (c < n->lo) { r = re_one(R, s, q); if (!r) return 0; q = r; c++; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!n->lazy) { if (count < n->hi && re_m(R, s, p, &kk)) return 1; return count >= n->lo ? re_m(R, n->next, p, k) : 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    while (1) { if (re_m(R, n->next, q, k)) return 1; if (c >= n->hi) return 0; r = re_one(R, s, q); if (!r) return 0; q = r; c++; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (count >= n->lo && re_m(R, n->next, p, k)) return 1;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (count > 0 && p == last && count >= n->lo) return re_m(R, n->next, p, k);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  return count < n->hi ? re_m(R, s, p, &kk) : 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  RK kk = { 1, n, k, count + 1, p };", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_k(RE* R, const char* p, RK* k) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!n->lazy) { if (count < n->hi && re_m(R, s, p, &kk)) return 1; return count >= n->lo ? re_m(R, n->next, p, k) : 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!k) { R->end = p; return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (count >= n->lo && re_m(R, n->next, p, k)) return 1;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 0) { RNode* n = k->n; if (n->g > 0) { const char* os = R->cs[n->g]; const char* oe = R->ce[n->g]; R->cs[n->g] = k->last; R->ce[n->g] = p; if (re_m(R, n->next, p, k->up)) return 1; R->cs[n->g] = os; R->ce[n->g] = oe; return 0; } return re_m(R, n->next, p, k->up); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  return count < n->hi ? re_m(R, s, p, &kk) : 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 1) return re_rep(R, k->n, p, k->up, k->count, k->last);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_k(RE* R, const char* p, RK* k) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 2) return 1;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!k) { R->end = p; return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  return p == k->last; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 0) { RNode* n = k->n; if (n->g > 0) { const char* os = R->cs[n->g]; const char* oe = R->ce[n->g]; R->cs[n->g] = k->last; R->ce[n->g] = p; if (re_m(R, n->next, p, k->up)) return 1; R->cs[n->g] = os; R->ce[n->g] = oe; return 0; } return re_m(R, n->next, p, k->up); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_look(RE* R, RNode* n, const char* p, RK* k) { const char* scs[RE_MAXG]; const char* sce[RE_MAXG]; int ok = 0; memcpy(scs, R->cs, sizeof(scs)); memcpy(sce, R->ce, sizeof(sce)); if (n->c == 1) { RK kk = { 2, 0, 0, 0, 0 }; ok = re_m(R, n->sub, p, &kk); } else { RK kk = { 3, 0, 0, 0, p }; const char* q = p; while (1) { if (re_m(R, n->sub, q, &kk)) { ok = 1; break; } if (q == R->b) break; q--; while (q > R->b && ((unsigned char)*q & 0xC0) == 0x80) q--; } } if (ok != n->neg && re_m(R, n->next, p, k)) return 1; memcpy(R->cs, scs, sizeof(scs)); memcpy(R->ce, sce, sizeof(sce)); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 1) return re_rep(R, k->n, p, k->up, k->count, k->last);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_budget = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (k->kind == 2) return 1;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int re_m(RE* R, RNode* n, const char* p, RK* k) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  return p == k->last; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char here;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_look(RE* R, RNode* n, const char* p, RK* k) { const char* scs[RE_MAXG]; const char* sce[RE_MAXG]; int ok = 0; memcpy(scs, R->cs, sizeof(scs)); memcpy(sce, R->ce, sizeof(sce)); if (n->c == 1) { RK kk = { 2, 0, 0, 0, 0 }; ok = re_m(R, n->sub, p, &kk); } else { RK kk = { 3, 0, 0, 0, p }; const char* q = p; while (1) { if (re_m(R, n->sub, q, &kk)) { ok = 1; break; } if (q == R->b) break; q--; while (q > R->b && ((unsigned char)*q & 0xC0) == 0x80) q--; } } if (ok != n->neg && re_m(R, n->next, p, k)) return 1; memcpy(R->cs, scs, sizeof(scs)); memcpy(R->ce, sce, sizeof(sce)); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (++R->steps > R->limit) re_die(R, \"takes too many steps on this text\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_budget = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (R->base - &here > re_budget) re_die(R, \"goes too deep on this text\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int re_m(RE* R, RNode* n, const char* p, RK* k) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  while (n && n->t <= RSET) { p = re_one(R, n, p); if (!p) return 0; n = n->next; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char here;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!n) return re_k(R, p, k);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (++R->steps > R->limit) re_die(R, \"takes too many steps on this text\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  switch (n->t) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (R->base - &here > re_budget) re_die(R, \"goes too deep on this text\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RBOL: return (p == R->b || (R->fm && p[-1] == 10)) ? re_m(R, n->next, p, k) : 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  while (n && n->t <= RSET) { p = re_one(R, n, p); if (!p) return 0; n = n->next; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case REOL: return (p == R->e || (R->fm && *p == 10) || (p + 1 == R->e && *p == 10)) ? re_m(R, n->next, p, k) : 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!n) return re_k(R, p, k);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RSTART: return p == R->b ? re_m(R, n->next, p, k) : 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  switch (n->t) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case REND: return p == R->e ? re_m(R, n->next, p, k) : 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RBOL: return (p == R->b || (R->fm && p[-1] == 10)) ? re_m(R, n->next, p, k) : 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RWB: case RNWB: { long ca = 0, cb = 0; if (p > R->b) { const char* q = p - 1; while (q > R->b && ((unsigned char)*q & 192) == 128) q--; re_dec(q, &ca); } if (p < R->e) re_dec(p, &cb); int a = p > R->b && re_word(ca); int b = p < R->e && re_word(cb); return ((a != b) == (n->t == RWB)) ? re_m(R, n->next, p, k) : 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case REOL: return (p == R->e || (R->fm && *p == 10) || (p + 1 == R->e && *p == 10)) ? re_m(R, n->next, p, k) : 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RGRP: { RK kk = { 0, n, k, 0, p }; return re_m(R, n->sub, p, &kk); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RSTART: return p == R->b ? re_m(R, n->next, p, k) : 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RALT: { for (RNode* a = n; a; a = a->alt) if (re_m(R, a->sub, p, k)) return 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case REND: return p == R->e ? re_m(R, n->next, p, k) : 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RREP: return re_rep(R, n, p, k, 0, 0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RWB: case RNWB: { long ca = 0, cb = 0; if (p > R->b) { const char* q = p - 1; while (q > R->b && ((unsigned char)*q & 192) == 128) q--; re_dec(q, &ca); } if (p < R->e) re_dec(p, &cb); int a = p > R->b && re_word(ca); int b = p < R->e && re_word(cb); return ((a != b) == (n->t == RWB)) ? re_m(R, n->next, p, k) : 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RBREF: { const char* s = n->g <= R->ng ? R->cs[n->g] : 0; const char* e = n->g <= R->ng ? R->ce[n->g] : 0; long len; if (!s || !e) return 0; len = e - s; if (R->e - p < len) return 0; for (long i = 0; i < len; i++) if (s[i] != p[i] && !(R->fi && (unsigned char)s[i] < 128 && re_low((unsigned char)s[i]) == re_low((unsigned char)p[i]))) return 0; return re_m(R, n->next, p + len, k); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RGRP: { RK kk = { 0, n, k, 0, p }; return re_m(R, n->sub, p, &kk); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    case RLOOK: return re_look(R, n, p, k);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RALT: { for (RNode* a = n; a; a = a->alt) if (re_m(R, a->sub, p, k)) return 1; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RREP: return re_rep(R, n, p, k, 0, 0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RBREF: { const char* s = n->g <= R->ng ? R->cs[n->g] : 0; const char* e = n->g <= R->ng ? R->ce[n->g] : 0; long len; if (!s || !e) return 0; len = e - s; if (R->e - p < len) return 0; for (long i = 0; i < len; i++) if (s[i] != p[i] && !(R->fi && (unsigned char)s[i] < 128 && re_low((unsigned char)s[i]) == re_low((unsigned char)p[i]))) return 0; return re_m(R, n->next, p + len, k); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* re_step(RE* R, const char* p) { if (p >= R->e) return R->e + 1; p++; while (p < R->e && ((unsigned char)*p & 0xC0) == 0x80) p++; return p; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    case RLOOK: return re_look(R, n, p, k);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* re_search(RE* R, const char* from) { char mark; const char* p = from; RNode* f = R->root; int lit = f && f->t == RC && !R->fi && f->c < 128 && f->c > 0; R->steps = 0; R->base = &mark; while (1) { if (lit) { p = (const char*)memchr(p, (int)f->c, (size_t)(R->e - p)); if (!p) return 0; } else if (!R->open) { while (p < R->e && !R->first[(unsigned char)*p]) p++; if (p >= R->e) return 0; } for (int i = 0; i <= R->ng; i++) { R->cs[i] = 0; R->ce[i] = 0; } if (re_m(R, R->root, p, 0)) { R->cs[0] = p; R->ce[0] = R->end; return p; } if (p >= R->e || R->head) return 0; p = re_step(R, p); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void re_stack(void) { struct rlimit rl; long cur = 8388608; long want = 67108864; if (getrlimit(RLIMIT_STACK, &rl) == 0) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#ifdef __linux__");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* re_step(RE* R, const char* p) { if (p >= R->e) return R->e + 1; p++; while (p < R->e && ((unsigned char)*p & 0xC0) == 0x80) p++; return p; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"if (rl.rlim_cur != RLIM_INFINITY && (long)rl.rlim_cur < want && (rl.rlim_max == RLIM_INFINITY || (long)rl.rlim_max >= want)) { rl.rlim_cur = (rlim_t)want; setrlimit(RLIMIT_STACK, &rl); getrlimit(RLIMIT_STACK, &rl); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* re_search(RE* R, const char* from) { char mark; const char* p = from; RNode* f = R->root; int lit = f && f->t == RC && !R->fi && f->c < 128 && f->c > 0; R->steps = 0; R->base = &mark; while (1) { if (lit) { p = (const char*)memchr(p, (int)f->c, (size_t)(R->e - p)); if (!p) return 0; } else if (!R->open) { while (p < R->e && !R->first[(unsigned char)*p]) p++; if (p >= R->e) return 0; } for (int i = 0; i <= R->ng; i++) { R->cs[i] = 0; R->ce[i] = 0; } if (re_m(R, R->root, p, 0)) { R->cs[0] = p; R->ce[0] = R->end; return p; } if (p >= R->e || R->head) return 0; p = re_step(R, p); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#endif");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void re_stack(void) { struct rlimit rl; long cur = 8388608; long want = 67108864; if (getrlimit(RLIMIT_STACK, &rl) == 0) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"cur = (rl.rlim_cur == RLIM_INFINITY || (long)rl.rlim_cur > want) ? want : (long)rl.rlim_cur; } re_budget = cur / 2; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#ifdef __linux__", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static RE* re_open(long s, long pat, long line) { RE* R = re_comp(pat, line); if (!re_budget) re_stack(); R->b = (const char*)(intptr_t)s; R->e = R->b + strlen(R->b); R->limit = 1000000 + 100 * (long)(R->e - R->b); return R; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"if (rl.rlim_cur != RLIM_INFINITY && (long)rl.rlim_cur < want && (rl.rlim_max == RLIM_INFINITY || (long)rl.rlim_max >= want)) { rl.rlim_cur = (rlim_t)want; setrlimit(RLIMIT_STACK, &rl); getrlimit(RLIMIT_STACK, &rl); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_str(const char* a, const char* b) { long n = (a && b && b > a) ? (long)(b - a) : 0; char* r = (char*)gc_atomic(n + 1); if (n) memcpy(r, a, n); r[n] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#endif", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long re_groups(RE* R) { long l = l_new(); for (int i = 0; i <= R->ng; i++) l_push(l, re_str(R->cs[i], R->ce[i])); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"cur = (rl.rlim_cur == RLIM_INFINITY || (long)rl.rlim_cur > want) ? want : (long)rl.rlim_cur; } re_budget = cur / 2; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* re_after(RE* R) { return R->ce[0] > R->cs[0] ? R->ce[0] : re_step(R, R->ce[0]); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static RE* re_open(long s, long pat, long line) { RE* R = re_comp(pat, line); if (!re_budget) re_stack(); R->b = (const char*)(intptr_t)s; R->e = R->b + strlen(R->b); R->limit = 1000000 + 100 * (long)(R->e - R->b); return R; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long re_test(long s, long pat, long line) { RE* R = re_open(s, pat, line); return re_search(R, R->b) != 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_str(const char* a, const char* b) { long n = (a && b && b > a) ? (long)(b - a) : 0; char* r = (char*)gc_atomic(n + 1); if (n) memcpy(r, a, n); r[n] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long re_find(long s, long pat, long line) { RE* R = re_open(s, pat, line); if (!re_search(R, R->b)) return l_new(); return re_groups(R); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long re_groups(RE* R) { long l = l_new(); for (int i = 0; i <= R->ng; i++) l_push(l, re_str(R->cs[i], R->ce[i])); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long re_all(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; while (p <= R->e && re_search(R, p)) { l_push(out, re_groups(R)); p = re_after(R); } return out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* re_after(RE* R) { return R->ce[0] > R->cs[0] ? R->ce[0] : re_step(R, R->ce[0]); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long re_split(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; const char* last = p; while (p <= R->e && re_search(R, p)) { if (R->ce[0] == R->cs[0]) { p = re_after(R); continue; } l_push(out, re_str(last, R->cs[0])); last = R->ce[0]; p = last; } l_push(out, re_str(last, R->e)); return out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long re_test(long s, long pat, long line) { RE* R = re_open(s, pat, line); return re_search(R, R->b) != 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void re_put(char** b, size_t* n, size_t* cap, const char* a, size_t len) { if (*n + len + 1 > *cap) { *cap = (*n + len + 1) * 2; *b = (char*)gc_trealloc(*b, *cap); } if (len) memcpy(*b + *n, a, len); *n += len; (*b)[*n] = 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long re_find(long s, long pat, long line) { RE* R = re_open(s, pat, line); if (!re_search(R, R->b)) return l_new(); return re_groups(R); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long re_replace(long s, long pat, long to, long line) { RE* R = re_open(s, pat, line); const char* t = (const char*)(intptr_t)to; size_t n = 0, cap = 64; char* out = (char*)gc_atomic(cap); const char* p = R->b; const char* last = p; out[0] = 0; while (p <= R->e && re_search(R, p)) { re_put(&out, &n, &cap, last, (size_t)(R->cs[0] - last)); for (const char* q = t; *q; q++) { if (*q == '$' && q[1] == '$') { re_put(&out, &n, &cap, q, 1); q++; } else if (*q == '$' && q[1] >= '0' && q[1] <= '9') { int g = q[1] - '0'; q++; if (q[1] >= '0' && q[1] <= '9' && g * 10 + (q[1] - '0') <= R->ng) { g = g * 10 + (q[1] - '0'); q++; } if (g <= R->ng && R->cs[g] && R->ce[g] > R->cs[g]) re_put(&out, &n, &cap, R->cs[g], (size_t)(R->ce[g] - R->cs[g])); } else re_put(&out, &n, &cap, q, 1); } last = R->ce[0]; p = re_after(R); } if (last < R->e) re_put(&out, &n, &cap, last, (size_t)(R->e - last)); return (long)(intptr_t)out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long re_all(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; while (p <= R->e && re_search(R, p)) { l_push(out, re_groups(R)); p = re_after(R); } return out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_case(long s, long up) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long n = strlen((const char*)p); unsigned char* r = (unsigned char*)gc_atomic(n + 1); for (long i = 0; i <= n; i++) { unsigned char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; if (i > 0 && p[i - 1] == 195) { if (up && c >= 160 && c <= 190 && c != 183) c = c - 32; if (!up && c >= 128 && c <= 158 && c != 151) c = c + 32; } r[i] = c; } return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long re_split(long s, long pat, long line) { RE* R = re_open(s, pat, line); long out = l_new(); const char* p = R->b; const char* last = p; while (p <= R->e && re_search(R, p)) { if (R->ce[0] == R->cs[0]) { p = re_after(R); continue; } l_push(out, re_str(last, R->cs[0])); last = R->ce[0]; p = last; } l_push(out, re_str(last, R->e)); return out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)gc_atomic(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void re_put(char** b, size_t* n, size_t* cap, const char* a, size_t len) { if (*n + len + 1 > *cap) { *cap = (*n + len + 1) * 2; *b = (char*)gc_trealloc(*b, *cap); } if (len) memcpy(*b + *n, a, len); *n += len; (*b)[*n] = 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memset(r, 32, pad); memcpy(r + pad, p, nb + 1); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long re_replace(long s, long pat, long to, long line) { RE* R = re_open(s, pat, line); const char* t = (const char*)(intptr_t)to; size_t n = 0, cap = 64; char* out = (char*)gc_atomic(cap); const char* p = R->b; const char* last = p; out[0] = 0; while (p <= R->e && re_search(R, p)) { re_put(&out, &n, &cap, last, (size_t)(R->cs[0] - last)); for (const char* q = t; *q; q++) { if (*q == '$' && q[1] == '$') { re_put(&out, &n, &cap, q, 1); q++; } else if (*q == '$' && q[1] >= '0' && q[1] <= '9') { int g = q[1] - '0'; q++; if (q[1] >= '0' && q[1] <= '9' && g * 10 + (q[1] - '0') <= R->ng) { g = g * 10 + (q[1] - '0'); q++; } if (g <= R->ng && R->cs[g] && R->ce[g] > R->cs[g]) re_put(&out, &n, &cap, R->cs[g], (size_t)(R->ce[g] - R->cs[g])); } else re_put(&out, &n, &cap, q, 1); } last = R->ce[0]; p = re_after(R); } if (last < R->e) re_put(&out, &n, &cap, last, (size_t)(R->e - last)); return (long)(intptr_t)out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memcpy(r, p, nb); memset(r + nb, 32, pad); r[nb + pad] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_case(long s, long up) { const unsigned char* p = (const unsigned char*)(intptr_t)s; long n = strlen((const char*)p); unsigned char* r = (unsigned char*)gc_atomic(n + 1); for (long i = 0; i <= n; i++) { unsigned char c = p[i]; if (up && c >= 97 && c <= 122) c = c - 32; if (!up && c >= 65 && c <= 90) c = c + 32; if (i > 0 && p[i - 1] == 195) { if (up && c >= 160 && c <= 190 && c != 183) c = c - 32; if (!up && c >= 128 && c <= 158 && c != 151) c = c + 32; } r[i] = c; } return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)gc_atomic(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_join(long lp, long sep) { SList* s = (SList*)(intptr_t)lp; const char* q = (const char*)(intptr_t)sep; long m = strlen(q); long n = 1; for (long i = 0; i < s->len; i++) n += strlen((const char*)(intptr_t)s->data[i]) + m; char* r = (char*)gc_atomic(n); r[0] = 0; for (long i = 0; i < s->len; i++) { if (i > 0) strcat(r, q); strcat(r, (const char*)(intptr_t)s->data[i]); } return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* keys; long* vals; unsigned long* hs; int* tab; long len; long cap; long tcap; } SMap;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_padleft(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memset(r, 32, pad); memcpy(r + pad, p, nb + 1); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static unsigned long m_hash(const char* s) { unsigned long h = 1469598103934665603UL; while (*s) { h ^= (unsigned char)*s++; h *= 1099511628211UL; } return h; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_padright(long s, long n) { const char* p = (const char*)(intptr_t)s; SL* e = s_info(p); long nb = e->nb; long pad = n - e->nl; if (pad <= 0) return s; char* r = (char*)gc_atomic(nb + pad + 1); memcpy(r, p, nb); memset(r + nb, 32, pad); r[nb + pad] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long m_findh(SMap* m, const char* key, unsigned long h) { long mask = m->tcap - 1; long j = (long)(h & (unsigned long)mask); while (m->tab[j]) { long i = m->tab[j] - 1; if (m->hs[i] == h && strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; j = (j + 1) & mask; } return -1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_replace(long s, long from, long to) { const char* p = (const char*)(intptr_t)s; const char* f = (const char*)(intptr_t)from; const char* t = (const char*)(intptr_t)to; long fl = strlen(f); if (fl == 0) return s; long tl = strlen(t); long pl = strlen(p); long count = 0; const char* q = p; while ((q = strstr(q, f)) != 0) { count++; q += fl; } char* r = (char*)gc_atomic(pl + count * (tl - fl) + 1); char* w = r; const char* a = p; while (1) { const char* hit = strstr(a, f); if (hit == 0) { strcpy(w, a); break; } long pre = hit - a; memcpy(w, a, pre); w += pre; memcpy(w, t, tl); w += tl; a = hit + fl; } return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_find(long mp, long k) { const char* key = (const char*)(intptr_t)k; return m_findh((SMap*)(intptr_t)mp, key, m_hash(key)); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { long* keys; long* vals; unsigned long* hs; int* tab; long len; long cap; long tcap; } SMap;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); m->hs = (unsigned long*)malloc(sizeof(unsigned long) * m->cap); m->tcap = 16; m->tab = (int*)calloc(m->tcap, sizeof(int)); return (long)(intptr_t)m; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static unsigned long m_hash(const char* s) { unsigned long h = 1469598103934665603UL; while (*s) { h ^= (unsigned char)*s++; h *= 1099511628211UL; } return h; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; unsigned long h = m_hash(key); long i = m_findh(m, key, h); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); m->hs = (unsigned long*)realloc(m->hs, sizeof(unsigned long) * m->cap); } if ((m->len + 1) * 2 > m->tcap) { m->tcap = m->tcap * 2; free(m->tab); m->tab = (int*)calloc(m->tcap, sizeof(int)); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } } m->keys[m->len] = k; m->vals[m->len] = v; m->hs[m->len] = h; long j = (long)(h & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(m->len + 1); m->len = m->len + 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long m_findh(SMap* m, const char* key, unsigned long h) { long mask = m->tcap - 1; long j = (long)(h & (unsigned long)mask); while (m->tab[j]) { long i = m->tab[j] - 1; if (m->hs[i] == h && strcmp((const char*)(intptr_t)m->keys[i], key) == 0) return i; j = (j + 1) & mask; } return -1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_find(long mp, long k) { const char* key = (const char*)(intptr_t)k; return m_findh((SMap*)(intptr_t)mp, key, m_hash(key)); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long Map() { SMap* m = (SMap*)malloc(sizeof(SMap)); m->cap = 8; m->len = 0; m->keys = (long*)malloc(sizeof(long) * m->cap); m->vals = (long*)malloc(sizeof(long) * m->cap); m->hs = (unsigned long*)malloc(sizeof(unsigned long) * m->cap); m->tcap = 16; m->tab = (int*)calloc(m->tcap, sizeof(int)); return (long)(intptr_t)m; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_getp(long mp, long k, long line) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; fprintf(stderr, \"%s: the map has no key \\\"%s\\\"; ask .has(key) first\\n\", simpler_at(line), (const char*)(intptr_t)k); exit(1); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_set(long mp, long k, long v) { SMap* m = (SMap*)(intptr_t)mp; const char* key = (const char*)(intptr_t)k; unsigned long h = m_hash(key); long i = m_findh(m, key, h); if (i >= 0) { m->vals[i] = v; return 0; } if (m->len == m->cap) { m->cap = m->cap * 2; m->keys = (long*)realloc(m->keys, sizeof(long) * m->cap); m->vals = (long*)realloc(m->vals, sizeof(long) * m->cap); m->hs = (unsigned long*)realloc(m->hs, sizeof(unsigned long) * m->cap); } if ((m->len + 1) * 2 > m->tcap) { m->tcap = m->tcap * 2; free(m->tab); m->tab = (int*)calloc(m->tcap, sizeof(int)); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } } m->keys[m->len] = k; m->vals[m->len] = v; m->hs[m->len] = h; long j = (long)(h & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(m->len + 1); m->len = m->len + 1; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_remove(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i < 0) return 0; for (long q = i; q + 1 < m->len; q++) { m->keys[q] = m->keys[q + 1]; m->vals[q] = m->vals[q + 1]; m->hs[q] = m->hs[q + 1]; } m->len--; memset(m->tab, 0, sizeof(int) * m->tcap); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_get(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_gets(long mp, long k) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; return (long)(intptr_t)\"\"; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_getp(long mp, long k, long line) { long i = m_find(mp, k); if (i >= 0) return ((SMap*)(intptr_t)mp)->vals[i]; fprintf(stderr, \"%s: the map has no key \\\"%s\\\"; ask .has(key) first\\n\", simpler_at(line), (const char*)(intptr_t)k); exit(1); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_remove(long mp, long k) { SMap* m = (SMap*)(intptr_t)mp; long i = m_find(mp, k); if (i < 0) return 0; for (long q = i; q + 1 < m->len; q++) { m->keys[q] = m->keys[q + 1]; m->vals[q] = m->vals[q + 1]; m->hs[q] = m->hs[q + 1]; } m->len--; memset(m->tab, 0, sizeof(int) * m->tcap); for (long q = 0; q < m->len; q++) { long j = (long)(m->hs[q] & (unsigned long)(m->tcap - 1)); while (m->tab[j]) j = (j + 1) & (m->tcap - 1); m->tab[j] = (int)(q + 1); } return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_has(long mp, long k) { return m_find(mp, k) >= 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_keys(long mp) { SMap* m = (SMap*)(intptr_t)mp; long l = l_new(); for (long i = 0; i < m->len; i++) l_push(l, m->keys[i]); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long m_byvalue(long mp) { SMap* m = (SMap*)(intptr_t)mp; long n = m->len; long c = n > 0 ? n : 1; long* idx = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) idx[i] = i; for (long i = 1; i < n; i++) { long t = idx[i]; long j = i - 1; while (j >= 0 && m->vals[idx[j]] < m->vals[t]) { idx[j + 1] = idx[j]; j = j - 1; } idx[j + 1] = t; } long l = l_new(); for (long i = 0; i < n; i++) l_push(l, m->keys[idx[i]]); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; size_t cap = 4096, got = 0, n; char* buf = (char*)gc_atomic(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return buf; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int cmp_long(const void* a, const void* b) { long x = *(const long*)a; long y = *(const long*)b; if (x < y) return -1; if (x > y) return 1; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p); static FILE* simpler_tmp(void);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int cmp_str(const void* a, const void* b) { return strcmp((const char*)(intptr_t)(*(const long*)a), (const char*)(intptr_t)(*(const long*)b)); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long l_sort(long lp, long isStr) { SList* s = (SList*)(intptr_t)lp; long n = s->len; long c = n > 0 ? n : 1; long* d = (long*)malloc(sizeof(long) * c); for (long i = 0; i < n; i++) d[i] = s->data[i]; qsort(d, n, sizeof(long), isStr ? cmp_str : cmp_long); long r = l_new(); for (long i = 0; i < n; i++) l_push(r, d[i]); return r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_append(long path, long content) { if (simpler_would(\"append to\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { simpler_wrote((const char*)(intptr_t)path); fputs((const char*)(intptr_t)content, f); fclose(f); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"const char* simpler_read(const char* path) { FILE* f = fopen(path, \"rb\"); if (!f) return \"\"; size_t cap = 4096, got = 0, n; char* buf = (char*)gc_atomic(cap + 1); while ((n = fread(buf + got, 1, cap - got, f)) > 0) { got += n; if (got == cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap + 1); } } buf[got] = 0; fclose(f); return simpler_nul(buf, (long)got); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p); static FILE* simpler_tmp(void);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_write(long path, long content) { if (simpler_would(\"write\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"w\"); if (f) { simpler_wrote((const char*)(intptr_t)path); simpler_puts((const char*)(intptr_t)content, f); fclose(f); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; if ((strncmp(rd, \"/sys\", 4) == 0 && strncmp(rp, \"/sys/\", 5) == 0) || (strncmp(rd, \"/proc\", 5) == 0 && strncmp(rp, \"/proc/\", 6) == 0)) return; fprintf(stderr, \"%s: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", simpler_at(line), verb, p, dir); exit(1); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_append(long path, long content) { if (simpler_would(\"append to\", (const char*)(intptr_t)path, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)path); FILE* f = fopen((const char*)(intptr_t)path, \"a\"); if (f) { simpler_wrote((const char*)(intptr_t)path); simpler_puts((const char*)(intptr_t)content, f); fclose(f); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_argc = 0; char** simpler_argv = 0; static const char* simpler_home(const char* p) { const char* h = getenv(\"HOME\"); if (p[0] != '~' || p[1] != '/' || !h) return p; char* r = (char*)gc_atomic(strlen(h) + strlen(p) + 1); strcpy(r, h); strcat(r, p + 1); return r; } long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = simpler_home((const char*)(intptr_t)path); path = (long)(intptr_t)p; for (int k = 0; ok[k]; k++) { const char* e = simpler_home(ok[k]); size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"%s: this program may not %s \\\"%s\\\"\\n\", simpler_at(line), verb, p); exit(1); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_args(int argc, char** argv) { long l = l_new(); for (int k = 1; k < argc; k++) l_push(l, (long)(intptr_t)argv[k]); return l; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)gc_atomic(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_glob(const char* pat, const char* s) { const char* star = 0; const char* mark = 0; while (*s) { if (*pat == '*') { star = pat++; mark = s; } else if (*pat == *s) { pat++; s++; } else if (star && *mark != '/') { pat = star + 1; s = ++mark; } else return 0; } while (*pat == '*') pat++; return *pat == 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)gc_atomic(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)gc_atomic(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_inside(const char* dir, const char* p, long line, const char* verb) { char rd[PATH_MAX], rp[PATH_MAX], tmp[PATH_MAX]; if (strlen(p) >= PATH_MAX || !realpath(dir, rd)) return; if (!realpath(p, rp)) { struct stat st; int link = lstat(p, &st) == 0 && S_ISLNK(st.st_mode); strcpy(tmp, p); char* sl = strrchr(tmp, '/'); if (!sl) strcpy(tmp, \".\"); else if (sl == tmp) tmp[1] = 0; else *sl = 0; if (!link && !realpath(tmp, rp)) return; if (link) rp[0] = 0; } size_t n = strlen(rd); if (n == 1 || (strncmp(rd, rp, n) == 0 && (rp[n] == 0 || rp[n] == '/'))) return; if ((strncmp(rd, \"/sys\", 4) == 0 && strncmp(rp, \"/sys/\", 5) == 0) || (strncmp(rd, \"/proc\", 5) == 0 && strncmp(rp, \"/proc/\", 6) == 0)) return; fprintf(stderr, \"%s: this program may not %s \\\"%s\\\": a link leads out of \\\"%s\\\"\\n\", simpler_at(line), verb, p, dir); exit(1); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p); long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0 && !simpler_unwritten((const char*)(intptr_t)path); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_argc = 0; char** simpler_argv = 0; static const char* simpler_home(const char* p) { const char* h = getenv(\"HOME\"); if (p[0] != '~' || p[1] != '/' || !h) return p; char* r = (char*)gc_atomic(strlen(h) + strlen(p) + 1); strcpy(r, h); strcat(r, p + 1); return r; } long simpler_may(long path, const char** ok, long line, const char* verb) { const char* p = simpler_home((const char*)(intptr_t)path); path = (long)(intptr_t)p; for (int k = 0; ok[k]; k++) { const char* e = simpler_home(ok[k]); size_t n = strlen(e); if (strcmp(e, \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) if (strcmp(simpler_argv[a], p) == 0) return path; continue; } if (strcmp(e, p) == 0) return path; if (strchr(e, '*') && simpler_glob(e, p) && strstr(p, \"..\") == 0) { char d[PATH_MAX]; size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else if (m < PATH_MAX) { memcpy(d, e, m); d[m] = 0; } else d[0] = 0; if (d[0]) simpler_inside(d, p, line, verb); return path; } if (strcmp(e, \"./\") == 0 && p[0] != '/' && strstr(p, \"..\") == 0) { simpler_inside(\".\", p, line, verb); return path; } if (n > 0 && e[n - 1] == '/' && strncmp(e, p, n) == 0 && strstr(p, \"..\") == 0) { simpler_inside(e, p, line, verb); return path; } } fprintf(stderr, \"%s: this program may not %s \\\"%s\\\"\\n\", simpler_at(line), verb, p); exit(1); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_rename(long a, long b, long line) { if (simpler_would(\"rename\", (const char*)(intptr_t)a, \"to\", (const char*)(intptr_t)b)) return 0; simpler_keep((const char*)(intptr_t)a); simpler_keep((const char*)(intptr_t)b); if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"%s: could not rename \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_dir(long path) { const char* p = (const char*)(intptr_t)path; size_t n = strlen(p); if (n > 0 && p[n - 1] == '/') return path; char* r = (char*)gc_atomic(n + 2); strcpy(r, p); r[n] = '/'; r[n + 1] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_delete(long a, long line) { if (simpler_would(\"delete\", (const char*)(intptr_t)a, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)a); if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"%s: could not delete \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_list(long path) { const char* p = (const char*)(intptr_t)path; long l = l_new(); DIR* d = opendir(p); if (!d) return l; struct dirent* e; while ((e = readdir(d)) != 0) { if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue; size_t n = strlen(p) + strlen(e->d_name) + 2; char* full = (char*)gc_atomic(n); strcpy(full, p); strcat(full, e->d_name); struct stat st; char* name = (char*)gc_atomic(strlen(e->d_name) + 2); strcpy(name, e->d_name); if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) strcat(name, \"/\"); free(full); l_push(l, (long)(intptr_t)name); } closedir(d); SList* s = (SList*)(intptr_t)l; qsort(s->data, s->len, sizeof(long), cmp_str); return l; }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_rd", ((R_Prog*)(intptr_t)prog)->reads)), 0L);
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p); long simpler_exists(long path) { struct stat st; return stat((const char*)(intptr_t)path, &st) == 0 && !simpler_unwritten((const char*)(intptr_t)path); }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_wr", ((R_Prog*)(intptr_t)prog)->writes)), 0L);
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_rename(long a, long b, long line) { if (simpler_would(\"rename\", (const char*)(intptr_t)a, \"to\", (const char*)(intptr_t)b)) return 0; simpler_keep((const char*)(intptr_t)a); simpler_keep((const char*)(intptr_t)b); if (rename((const char*)(intptr_t)a, (const char*)(intptr_t)b) != 0) { fprintf(stderr, \"%s: could not rename \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_rn", ((R_Prog*)(intptr_t)prog)->runs)), 0L);
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_delete(long a, long line) { if (simpler_would(\"delete\", (const char*)(intptr_t)a, 0, 0)) return 0; simpler_keep((const char*)(intptr_t)a); if (remove((const char*)(intptr_t)a) != 0) { fprintf(stderr, \"%s: could not delete \\\"%s\\\": %s\\n\", simpler_at(line), (const char*)(intptr_t)a, strerror(errno)); exit(1); } return 0; }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ft", ((R_Prog*)(intptr_t)prog)->fetches)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_rd", ((R_Prog*)(intptr_t)prog)->reads), stdout), fputc(10, stdout)), 0L);
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ml", ((R_Prog*)(intptr_t)prog)->mails)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_wr", ((R_Prog*)(intptr_t)prog)->writes), stdout), fputc(10, stdout)), 0L);
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ls", ((R_Prog*)(intptr_t)prog)->listens)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_rn", ((R_Prog*)(intptr_t)prog)->runs), stdout), fputc(10, stdout)), 0L);
+
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ft", ((R_Prog*)(intptr_t)prog)->fetches), stdout), fputc(10, stdout)), 0L);
+
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ml", ((R_Prog*)(intptr_t)prog)->mails), stdout), fputc(10, stdout)), 0L);
+
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_ls", ((R_Prog*)(intptr_t)prog)->listens), stdout), fputc(10, stdout)), 0L);
 
   pty = (long)(intptr_t)"0";
 
@@ -2006,363 +2015,363 @@ int main(int argc, char** argv) {
   pty = (long)(intptr_t)"1";
   }
 
-  (printf("%s\n", (const char*)(intptr_t)s_concat(s_concat((long)(intptr_t)"const int simpler_pty_want = ", pty), (long)(intptr_t)";")), 0L);
+  ((simpler_puts((const char*)(intptr_t)s_concat(s_concat((long)(intptr_t)"const int simpler_pty_want = ", pty), (long)(intptr_t)";"), stdout), fputc(10, stdout)), 0L);
 
-  (printf("%s\n", (const char*)(intptr_t)u_exTable(((R_Prog*)(intptr_t)prog)->examples)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_exTable(((R_Prog*)(intptr_t)prog)->examples), stdout), fputc(10, stdout)), 0L);
 
-  (printf("%s\n", (const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_lm", ((R_Prog*)(intptr_t)prog)->limits)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_mayTable((long)(intptr_t)"simpler_lm", ((R_Prog*)(intptr_t)prog)->limits), stdout), fputc(10, stdout)), 0L);
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long simpler_lmb = 0; static void simpler_over(int sig) { const char* m = sig == SIGXCPU ? \"simpler: stopped, the program used more processor time than its limits line allows\\n\" : \"simpler: stopped, most likely out of memory: its limits line allows less than it asked for\\n\"; if (write(2, m, strlen(m)) < 0) _exit(125); _exit(sig == SIGXCPU ? 124 : 125); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long simpler_lmb = 0; static void simpler_over(int sig) { const char* m = sig == SIGXCPU ? \"simpler: stopped, the program used more processor time than its limits line allows\\n\" : \"simpler: stopped, most likely out of memory: its limits line allows less than it asked for\\n\"; if (write(2, m, strlen(m)) < 0) _exit(125); _exit(sig == SIGXCPU ? 124 : 125); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_limits(void) { for (int k = 0; simpler_lm[k]; k++) { char* end = 0; long n = strtol(simpler_lm[k], &end, 10); struct rlimit r; if (n > 0 && strcmp(end, \"s\") == 0) { r.rlim_cur = (rlim_t)n; r.rlim_max = (rlim_t)n + 1; setrlimit(RLIMIT_CPU, &r); signal(SIGXCPU, simpler_over); } else if (n > 0 && strcmp(end, \"MB\") == 0) { r.rlim_cur = r.rlim_max = (rlim_t)n << 20; setrlimit(RLIMIT_AS, &r); signal(SIGSEGV, simpler_over); simpler_lmb = n; } else { fprintf(stderr, \"simpler: a limit is a time like \\\"2s\\\" or a size like \\\"50MB\\\", got \\\"%s\\\"\\n\", simpler_lm[k]); exit(1); } } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_limits(void) { for (int k = 0; simpler_lm[k]; k++) { char* end = 0; long n = strtol(simpler_lm[k], &end, 10); struct rlimit r; if (n > 0 && strcmp(end, \"s\") == 0) { r.rlim_cur = (rlim_t)n; r.rlim_max = (rlim_t)n + 1; setrlimit(RLIMIT_CPU, &r); signal(SIGXCPU, simpler_over); } else if (n > 0 && strcmp(end, \"MB\") == 0) { r.rlim_cur = r.rlim_max = (rlim_t)n << 20; setrlimit(RLIMIT_AS, &r); signal(SIGSEGV, simpler_over); simpler_lmb = n; } else { fprintf(stderr, \"simpler: a limit is a time like \\\"2s\\\" or a size like \\\"50MB\\\", got \\\"%s\\\"\\n\", simpler_lm[k]); exit(1); } } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static char simpler_jdir[PATH_MAX]; static char* simpler_kept[256]; static int simpler_nkept = 0; long simpler_self(); int simpler_deliver(const char* t, const char* msg); int simpler_mailok(const char* t);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static char simpler_jdir[PATH_MAX]; static char* simpler_kept[256]; static int simpler_nkept = 0; long simpler_self(); int simpler_deliver(const char* t, const char* msg); int simpler_mailok(const char* t);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_jinit(void) { if (!simpler_wr[0] || simpler_dry) return; const char* st = getenv(\"XDG_STATE_HOME\"); const char* h = getenv(\"HOME\"); char root[PATH_MAX]; if (st && st[0] == '/') snprintf(root, sizeof root, \"%s/simpler\", st); else if (h) snprintf(root, sizeof root, \"%s/.local/state/simpler\", h); else return; unsigned long long x = 1469598103934665603ULL; for (const char* c = (const char*)(intptr_t)simpler_self(); *c; c++) { x ^= (unsigned char)*c; x *= 1099511628211ULL; } if (snprintf(simpler_jdir, sizeof simpler_jdir, \"%s/undo/%016llx\", root, x) >= (int)sizeof simpler_jdir) { simpler_jdir[0] = 0; return; } if (mkdir(simpler_jdir, 0700) == 0 || errno == EEXIST) return; char b[PATH_MAX]; strcpy(b, simpler_jdir); for (char* c = b + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(b, 0700); *c = '/'; } if (mkdir(simpler_jdir, 0700) != 0 && errno != EEXIST) simpler_jdir[0] = 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_jinit(void) { if (!simpler_wr[0] || simpler_dry) return; const char* st = getenv(\"XDG_STATE_HOME\"); const char* h = getenv(\"HOME\"); char root[PATH_MAX]; if (st && st[0] == '/') snprintf(root, sizeof root, \"%s/simpler\", st); else if (h) snprintf(root, sizeof root, \"%s/.local/state/simpler\", h); else return; unsigned long long x = 1469598103934665603ULL; for (const char* c = (const char*)(intptr_t)simpler_self(); *c; c++) { x ^= (unsigned char)*c; x *= 1099511628211ULL; } if (snprintf(simpler_jdir, sizeof simpler_jdir, \"%s/undo/%016llx\", root, x) >= (int)sizeof simpler_jdir) { simpler_jdir[0] = 0; return; } if (mkdir(simpler_jdir, 0700) == 0 || errno == EEXIST) return; char b[PATH_MAX]; strcpy(b, simpler_jdir); for (char* c = b + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(b, 0700); *c = '/'; } if (mkdir(simpler_jdir, 0700) != 0 && errno != EEXIST) simpler_jdir[0] = 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_keep_do(const char* ab, const char* flag) { static int opened = 0; static long num = 0; char f[PATH_MAX + 32]; if (!opened) { opened = 1; for (int k = 1; ; k++) { snprintf(f, sizeof f, \"%s/%d\", simpler_jdir, k); if (unlink(f) != 0) break; } snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = fopen(f, \"w\"); if (l) fclose(l); } struct stat st; long tag = 0; if (flag[0] == 0 && lstat(ab, &st) == 0) { if (!S_ISREG(st.st_mode) || st.st_size > (16L << 20)) tag = -1; else { tag = ++num; snprintf(f, sizeof f, \"%s/%ld\", simpler_jdir, tag); FILE* in = fopen(ab, \"rb\"); FILE* out = fopen(f, \"wb\"); if (in && out) { char buf[65536]; size_t r; while ((r = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, r, out); } else tag = -1; if (in) fclose(in); if (out) fclose(out); } } snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = fopen(f, \"a\"); if (l) { fprintf(l, \"%ld\\t%s\\n\", tag, ab); fclose(l); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_keep_do(const char* ab, const char* flag) { static int opened = 0; static long num = 0; char f[PATH_MAX + 32]; if (!opened) { opened = 1; for (int k = 1; ; k++) { snprintf(f, sizeof f, \"%s/%d\", simpler_jdir, k); if (unlink(f) != 0) break; } snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = fopen(f, \"w\"); if (l) fclose(l); } struct stat st; long tag = 0; if (flag[0] == 0 && lstat(ab, &st) == 0) { if (!S_ISREG(st.st_mode) || st.st_size > (16L << 20)) tag = -1; else { tag = ++num; snprintf(f, sizeof f, \"%s/%ld\", simpler_jdir, tag); FILE* in = fopen(ab, \"rb\"); FILE* out = fopen(f, \"wb\"); if (in && out) { char buf[65536]; size_t r; while ((r = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, r, out); } else tag = -1; if (in) fclose(in); if (out) fclose(out); } } snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = fopen(f, \"a\"); if (l) { fprintf(l, \"%ld\\t%s\\n\", tag, ab); fclose(l); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_undo(void) { if (!getenv(\"SIMPLER_UNDO\")) return; char f[PATH_MAX + 32]; snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = simpler_jdir[0] ? fopen(f, \"r\") : 0; static char* lines[4096]; int n = 0; static char buf[65536]; while (l && n < 4096 && fgets(buf, PATH_MAX + 64, l)) { size_t k = strlen(buf); if (k > 0 && buf[k - 1] == 10) buf[k - 1] = 0; lines[n++] = strdup(buf); } if (l) fclose(l); int done = 0; for (int k = n - 1; k >= 0; k--) { char* tab = strchr(lines[k], 9); if (!tab) continue; *tab = 0; const char* p = tab + 1; long tag = atol(lines[k]); if (tag == 0) { if (unlink(p) == 0) { printf(\"removed %s\\n\", p); done++; } } else if (tag < 0) { printf(\"not kept, so left as it is: %s\\n\", p); done++; } else { snprintf(f, sizeof f, \"%s/%ld\", simpler_jdir, tag); FILE* in = fopen(f, \"rb\"); FILE* out = in ? fopen(p, \"wb\") : 0; if (in && out) { size_t r; while ((r = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, r, out); printf(\"restored %s\\n\", p); done++; } else printf(\"could not restore %s\\n\", p); if (in) fclose(in); if (out) fclose(out); unlink(f); } } if (simpler_jdir[0]) { snprintf(f, sizeof f, \"%s/log\", simpler_jdir); unlink(f); } if (!done) printf(\"nothing to undo\\n\"); exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_undo(void) { if (!getenv(\"SIMPLER_UNDO\")) return; char f[PATH_MAX + 32]; snprintf(f, sizeof f, \"%s/log\", simpler_jdir); FILE* l = simpler_jdir[0] ? fopen(f, \"r\") : 0; static char* lines[4096]; int n = 0; static char buf[65536]; while (l && n < 4096 && fgets(buf, PATH_MAX + 64, l)) { size_t k = strlen(buf); if (k > 0 && buf[k - 1] == 10) buf[k - 1] = 0; lines[n++] = strdup(buf); } if (l) fclose(l); int done = 0; for (int k = n - 1; k >= 0; k--) { char* tab = strchr(lines[k], 9); if (!tab) continue; *tab = 0; const char* p = tab + 1; long tag = atol(lines[k]); if (tag == 0) { if (unlink(p) == 0) { printf(\"removed %s\\n\", p); done++; } } else if (tag < 0) { printf(\"not kept, so left as it is: %s\\n\", p); done++; } else { snprintf(f, sizeof f, \"%s/%ld\", simpler_jdir, tag); FILE* in = fopen(f, \"rb\"); FILE* out = in ? fopen(p, \"wb\") : 0; if (in && out) { size_t r; while ((r = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, r, out); printf(\"restored %s\\n\", p); done++; } else printf(\"could not restore %s\\n\", p); if (in) fclose(in); if (out) fclose(out); unlink(f); } } if (simpler_jdir[0]) { snprintf(f, sizeof f, \"%s/log\", simpler_jdir); unlink(f); } if (!done) printf(\"nothing to undo\\n\"); exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_hostok(const char* h) { if (strchr(h, 64) || strchr(h, 92)) return 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], h) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], h))) return 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_hostok(const char* h) { if (strchr(h, 64) || strchr(h, 92)) return 0; for (int k = 0; simpler_ft[k]; k++) if (strcmp(simpler_ft[k], h) == 0 || (strchr(simpler_ft[k], '*') && simpler_glob(simpler_ft[k], h))) return 1; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#if defined(__linux__) && defined(__has_include) && __has_include(<linux/landlock.h>)");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#if defined(__linux__) && defined(__has_include) && __has_include(<linux/landlock.h>)", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <linux/landlock.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <linux/landlock.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/syscall.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/syscall.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/prctl.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/prctl.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <fcntl.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <fcntl.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#ifndef O_PATH");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#ifndef O_PATH", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define O_PATH 010000000");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define O_PATH 010000000", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#endif");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#endif", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define SL_FILE (1ULL | 2ULL | 4ULL | (1ULL << 14) | (1ULL << 15))");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define SL_FILE (1ULL | 2ULL | 4ULL | (1ULL << 14) | (1ULL << 15))", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_ll = -1; static unsigned long long simpler_ll_fs = 0; static char* simpler_made[64]; static int simpler_nmade = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_ll = -1; static unsigned long long simpler_ll_fs = 0; static char* simpler_made[64]; static int simpler_nmade = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow(const char* path, unsigned long long rights) { int fd = open(path, O_PATH | O_CLOEXEC); if (fd < 0) return; struct stat st; if (fstat(fd, &st) == 0 && !S_ISDIR(st.st_mode)) rights &= SL_FILE; struct landlock_path_beneath_attr a; memset(&a, 0, sizeof a); a.allowed_access = rights & simpler_ll_fs; a.parent_fd = fd; if (a.allowed_access) syscall(SYS_landlock_add_rule, simpler_ll, LANDLOCK_RULE_PATH_BENEATH, &a, 0); close(fd); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow(const char* path, unsigned long long rights) { int fd = open(path, O_PATH | O_CLOEXEC); if (fd < 0) return; struct stat st; if (fstat(fd, &st) == 0 && !S_ISDIR(st.st_mode)) rights &= SL_FILE; struct landlock_path_beneath_attr a; memset(&a, 0, sizeof a); a.allowed_access = rights & simpler_ll_fs; a.parent_fd = fd; if (a.allowed_access) syscall(SYS_landlock_add_rule, simpler_ll, LANDLOCK_RULE_PATH_BENEATH, &a, 0); close(fd); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_unmade(void) { for (int k = 0; k < simpler_nmade; k++) { struct stat st; if (simpler_made[k] && stat(simpler_made[k], &st) == 0 && st.st_size == 0) unlink(simpler_made[k]); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_unmade(void) { for (int k = 0; k < simpler_nmade; k++) { struct stat st; if (simpler_made[k] && stat(simpler_made[k], &st) == 0 && st.st_size == 0) unlink(simpler_made[k]); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p) { for (int k = 0; k < simpler_nmade; k++) if (simpler_made[k] && strcmp(simpler_made[k], p) == 0) simpler_made[k] = 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p) { for (int k = 0; k < simpler_nmade; k++) if (simpler_made[k] && strcmp(simpler_made[k], p) == 0) simpler_made[k] = 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_one(const char* e, unsigned long long rights, int make) { char d[PATH_MAX]; size_t n = strlen(e); if (n == 0 || n >= PATH_MAX) return; if (strchr(e, '*')) { size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else { memcpy(d, e, m); d[m] = 0; } simpler_allow(d, rights); return; } struct stat st; if (make && e[n - 1] != '/' && lstat(e, &st) != 0) { int fd = open(e, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0666); if (fd >= 0) { close(fd); if (simpler_nmade < 64) { if (simpler_nmade == 0) atexit(simpler_unmade); simpler_made[simpler_nmade++] = strdup(e); } } } simpler_allow(e, rights); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_one(const char* e, unsigned long long rights, int make) { char d[PATH_MAX]; size_t n = strlen(e); if (n == 0 || n >= PATH_MAX) return; if (strchr(e, '*')) { size_t m = strcspn(e, \"*\"); while (m > 0 && e[m - 1] != '/') m--; if (m == 0) strcpy(d, \".\"); else { memcpy(d, e, m); d[m] = 0; } simpler_allow(d, rights); return; } struct stat st; if (make && e[n - 1] != '/' && lstat(e, &st) != 0) { int fd = open(e, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0666); if (fd >= 0) { close(fd); if (simpler_nmade < 64) { if (simpler_nmade == 0) atexit(simpler_unmade); simpler_made[simpler_nmade++] = strdup(e); } } } simpler_allow(e, rights); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_all(const char** list, unsigned long long rights, int make) { for (int k = 0; list[k]; k++) { if (strcmp(list[k], \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) simpler_allow_one(simpler_argv[a], rights, make); continue; } simpler_allow_one(simpler_home(list[k]), rights, make); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_all(const char** list, unsigned long long rights, int make) { for (int k = 0; list[k]; k++) { if (strcmp(list[k], \"<args>\") == 0) { for (int a = 1; a < simpler_argc; a++) simpler_allow_one(simpler_argv[a], rights, make); continue; } simpler_allow_one(simpler_home(list[k]), rights, make); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_prog(const char* name) { char b[PATH_MAX], r[PATH_MAX]; if (strchr(name, '/')) { if (realpath(simpler_home(name), r)) simpler_allow(r, 1ULL | 4ULL); return; } const char* path = getenv(\"PATH\"); if (!path) return; while (*path) { size_t n = strcspn(path, \":\"); if (n > 0 && n + strlen(name) + 2 < sizeof b) { memcpy(b, path, n); b[n] = '/'; strcpy(b + n + 1, name); if (access(b, X_OK) == 0 && realpath(b, r)) { simpler_allow(b, 1ULL | 4ULL); simpler_allow(r, 1ULL | 4ULL); return; } } path += n; if (*path == ':') path++; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_allow_prog(const char* name) { char b[PATH_MAX], r[PATH_MAX]; if (strchr(name, '/')) { if (realpath(simpler_home(name), r)) simpler_allow(r, 1ULL | 4ULL); return; } const char* path = getenv(\"PATH\"); if (!path) return; while (*path) { size_t n = strcspn(path, \":\"); if (n > 0 && n + strlen(name) + 2 < sizeof b) { memcpy(b, path, n); b[n] = '/'; strcpy(b + n + 1, name); if (access(b, X_OK) == 0 && realpath(b, r)) { simpler_allow(b, 1ULL | 4ULL); simpler_allow(r, 1ULL | 4ULL); return; } } path += n; if (*path == ':') path++; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/socket.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/socket.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_mfd = -1;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_mfd = -1;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p) { struct stat st; for (int k = 0; k < simpler_nmade; k++) if (simpler_made[k] && strcmp(simpler_made[k], p) == 0) return stat(p, &st) == 0 && st.st_size == 0; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p) { struct stat st; for (int k = 0; k < simpler_nmade; k++) if (simpler_made[k] && strcmp(simpler_made[k], p) == 0) return stat(p, &st) == 0 && st.st_size == 0; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_io(int fd, void* p, size_t n, int wr) { char* c = (char*)p; while (n > 0) { ssize_t k = wr ? write(fd, c, n) : read(fd, c, n); if (k <= 0) { if (k < 0 && errno == EINTR) continue; return 0; } c += k; n -= (size_t)k; } return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_io(int fd, void* p, size_t n, int wr) { char* c = (char*)p; while (n > 0) { ssize_t k = wr ? write(fd, c, n) : read(fd, c, n); if (k <= 0) { if (k < 0 && errno == EINTR) continue; return 0; } c += k; n -= (size_t)k; } return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_broker(void) { int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid > 0) { close(sv[1]); simpler_mfd = sv[0]; return; } close(sv[0]); for (;;) { unsigned int n[3]; if (!simpler_io(sv[1], n, sizeof n, 0) || n[1] > 8192 || n[2] > (64U << 20)) _exit(0); char* t = (char*)gc_atomic(n[1] + 1); char* m = (char*)gc_atomic(n[2] + 1); if (!t || !m || !simpler_io(sv[1], t, n[1], 0) || !simpler_io(sv[1], m, n[2], 0)) _exit(0); t[n[1]] = 0; m[n[2]] = 0; int code = n[0] == 2 ? simpler_keep_do(t, m) : simpler_mailok(t) ? simpler_deliver(t, m) : 126; free(t); free(m); if (!simpler_io(sv[1], &code, sizeof code, 1)) _exit(0); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_broker(void) { int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) return; fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid > 0) { close(sv[1]); simpler_mfd = sv[0]; return; } close(sv[0]); for (;;) { unsigned int n[3]; if (!simpler_io(sv[1], n, sizeof n, 0) || n[1] > 8192 || n[2] > (64U << 20)) _exit(0); char* t = (char*)gc_atomic(n[1] + 1); char* m = (char*)gc_atomic(n[2] + 1); if (!t || !m || !simpler_io(sv[1], t, n[1], 0) || !simpler_io(sv[1], m, n[2], 0)) _exit(0); t[n[1]] = 0; m[n[2]] = 0; int code = n[0] == 2 ? simpler_keep_do(t, m) : simpler_mailok(t) ? simpler_deliver(t, m) : 126; free(t); free(m); if (!simpler_io(sv[1], &code, sizeof code, 1)) _exit(0); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_ask(int op, const char* t, const char* msg) { if (simpler_mfd < 0) return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); unsigned int n[3] = {(unsigned int)op, (unsigned int)strlen(t), (unsigned int)strlen(msg)}; int code = 127; if (!simpler_io(simpler_mfd, n, sizeof n, 1) || !simpler_io(simpler_mfd, (void*)t, n[1], 1) || !simpler_io(simpler_mfd, (void*)msg, n[2], 1) || !simpler_io(simpler_mfd, &code, sizeof code, 0)) return 127; return code; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_ask(int op, const char* t, const char* msg) { if (simpler_mfd < 0) return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); unsigned int n[3] = {(unsigned int)op, (unsigned int)strlen(t), (unsigned int)strlen(msg)}; int code = 127; if (!simpler_io(simpler_mfd, n, sizeof n, 1) || !simpler_io(simpler_mfd, (void*)t, n[1], 1) || !simpler_io(simpler_mfd, (void*)msg, n[2], 1) || !simpler_io(simpler_mfd, &code, sizeof code, 0)) return 127; return code; }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_ptyRuntime()), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_ptyRuntime(), stdout), fputc(10, stdout)), 0L);
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <netdb.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <netdb.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <netinet/in.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <netinet/in.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <sys/socket.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <sys/socket.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <net/if.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <net/if.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_say(int c, const char* st) { dprintf(c, \"HTTP/1.1 %s\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n\", st); _exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_say(int c, const char* st) { dprintf(c, \"HTTP/1.1 %s\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n\", st); _exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_one(int c) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_one(int c) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char b[16384]; size_t n = 0; char* e = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char b[16384]; size_t n = 0; char* e = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  while (!e) { if (n == sizeof b - 1) _exit(0); ssize_t r = read(c, b + n, sizeof b - 1 - n); if (r <= 0) _exit(0); n += (size_t)r; b[n] = 0; e = strstr(b, \"\\r\\n\\r\\n\"); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  while (!e) { if (n == sizeof b - 1) _exit(0); ssize_t r = read(c, b + n, sizeof b - 1 - n); if (r <= 0) _exit(0); n += (size_t)r; b[n] = 0; e = strstr(b, \"\\r\\n\\r\\n\"); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char m[16], t[2048]; if (sscanf(b, \"%15s %2047s\", m, t) != 2) _exit(0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char m[16], t[2048]; if (sscanf(b, \"%15s %2047s\", m, t) != 2) _exit(0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int tunnel = strcmp(m, \"CONNECT\") == 0; char* h = t;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int tunnel = strcmp(m, \"CONNECT\") == 0; char* h = t;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!tunnel) { if (strncmp(t, \"http://\", 7) != 0) simpler_gate_say(c, \"403 Forbidden\"); h = t + 7; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!tunnel) { if (strncmp(t, \"http://\", 7) != 0) simpler_gate_say(c, \"403 Forbidden\"); h = t + 7; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  size_t hn = strcspn(h, \":/?#\"); char host[256], port[8]; if (hn == 0 || hn >= sizeof host) simpler_gate_say(c, \"403 Forbidden\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  size_t hn = strcspn(h, \":/?#\"); char host[256], port[8]; if (hn == 0 || hn >= sizeof host) simpler_gate_say(c, \"403 Forbidden\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  memcpy(host, h, hn); host[hn] = 0; strcpy(port, tunnel ? \"443\" : \"80\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  memcpy(host, h, hn); host[hn] = 0; strcpy(port, tunnel ? \"443\" : \"80\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (h[hn] == ':') { size_t pn = strcspn(h + hn + 1, \"/?#\"); if (pn == 0 || pn >= sizeof port) simpler_gate_say(c, \"403 Forbidden\"); memcpy(port, h + hn + 1, pn); port[pn] = 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (h[hn] == ':') { size_t pn = strcspn(h + hn + 1, \"/?#\"); if (pn == 0 || pn >= sizeof port) simpler_gate_say(c, \"403 Forbidden\"); memcpy(port, h + hn + 1, pn); port[pn] = 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!simpler_hostok(host)) simpler_gate_say(c, \"403 Forbidden\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!simpler_hostok(host)) simpler_gate_say(c, \"403 Forbidden\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct addrinfo hint, *ai; memset(&hint, 0, sizeof hint); hint.ai_socktype = SOCK_STREAM; hint.ai_flags = AI_ADDRCONFIG; if (getaddrinfo(host, port, &hint, &ai) != 0) _exit(0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct addrinfo hint, *ai; memset(&hint, 0, sizeof hint); hint.ai_socktype = SOCK_STREAM; hint.ai_flags = AI_ADDRCONFIG; if (getaddrinfo(host, port, &hint, &ai) != 0) _exit(0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int s = -1; for (struct addrinfo* a = ai; a && s < 0; a = a->ai_next) { s = socket(a->ai_family, SOCK_STREAM, 0); if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int s = -1; for (struct addrinfo* a = ai; a && s < 0; a = a->ai_next) { s = socket(a->ai_family, SOCK_STREAM, 0); if (s >= 0 && connect(s, a->ai_addr, a->ai_addrlen) != 0) { close(s); s = -1; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  freeaddrinfo(ai); if (s < 0) _exit(0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  freeaddrinfo(ai); if (s < 0) _exit(0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (tunnel) { const char ok[] = \"HTTP/1.1 200 Connection established\\r\\n\\r\\n\"; if (!simpler_io(c, (void*)ok, sizeof ok - 1, 1)) _exit(0); size_t hd = (size_t)(e + 4 - b); if (n > hd && !simpler_io(s, b + hd, n - hd, 1)) _exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (tunnel) { const char ok[] = \"HTTP/1.1 200 Connection established\\r\\n\\r\\n\"; if (!simpler_io(c, (void*)ok, sizeof ok - 1, 1)) _exit(0); size_t hd = (size_t)(e + 4 - b); if (n > hd && !simpler_io(s, b + hd, n - hd, 1)) _exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  else { char* ps = h + strcspn(h, \"/?#\"); char* rest = strstr(b, t) + strlen(t); if (!simpler_io(s, m, strlen(m), 1) || !simpler_io(s, (void*)(*ps == '/' ? \" \" : \" /\"), *ps == '/' ? 1 : 2, 1) || !simpler_io(s, ps, strlen(ps), 1) || !simpler_io(s, rest, (size_t)(b + n - rest), 1)) _exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  else { char* ps = h + strcspn(h, \"/?#\"); char* rest = strstr(b, t) + strlen(t); if (!simpler_io(s, m, strlen(m), 1) || !simpler_io(s, (void*)(*ps == '/' ? \" \" : \" /\"), *ps == '/' ? 1 : 2, 1) || !simpler_io(s, ps, strlen(ps), 1) || !simpler_io(s, rest, (size_t)(b + n - rest), 1)) _exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct pollfd p[2] = {{c, POLLIN, 0}, {s, POLLIN, 0}};");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct pollfd p[2] = {{c, POLLIN, 0}, {s, POLLIN, 0}};", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  for (;;) { if (poll(p, 2, -1) < 0) { if (errno == EINTR) continue; _exit(0); } for (int i = 0; i < 2; i++) if (p[i].revents) { ssize_t r = read(p[i].fd, b, sizeof b); if (r <= 0 || !simpler_io(p[1 - i].fd, b, (size_t)r, 1)) _exit(0); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  for (;;) { if (poll(p, 2, -1) < 0) { if (errno == EINTR) continue; _exit(0); } for (int i = 0; i < 2; i++) if (p[i].revents) { ssize_t r = read(p[i].fd, b, sizeof b); if (r <= 0 || !simpler_io(p[1 - i].fd, b, (size_t)r, 1)) _exit(0); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"}");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"}", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate(int ctl, pid_t up) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate(int ctl, pid_t up) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  prctl(PR_SET_PDEATHSIG, SIGKILL); if (getppid() != up) _exit(0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  prctl(PR_SET_PDEATHSIG, SIGKILL); if (getppid() != up) _exit(0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int nul = open(\"/dev/null\", O_RDWR); if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int nul = open(\"/dev/null\", O_RDWR); if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char x; char cm[CMSG_SPACE(sizeof(int))]; struct iovec io = {&x, 1}; struct msghdr mh; memset(&mh, 0, sizeof mh); mh.msg_iov = &io; mh.msg_iovlen = 1; mh.msg_control = cm; mh.msg_controllen = sizeof cm;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char x; char cm[CMSG_SPACE(sizeof(int))]; struct iovec io = {&x, 1}; struct msghdr mh; memset(&mh, 0, sizeof mh); mh.msg_iov = &io; mh.msg_iovlen = 1; mh.msg_control = cm; mh.msg_controllen = sizeof cm;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (recvmsg(ctl, &mh, 0) != 1) _exit(0); struct cmsghdr* ch = CMSG_FIRSTHDR(&mh); if (!ch || ch->cmsg_type != SCM_RIGHTS) _exit(0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (recvmsg(ctl, &mh, 0) != 1) _exit(0); struct cmsghdr* ch = CMSG_FIRSTHDR(&mh); if (!ch || ch->cmsg_type != SCM_RIGHTS) _exit(0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int l; memcpy(&l, CMSG_DATA(ch), sizeof l); close(ctl); signal(SIGCHLD, SIG_IGN);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int l; memcpy(&l, CMSG_DATA(ch), sizeof l); close(ctl); signal(SIGCHLD, SIG_IGN);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  for (;;) { int c = accept(l, 0, 0); if (c < 0) { if (errno == EINTR || errno == ECONNABORTED) continue; _exit(0); } pid_t pid = fork(); if (pid == 0) { close(l); simpler_gate_one(c); } close(c); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  for (;;) { int c = accept(l, 0, 0); if (c < 0) { if (errno == EINTR || errno == ECONNABORTED) continue; _exit(0); } pid_t pid = fork(); if (pid == 0) { close(l); simpler_gate_one(c); } close(c); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"}");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"}", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_in(int ctl) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_in(int ctl) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int l = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); struct sockaddr_in a; memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); socklen_t al = sizeof a;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int l = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0); struct sockaddr_in a; memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); socklen_t al = sizeof a;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (l < 0 || bind(l, (struct sockaddr*)&a, sizeof a) != 0 || listen(l, 64) != 0 || getsockname(l, (struct sockaddr*)&a, &al) != 0) { fprintf(stderr, \"simpler: the website gate could not start: %s\\n\", strerror(errno)); exit(1); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (l < 0 || bind(l, (struct sockaddr*)&a, sizeof a) != 0 || listen(l, 64) != 0 || getsockname(l, (struct sockaddr*)&a, &al) != 0) { fprintf(stderr, \"simpler: the website gate could not start: %s\\n\", strerror(errno)); exit(1); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char x = 0; char cm[CMSG_SPACE(sizeof(int))]; memset(cm, 0, sizeof cm); struct iovec io = {&x, 1}; struct msghdr mh; memset(&mh, 0, sizeof mh); mh.msg_iov = &io; mh.msg_iovlen = 1; mh.msg_control = cm; mh.msg_controllen = sizeof cm;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char x = 0; char cm[CMSG_SPACE(sizeof(int))]; memset(cm, 0, sizeof cm); struct iovec io = {&x, 1}; struct msghdr mh; memset(&mh, 0, sizeof mh); mh.msg_iov = &io; mh.msg_iovlen = 1; mh.msg_control = cm; mh.msg_controllen = sizeof cm;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct cmsghdr* ch = CMSG_FIRSTHDR(&mh); ch->cmsg_level = SOL_SOCKET; ch->cmsg_type = SCM_RIGHTS; ch->cmsg_len = CMSG_LEN(sizeof(int)); memcpy(CMSG_DATA(ch), &l, sizeof l);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct cmsghdr* ch = CMSG_FIRSTHDR(&mh); ch->cmsg_level = SOL_SOCKET; ch->cmsg_type = SCM_RIGHTS; ch->cmsg_len = CMSG_LEN(sizeof(int)); memcpy(CMSG_DATA(ch), &l, sizeof l);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (sendmsg(ctl, &mh, 0) != 1) { fprintf(stderr, \"simpler: the website gate could not start\\n\"); exit(1); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (sendmsg(ctl, &mh, 0) != 1) { fprintf(stderr, \"simpler: the website gate could not start\\n\"); exit(1); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  close(l); close(ctl); signal(SIGINT, SIG_DFL); signal(SIGQUIT, SIG_DFL);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  close(l); close(ctl); signal(SIGINT, SIG_DFL); signal(SIGQUIT, SIG_DFL);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char u[40]; snprintf(u, sizeof u, \"http://127.0.0.1:%d\", ntohs(a.sin_port)); const char* pv[] = {\"https_proxy\", \"HTTPS_PROXY\", \"http_proxy\", \"HTTP_PROXY\", \"all_proxy\", \"ALL_PROXY\", 0};");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char u[40]; snprintf(u, sizeof u, \"http://127.0.0.1:%d\", ntohs(a.sin_port)); const char* pv[] = {\"https_proxy\", \"HTTPS_PROXY\", \"http_proxy\", \"HTTP_PROXY\", \"all_proxy\", \"ALL_PROXY\", 0};", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  for (int k = 0; pv[k]; k++) setenv(pv[k], u, 1); unsetenv(\"no_proxy\"); unsetenv(\"NO_PROXY\");");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  for (int k = 0; pv[k]; k++) setenv(pv[k], u, 1); unsetenv(\"no_proxy\"); unsetenv(\"NO_PROXY\");", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"}");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"}", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_start(void) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_start(void) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  const char* g = getenv(\"SIMPLER_GATE\"); if (g) { int fd = atoi(g); unsetenv(\"SIMPLER_GATE\"); simpler_gate_in(fd); return; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  const char* g = getenv(\"SIMPLER_GATE\"); if (g) { int fd = atoi(g); unsetenv(\"SIMPLER_GATE\"); simpler_gate_in(fd); return; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  if (!simpler_rn[0] || !simpler_ft[0] || getenv(\"SIMPLER_DRY\")) return;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  if (!simpler_rn[0] || !simpler_ft[0] || getenv(\"SIMPLER_DRY\")) return;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct if_nameindex* ifs = if_nameindex(); int other = 0; if (ifs) { for (struct if_nameindex* i = ifs; i->if_index; i++) if (strcmp(i->if_name, \"lo\") != 0) other = 1; if_freenameindex(ifs); } if (!other) return;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct if_nameindex* ifs = if_nameindex(); int other = 0; if (ifs) { for (struct if_nameindex* i = ifs; i->if_index; i++) if (strcmp(i->if_name, \"lo\") != 0) other = 1; if_freenameindex(ifs); } if (!other) return;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char self[PATH_MAX]; ssize_t sn = readlink(\"/proc/self/exe\", self, sizeof self - 1); if (sn <= 0) return; self[sn] = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char self[PATH_MAX]; ssize_t sn = readlink(\"/proc/self/exe\", self, sizeof self - 1); if (sn <= 0) return; self[sn] = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return; fcntl(sv[0], F_SETFD, FD_CLOEXEC);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  int sv[2]; if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0) return; fcntl(sv[0], F_SETFD, FD_CLOEXEC);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  pid_t me = getpid(); fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid == 0) { close(sv[1]); simpler_gate(sv[0], me); _exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  pid_t me = getpid(); fflush(stdout); pid_t pid = fork(); if (pid < 0) { close(sv[0]); close(sv[1]); return; } if (pid == 0) { close(sv[1]); simpler_gate(sv[0], me); _exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  close(sv[0]); char fd[16]; snprintf(fd, sizeof fd, \"%d\", sv[1]); setenv(\"SIMPLER_GATE\", fd, 1);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  close(sv[0]); char fd[16]; snprintf(fd, sizeof fd, \"%d\", sv[1]); setenv(\"SIMPLER_GATE\", fd, 1);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  char** av = (char**)calloc((size_t)simpler_argc + 8, sizeof(char*)); int n = 0; const char* pre[] = {\"bwrap\", \"--dev-bind\", \"/\", \"/\", \"--unshare-net\", \"--\", 0};");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  char** av = (char**)calloc((size_t)simpler_argc + 8, sizeof(char*)); int n = 0; const char* pre[] = {\"bwrap\", \"--dev-bind\", \"/\", \"/\", \"--unshare-net\", \"--\", 0};", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  for (int k = 0; pre[k]; k++) av[n++] = (char*)pre[k]; av[n++] = self; for (int k = 1; k < simpler_argc; k++) av[n++] = simpler_argv[k]; av[n] = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  for (int k = 0; pre[k]; k++) av[n++] = (char*)pre[k]; av[n++] = self; for (int k = 1; k < simpler_argc; k++) av[n++] = simpler_argv[k]; av[n] = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct sigaction ign; memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, 0); sigaction(SIGQUIT, &ign, 0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct sigaction ign; memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, 0); sigaction(SIGQUIT, &ign, 0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  execvp(\"bwrap\", av);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  execvp(\"bwrap\", av);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  signal(SIGINT, SIG_DFL); signal(SIGQUIT, SIG_DFL); kill(pid, SIGKILL); waitpid(pid, 0, 0); close(sv[1]); unsetenv(\"SIMPLER_GATE\"); free(av);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  signal(SIGINT, SIG_DFL); signal(SIGQUIT, SIG_DFL); kill(pid, SIGKILL); waitpid(pid, 0, 0); close(sv[1]); unsetenv(\"SIMPLER_GATE\"); free(av);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"}");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"}", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <stddef.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <stddef.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <linux/seccomp.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <linux/seccomp.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <linux/filter.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <linux/filter.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <linux/audit.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <linux/audit.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#if defined(__x86_64__)");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#if defined(__x86_64__)", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define SIMPLER_ARCH AUDIT_ARCH_X86_64");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define SIMPLER_ARCH AUDIT_ARCH_X86_64", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#elif defined(__aarch64__)");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#elif defined(__aarch64__)", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#define SIMPLER_ARCH AUDIT_ARCH_AARCH64");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#define SIMPLER_ARCH AUDIT_ARCH_AARCH64", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#endif");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#endif", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_nosock(void) {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_nosock(void) {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#ifdef SIMPLER_ARCH");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#ifdef SIMPLER_ARCH", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct sock_filter f[] = {");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct sock_filter f[] = {", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)), BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SIMPLER_ARCH, 1, 0), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)), BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SIMPLER_ARCH, 1, 0), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)), BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)), BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 0x40000000, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_io_uring_setup, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 3), BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_socket, 0, 3), BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])), BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AF_UNIX, 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EACCES),", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)};");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)};", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"  struct sock_fprog p = {(unsigned short)(sizeof f / sizeof f[0]), f}; prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &p, 0, 0);");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"  struct sock_fprog p = {(unsigned short)(sizeof f / sizeof f[0]), f}; prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &p, 0, 0);", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#endif");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#endif", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"}");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"}", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_lock(void) { if (simpler_pty_want && !simpler_dry) simpler_pty_init(); long abi = syscall(SYS_landlock_create_ruleset, 0, 0, 1U); if (abi < 1) return; unsigned long long fs = (1ULL << 13) - 1; if (abi >= 2) fs |= 1ULL << 13; if (abi >= 3) fs |= 1ULL << 14; if (abi >= 5) fs |= 1ULL << 15; unsigned long long ra[3] = {fs, 0, 0}; size_t size = 8; int runs = simpler_rn[0] || simpler_ft[0]; if (abi >= 4) { size = 16; ra[1] = (!simpler_ft[0] || simpler_dry) ? 3 : 1; } if (abi >= 6) { size = 24; ra[2] = 3; } simpler_ll = (int)syscall(SYS_landlock_create_ruleset, ra, size, 0); if (simpler_ll < 0) return; simpler_ll_fs = fs; if (abi >= 4) for (int k = 0; simpler_ls[k]; k++) { unsigned long long np[2] = {1, (unsigned long long)atol(simpler_ls[k])}; syscall(SYS_landlock_add_rule, simpler_ll, 2, np, 0); } unsigned long long R = 4ULL | 8ULL; unsigned long long W = 2ULL | (1ULL << 4) | (1ULL << 5) | (1ULL << 7) | (1ULL << 8) | (1ULL << 13) | (1ULL << 14); if (!simpler_dry) simpler_allow_all(simpler_wr, W, 1); simpler_allow_all(simpler_rd, R, 0); for (int k = 0; simpler_rd[k]; k++) if (strncmp(simpler_rd[k], \"/sys/\", 5) == 0) { simpler_allow(\"/sys/devices\", R); break; } const char* dev[] = {\"/dev/null\", \"/dev/tty\", \"/dev/zero\", \"/dev/urandom\", 0}; for (int k = 0; dev[k]; k++) simpler_allow(dev[k], 2ULL | 4ULL | (1ULL << 15)); if (runs) { const char* sysd[] = {\"/usr\", \"/bin\", \"/sbin\", \"/lib\", \"/lib64\", \"/lib32\", \"/etc\", \"/opt\", \"/snap\", \"/nix\", \"/run/systemd/resolve\", \"/proc/sys\", \"/sys/devices/system/cpu\", 0}; for (int k = 0; sysd[k]; k++) simpler_allow(sysd[k], 1ULL | R); for (int k = 0; simpler_rn[k]; k++) simpler_allow_prog(simpler_rn[k]); if (simpler_ft[0]) simpler_allow_prog(\"curl\"); } if ((simpler_ml[0] || simpler_jdir[0]) && !simpler_dry) simpler_broker(); prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); if (simpler_rn[0]) simpler_nosock(); if (syscall(SYS_landlock_restrict_self, simpler_ll, 0) != 0) { fprintf(stderr, \"simpler: the kernel lock could not be set: %s\\n\", strerror(errno)); exit(1); } close(simpler_ll); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_lock(void) { if (simpler_pty_want && !simpler_dry) simpler_pty_init(); long abi = syscall(SYS_landlock_create_ruleset, 0, 0, 1U); if (abi < 1) return; unsigned long long fs = (1ULL << 13) - 1; if (abi >= 2) fs |= 1ULL << 13; if (abi >= 3) fs |= 1ULL << 14; if (abi >= 5) fs |= 1ULL << 15; unsigned long long ra[3] = {fs, 0, 0}; size_t size = 8; int runs = simpler_rn[0] || simpler_ft[0]; if (abi >= 4) { size = 16; ra[1] = (!simpler_ft[0] || simpler_dry) ? 3 : 1; } if (abi >= 6) { size = 24; ra[2] = 3; } simpler_ll = (int)syscall(SYS_landlock_create_ruleset, ra, size, 0); if (simpler_ll < 0) return; simpler_ll_fs = fs; if (abi >= 4) for (int k = 0; simpler_ls[k]; k++) { unsigned long long np[2] = {1, (unsigned long long)atol(simpler_ls[k])}; syscall(SYS_landlock_add_rule, simpler_ll, 2, np, 0); } unsigned long long R = 4ULL | 8ULL; unsigned long long W = 2ULL | (1ULL << 4) | (1ULL << 5) | (1ULL << 7) | (1ULL << 8) | (1ULL << 13) | (1ULL << 14); if (!simpler_dry) simpler_allow_all(simpler_wr, W, 1); simpler_allow_all(simpler_rd, R, 0); for (int k = 0; simpler_rd[k]; k++) if (strncmp(simpler_rd[k], \"/sys/\", 5) == 0) { simpler_allow(\"/sys/devices\", R); break; } const char* dev[] = {\"/dev/null\", \"/dev/tty\", \"/dev/zero\", \"/dev/urandom\", 0}; for (int k = 0; dev[k]; k++) simpler_allow(dev[k], 2ULL | 4ULL | (1ULL << 15)); if (runs) { const char* sysd[] = {\"/usr\", \"/bin\", \"/sbin\", \"/lib\", \"/lib64\", \"/lib32\", \"/etc\", \"/opt\", \"/snap\", \"/nix\", \"/run/systemd/resolve\", \"/proc/sys\", \"/sys/devices/system/cpu\", 0}; for (int k = 0; sysd[k]; k++) simpler_allow(sysd[k], 1ULL | R); for (int k = 0; simpler_rn[k]; k++) simpler_allow_prog(simpler_rn[k]); if (simpler_ft[0]) simpler_allow_prog(\"curl\"); } if ((simpler_ml[0] || simpler_jdir[0]) && !simpler_dry) simpler_broker(); prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); if (simpler_rn[0]) simpler_nosock(); if (syscall(SYS_landlock_restrict_self, simpler_ll, 0) != 0) { fprintf(stderr, \"simpler: the kernel lock could not be set: %s\\n\", strerror(errno)); exit(1); } close(simpler_ll); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static FILE* simpler_tmp(void) { int fd = (int)syscall(SYS_memfd_create, \"simpler\", 1U); return fd >= 0 ? fdopen(fd, \"w+\") : tmpfile(); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static FILE* simpler_tmp(void) { int fd = (int)syscall(SYS_memfd_create, \"simpler\", 1U); return fd >= 0 ? fdopen(fd, \"w+\") : tmpfile(); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#else");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#else", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_start(void) {} void simpler_lock(void) {} long simpler_drive(long n, long a, long l) { (void)n; (void)a; fprintf(stderr, \"%s: a terminal of its own needs Linux 5.13 or newer\\n\", simpler_at(l)); exit(1); } long simpler_press(long h, long t, long l) { (void)h; (void)t; (void)l; return 0; } long simpler_shown(long h, long m, long l) { (void)h; (void)m; (void)l; return (long)(intptr_t)\"\"; } long simpler_end(long h, long l) { (void)h; (void)l; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_gate_start(void) {} void simpler_lock(void) {} long simpler_drive(long n, long a, long l) { (void)n; (void)a; fprintf(stderr, \"%s: a terminal of its own needs Linux 5.13 or newer\\n\", simpler_at(l)); exit(1); } long simpler_press(long h, long t, long l) { (void)h; (void)t; (void)l; return 0; } long simpler_shown(long h, long m, long l) { (void)h; (void)m; (void)l; return (long)(intptr_t)\"\"; } long simpler_end(long h, long l) { (void)h; (void)l; return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p) { (void)p; return 0; } int simpler_ask(int op, const char* t, const char* msg) { return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_unwritten(const char* p) { (void)p; return 0; } int simpler_ask(int op, const char* t, const char* msg) { return op == 2 ? simpler_keep_do(t, msg) : simpler_deliver(t, msg); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p) { (void)p; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_wrote(const char* p) { (void)p; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static FILE* simpler_tmp(void) { return tmpfile(); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static FILE* simpler_tmp(void) { return tmpfile(); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#endif");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#endif", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_keep(const char* path) { if (!simpler_jdir[0] || simpler_dry || strchr(path, 10)) return; char ab[PATH_MAX]; if (path[0] == '/') { if (strlen(path) >= sizeof ab) return; strcpy(ab, path); } else { if (!getcwd(ab, sizeof ab) || strlen(ab) + strlen(path) + 2 > sizeof ab) return; strcat(ab, \"/\"); strcat(ab, path); } for (int k = 0; k < simpler_nkept; k++) if (strcmp(simpler_kept[k], ab) == 0) return; if (simpler_nkept < 256) simpler_kept[simpler_nkept++] = strdup(ab); simpler_ask(2, ab, simpler_unwritten(path) ? \"u\" : \"\"); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_keep(const char* path) { if (!simpler_jdir[0] || simpler_dry || strchr(path, 10)) return; char ab[PATH_MAX]; if (path[0] == '/') { if (strlen(path) >= sizeof ab) return; strcpy(ab, path); } else { if (!getcwd(ab, sizeof ab) || strlen(ab) + strlen(path) + 2 > sizeof ab) return; strcat(ab, \"/\"); strcat(ab, path); } for (int k = 0; k < simpler_nkept; k++) if (strcmp(simpler_kept[k], ab) == 0) return; if (simpler_nkept < 256) simpler_kept[simpler_nkept++] = strdup(ab); simpler_ask(2, ab, simpler_unwritten(path) ? \"u\" : \"\"); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"#include <fcntl.h>");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"#include <fcntl.h>", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_rfd = -1; static char* simpler_rin = 0; static long simpler_rlen = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_rfd = -1; static char* simpler_rin = 0; static long simpler_rlen = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_rpath(char* out, size_t size) { const char* st = getenv(\"XDG_STATE_HOME\"); const char* h = getenv(\"HOME\"); char root[PATH_MAX]; if (st && st[0] == '/') snprintf(root, sizeof root, \"%s/simpler\", st); else if (h) snprintf(root, sizeof root, \"%s/.local/state/simpler\", h); else return 0; unsigned long long x = 1469598103934665603ULL; for (const char* c = (const char*)(intptr_t)simpler_self(); *c; c++) { x ^= (unsigned char)*c; x *= 1099511628211ULL; } return snprintf(out, size, \"%s/replay/%016llx\", root, x) < (int)size; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_rpath(char* out, size_t size) { const char* st = getenv(\"XDG_STATE_HOME\"); const char* h = getenv(\"HOME\"); char root[PATH_MAX]; if (st && st[0] == '/') snprintf(root, sizeof root, \"%s/simpler\", st); else if (h) snprintf(root, sizeof root, \"%s/.local/state/simpler\", h); else return 0; unsigned long long x = 1469598103934665603ULL; for (const char* c = (const char*)(intptr_t)simpler_self(); *c; c++) { x ^= (unsigned char)*c; x *= 1099511628211ULL; } return snprintf(out, size, \"%s/replay/%016llx\", root, x) < (int)size; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_note(const char* p, long n) { if (simpler_rfd < 0 || n <= 0 || simpler_rlen + n > (1L << 20)) return; simpler_rin = (char*)gc_trealloc(simpler_rin, simpler_rlen + n); memcpy(simpler_rin + simpler_rlen, p, n); simpler_rlen += n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_note(const char* p, long n) { if (simpler_rfd < 0 || n <= 0 || simpler_rlen + n > (1L << 20)) return; simpler_rin = (char*)gc_trealloc(simpler_rin, simpler_rlen + n); memcpy(simpler_rin + simpler_rlen, p, n); simpler_rlen += n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_rsave(void) { if (simpler_rfd < 0) return; int fd = simpler_rfd; simpler_rfd = -1; if (ftruncate(fd, 0) != 0) return; dprintf(fd, \"simpler-replay 1\\nargs %d\\n\", simpler_argc > 0 ? simpler_argc - 1 : 0); for (int k = 1; k < simpler_argc; k++) { dprintf(fd, \"%zu\\n\", strlen(simpler_argv[k])); if (write(fd, simpler_argv[k], strlen(simpler_argv[k])) < 0 || write(fd, \"\\n\", 1) < 0) return; } dprintf(fd, \"stdin %ld\\n\", simpler_rlen); if (simpler_rlen > 0 && write(fd, simpler_rin, simpler_rlen) < 0) return; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_rsave(void) { if (simpler_rfd < 0) return; int fd = simpler_rfd; simpler_rfd = -1; if (ftruncate(fd, 0) != 0) return; dprintf(fd, \"simpler-replay 1\\nargs %d\\n\", simpler_argc > 0 ? simpler_argc - 1 : 0); for (int k = 1; k < simpler_argc; k++) { dprintf(fd, \"%zu\\n\", strlen(simpler_argv[k])); if (write(fd, simpler_argv[k], strlen(simpler_argv[k])) < 0 || write(fd, \"\\n\", 1) < 0) return; } dprintf(fd, \"stdin %ld\\n\", simpler_rlen); if (simpler_rlen > 0 && write(fd, simpler_rin, simpler_rlen) < 0) return; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"void simpler_leave(int c) { if (c != 0) simpler_rsave(); (exit)(c); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"void simpler_leave(int c) { if (c != 0) simpler_rsave(); (exit)(c); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_rinit(void) { if (simpler_dry || getenv(\"SIMPLER_REPLAY\")) return; char f[PATH_MAX]; if (!simpler_rpath(f, sizeof f)) return; simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); if (simpler_rfd < 0 && errno == ENOENT) { for (char* c = f + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(f, 0700); *c = '/'; } simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_rinit(void) { if (simpler_dry || getenv(\"SIMPLER_REPLAY\")) return; char f[PATH_MAX]; if (!simpler_rpath(f, sizeof f)) return; simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); if (simpler_rfd < 0 && errno == ENOENT) { for (char* c = f + 1; *c; c++) if (*c == '/') { *c = 0; mkdir(f, 0700); *c = '/'; } simpler_rfd = open(f, O_WRONLY | O_CREAT | O_CLOEXEC, 0600); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_replay(void) { const char* mode = getenv(\"SIMPLER_REPLAY\"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, \"rb\") : 0; int n = 0; if (!r || fscanf(r, \"simpler-replay 1\\nargs %d\", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, \"simpler: no failed run is kept for this program\\n\"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, \"show\") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, \"%ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)gc_atomic(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf(\"argument %d: %s\\n\", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, \"stdin %ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)gc_atomic(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf(\"input (%ld bytes):\\n%s\", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_replay(void) { const char* mode = getenv(\"SIMPLER_REPLAY\"); if (!mode) return; char f[PATH_MAX]; FILE* r = simpler_rpath(f, sizeof f) ? fopen(f, \"rb\") : 0; int n = 0; if (!r || fscanf(r, \"simpler-replay 1\\nargs %d\", &n) != 1 || n < 0 || n > 4000) { fprintf(stderr, \"simpler: no failed run is kept for this program\\n\"); (exit)(1); } fgetc(r); static char* av[4002]; av[0] = simpler_argv[0]; int show = strcmp(mode, \"show\") == 0; for (int k = 0; k < n; k++) { long len = 0; if (fscanf(r, \"%ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* a = (char*)gc_atomic(len + 1); if (fread(a, 1, len, r) != (size_t)len) (exit)(1); a[len] = 0; fgetc(r); av[k + 1] = a; if (show) printf(\"argument %d: %s\\n\", k + 1, a); } av[n + 1] = 0; long len = 0; if (fscanf(r, \"stdin %ld\", &len) != 1 || len < 0) (exit)(1); fgetc(r); char* in = (char*)gc_atomic(len + 1); len = (long)fread(in, 1, len, r); in[len] = 0; fclose(r); if (show) { printf(\"input (%ld bytes):\\n%s\", len, in); (exit)(0); } FILE* t = simpler_tmp(); if (!t) (exit)(1); fwrite(in, 1, len, t); fflush(t); rewind(t); dup2(fileno(t), 0); simpler_argc = n + 1; simpler_argv = av; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, \"%sexample fails: the left side %s\\n\", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)gc_atomic(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"extern long (*simpler_px[])(); extern const char* simpler_pxw[]; static void simpler_examples(void) { if (!getenv(\"SIMPLER_EXAMPLES\")) return; int bad = 0, n = 0; for (int k = 0; simpler_px[k]; k++) { n++; const char* g = (const char*)(intptr_t)simpler_px[k](); if (g[0]) { bad++; fprintf(stderr, \"%sexample fails: the left side %s\\n\", simpler_pxw[k], g); } } for (int k = 0; simpler_ex[k]; ) { const char* in = simpler_ex[k]; const char* want = simpler_ex[k + 1]; int a = k + 2; int e = a; while (simpler_ex[e]) e++; n++; int fd[2]; if (pipe(fd) != 0) exit(1); fflush(stdout); pid_t p = fork(); if (p < 0) exit(1); if (p == 0) { FILE* f = simpler_tmp(); if (!f) _exit(127); fputs(in, f); fflush(f); rewind(f); dup2(fileno(f), 0); dup2(fd[1], 1); close(fd[0]); close(fd[1]); static char* av[66]; int c = 0; av[c++] = simpler_argv[0]; for (int q = a; q < e && c < 65; q++) av[c++] = (char*)simpler_ex[q]; av[c] = 0; simpler_argc = c; simpler_argv = av; simpler_dry = 1; return; } close(fd[1]); long cap = 1024, len = 0; char* buf = (char*)gc_atomic(cap); long r; while ((r = read(fd[0], buf + len, cap - len - 1)) > 0) { len += r; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); int st = 0; waitpid(p, &st, 0); size_t wl = strlen(want); while (wl > 0 && want[wl - 1] == 10) wl--; while (len > 0 && buf[len - 1] == 10) len--; buf[len] = 0; if (!WIFEXITED(st) || WEXITSTATUS(st) != 0 || (size_t)len != wl || memcmp(buf, want, wl) != 0) { bad++; fprintf(stderr, \"example %d fails. Wanted:\\n%.*s\\nGot:\\n%s\\n\", n, (int)wl, want, buf); } free(buf); k = e + 1; } if (bad) { fprintf(stderr, \"%d of %d examples fail\\n\", bad, n); exit(1); } exit(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf(\"would run\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); *code = 0; return (long)(intptr_t)\"\"; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { fputs((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (simpler_quiet && !freopen(\"/dev/null\", \"w\", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); struct sigaction ign, oi, oq; if (!capture) { memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, &oi); sigaction(SIGQUIT, &ign, &oq); } long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {} if (!capture) { sigaction(SIGINT, &oi, 0); sigaction(SIGQUIT, &oq, 0); } *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)buf; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static int simpler_quiet = 0; long simpler_exec(char** av, int capture, int* code, long input) { if (simpler_dry) { printf(\"would run\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); *code = 0; return (long)(intptr_t)\"\"; } int fd[2] = {0, 0}; FILE* in = 0; if (input) { in = simpler_tmp(); if (in) { simpler_puts((const char*)(intptr_t)input, in); fflush(in); rewind(in); } } if (capture && pipe(fd) != 0) { *code = 127; return (long)(intptr_t)\"\"; } fflush(stdout); pid_t pid = fork(); if (pid < 0) { *code = 127; return (long)(intptr_t)\"\"; } if (pid == 0) { if (simpler_quiet && !freopen(\"/dev/null\", \"w\", stderr)) _exit(127); if (in) dup2(fileno(in), 0); if (capture) { dup2(fd[1], 1); close(fd[0]); close(fd[1]); } execvp(av[0], av); _exit(127); } if (in) fclose(in); struct sigaction ign, oi, oq; if (!capture) { memset(&ign, 0, sizeof ign); ign.sa_handler = SIG_IGN; sigaction(SIGINT, &ign, &oi); sigaction(SIGQUIT, &ign, &oq); } long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); if (capture) { close(fd[1]); long n; while ((n = read(fd[0], buf + len, cap - len - 1)) > 0) { len += n; if (len + 1 >= cap) { cap *= 2; buf = (char*)gc_trealloc(buf, cap); } } close(fd[0]); } buf[len] = 0; int st = 0; while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {} if (!capture) { sigaction(SIGINT, &oi, 0); sigaction(SIGQUIT, &oq, 0); } *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128; return (long)(intptr_t)simpler_nul(buf, len); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"char** simpler_argv_of(long name, long args) { SList* l = (SList*)(intptr_t)args; char** av = (char**)malloc(sizeof(char*) * (l->len + 2)); av[0] = (char*)(intptr_t)name; for (long k = 0; k < l->len; k++) av[k + 1] = (char*)(intptr_t)l->data[k]; av[l->len + 1] = 0; return av; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_runok(long name, long line) { const char* p = simpler_home((const char*)(intptr_t)name); for (int k = 0; simpler_rn[k]; k++) if (simpler_glob(simpler_home(simpler_rn[k]), p)) return (long)(intptr_t)p; fprintf(stderr, \"%s: this program may not run \\\"%s\\\"\\n\", simpler_at(line), p); exit(1); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_runok(long name, long line) { const char* p = simpler_home((const char*)(intptr_t)name); for (int k = 0; simpler_rn[k]; k++) if (simpler_glob(simpler_home(simpler_rn[k]), p)) return (long)(intptr_t)p; fprintf(stderr, \"%s: this program may not run \\\"%s\\\"\\n\", simpler_at(line), p); exit(1); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_mailok(const char* t) { size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } return ok; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_mailok(const char* t) { size_t tn = strlen(t); int ok = 0; const char* at = strchr(t, 64); int clean = at && at != t && at[1] && strchr(at + 1, 64) == 0 && t[0] != '-'; for (const char* c = t; *c; c++) if ((unsigned char)*c <= 32 || *c == ',' || *c == ';' || *c == '<' || *c == '>' || *c == 127) clean = 0; for (int k = 0; clean && simpler_ml[k]; k++) { const char* e = simpler_ml[k]; size_t n = strlen(e); if (strcmp(e, t) == 0 || (e[0] == 64 && tn > n && strcmp(t + tn - n, e) == 0) || (strchr(e, '*') && simpler_glob(e, t))) ok = 1; } return ok; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_mailer(void) { const char* prog = getenv(\"SIMPLER_SENDMAIL\"); return prog && *prog ? prog : \"sendmail\"; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_mailer(void) { const char* prog = getenv(\"SIMPLER_SENDMAIL\"); return prog && *prog ? prog : \"sendmail\"; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"int simpler_deliver(const char* t, const char* msg) { char* av[] = {(char*)simpler_mailer(), (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); return code; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"int simpler_deliver(const char* t, const char* msg) { char* av[] = {(char*)simpler_mailer(), (char*)\"-i\", (char*)\"--\", (char*)t, 0}; int code = 0; simpler_exec(av, 1, &code, (long)(intptr_t)msg); return code; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; if (!simpler_mailok(t)) { fprintf(stderr, \"%s: this program may not mail \\\"%s\\\"\\n\", simpler_at(line), t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"%s: the subject of a mail is one line\\n\", simpler_at(line)); exit(1); } char* msg = (char*)gc_atomic(strlen(t) + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); if (simpler_would(\"mail\", t, \"with subject\", s)) return 0; int code = simpler_ask(1, t, msg); if (code != 0) { fprintf(stderr, \"%s: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", simpler_at(line), t, simpler_mailer(), code); exit(1); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_send(long to, long subject, long body, long line) { const char* t = (const char*)(intptr_t)to; const char* s = (const char*)(intptr_t)subject; const char* b = (const char*)(intptr_t)body; if (!simpler_mailok(t)) { fprintf(stderr, \"%s: this program may not mail \\\"%s\\\"\\n\", simpler_at(line), t); exit(1); } if (strchr(s, 10) || strchr(s, 13)) { fprintf(stderr, \"%s: the subject of a mail is one line\\n\", simpler_at(line)); exit(1); } char* msg = (char*)gc_atomic(strlen(t) + strlen(s) + strlen(b) + 32); sprintf(msg, \"To: %s\\nSubject: %s\\n\\n%s\\n\", t, s, b); if (simpler_would(\"mail\", t, \"with subject\", s)) return 0; int code = simpler_ask(1, t, msg); if (code != 0) { fprintf(stderr, \"%s: could not send mail to \\\"%s\\\" (%s ended with status %d)\\n\", simpler_at(line), t, simpler_mailer(), code); exit(1); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"%s: \\\"%s\\\" ended with status %d\\n\", simpler_at(line), (const char*)(intptr_t)name, code); exit(1); } return out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_run(long name, long args, long input, long line) { int code = 0; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); if (code != 0) { fprintf(stderr, \"%s: \\\"%s\\\" ended with status %d\\n\", simpler_at(line), (const char*)(intptr_t)name, code); exit(1); } return out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_try(long name, long args, long line) { int code = 0; simpler_quiet = 1; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, 0); simpler_quiet = 0; return code == 0 ? out : (long)(intptr_t)\"\"; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_try(long name, long args, long line) { int code = 0; simpler_quiet = 1; long out = simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, 0); simpler_quiet = 0; return code == 0 ? out : (long)(intptr_t)\"\"; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_output(long name, long args, long input, long line) { int code = 0; return simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_output(long name, long args, long input, long line) { int code = 0; return simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 1, &code, input); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_status(long name, long args, long line) { int code = 0; simpler_exec(simpler_argv_of(simpler_runok(name, line), args), 0, &code, 0); return code; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; if (simpler_hostok(hb)) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_fetchok(long url, long line) { const char* u = (const char*)(intptr_t)url; const char* h = 0; if (strncmp(u, \"https://\", 8) == 0) h = u + 8; else if (strncmp(u, \"http://\", 7) == 0) h = u + 7; if (h) { size_t n = strcspn(h, \"/?#\"); if (memchr(h, 64, n) == 0 && memchr(h, 92, n) == 0) { size_t hn = strcspn(h, \":/?#\"); char hb[256]; if (hn < sizeof hb) { memcpy(hb, h, hn); hb[hn] = 0; if (simpler_hostok(hb)) return url; } } } fprintf(stderr, \"%s: this program may not fetch \\\"%s\\\"\\n\", simpler_at(line), u); exit(1); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long i_char(long n) { char* o = (char*)gc_atomic(5); int k = 0; if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long i_char(long n) { char* o = (char*)gc_atomic(5); int k = 0; if (n == 0) { o[k++] = (char)192; o[k++] = (char)128; } else if (n > 0 && n < 128) o[k++] = (char)n; else if (n >= 128 && n < 2048) { o[k++] = (char)(192 | (n >> 6)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 2048 && n < 65536) { o[k++] = (char)(224 | (n >> 12)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } else if (n >= 65536 && n < 1114112) { o[k++] = (char)(240 | (n >> 18)); o[k++] = (char)(128 | ((n >> 12) & 63)); o[k++] = (char)(128 | ((n >> 6) & 63)); o[k++] = (char)(128 | (n & 63)); } o[k] = 0; return (long)(intptr_t)o; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); gc_idle(); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_sleep(long ms) { struct timespec ts; if (ms < 0) ms = 0; fflush(stdout); gc_idle(); ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000; while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {} return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); gc_idle(); if (getline(&buf, &cap, stdin) < 0) { free(buf); return (long)(intptr_t)\"\"; } char* r = strdup(buf); free(buf); simpler_note(r, (long)strlen(r)); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_stdinline() { char* buf = 0; size_t cap = 0; fflush(stdout); gc_idle(); ssize_t got = getline(&buf, &cap, stdin); if (got < 0) { free(buf); return (long)(intptr_t)\"\"; } char* r = simpler_nul(buf, (long)got); if (r == buf) { r = strdup(buf); } free(buf); simpler_note(r, (long)strlen(r)); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); gc_idle(); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, \"line %ld: cannot wait for a change in %s: %s\\n\", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, \"line %ld: the wait for a change in %s failed\\n\", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : \"\"); } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_wait(long path, long line) { static int fd = -1; static char buf[8192]; static long len = 0, pos = 0; const char* p = (const char*)(intptr_t)path; fflush(stdout); gc_idle(); if (fd < 0) fd = inotify_init1(IN_CLOEXEC); int wd = fd < 0 ? -1 : inotify_add_watch(fd, p, IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM | IN_DELETE_SELF | IN_MOVE_SELF); if (wd < 0) { fprintf(stderr, \"line %ld: cannot wait for a change in %s: %s\\n\", line, p, strerror(errno)); exit(1); } for (;;) { if (pos >= len) { len = read(fd, buf, sizeof buf); pos = 0; if (len <= 0) { if (len < 0 && errno == EINTR) { len = 0; continue; } fprintf(stderr, \"line %ld: the wait for a change in %s failed\\n\", line, p); exit(1); } } struct inotify_event* ev = (struct inotify_event*)(buf + pos); pos += sizeof(struct inotify_event) + ev->len; if (ev->wd != wd) continue; if (ev->mask & IN_IGNORED) continue; return (long)(intptr_t)(ev->len ? strdup(ev->name) : \"\"); } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_millis() { struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts); return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); if (simpler_dry) { printf(\"would start\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); return 0; } int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_start(long name, long args, long line) { char** av = simpler_argv_of(simpler_runok(name, line), args); if (simpler_dry) { printf(\"would start\"); for (int k = 0; av[k]; k++) printf(\" %s\", av[k]); printf(\"\\n\"); return 0; } int fd[2]; if (pipe(fd) != 0) return -1; fflush(stdout); pid_t p = fork(); if (p < 0) return -1; if (p == 0) { close(fd[0]); setsid(); pid_t q = fork(); if (q != 0) { if (write(fd[1], &q, sizeof q) < 0) _exit(1); _exit(0); } close(fd[1]); if (!freopen(\"/dev/null\", \"r\", stdin)) _exit(127); execvp(av[0], av); _exit(127); } close(fd[1]); pid_t q = -1; if (read(fd[0], &q, sizeof q) != (long)sizeof q) q = -1; close(fd[0]); waitpid(p, 0, 0); return (long)q; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long simpler_hdr = 0; long simpler_curl(long url, long body, long post, long* st) { char* av[48]; int n = 0; av[n++] = \"curl\"; av[n++] = \"-sS\"; av[n++] = \"--max-time\"; av[n++] = \"30\"; av[n++] = \"-w\"; av[n++] = \"\\n%{http_code}\"; if (simpler_hdr) { SList* h = (SList*)(intptr_t)simpler_hdr; for (long k = 0; k < h->len && k < 16; k++) { av[n++] = \"-H\"; av[n++] = (char*)(intptr_t)h->data[k]; } } if (post) { av[n++] = \"--data-raw\"; av[n++] = (char*)(intptr_t)body; } av[n++] = \"--\"; av[n++] = (char*)(intptr_t)url; av[n] = 0; int code = 0; char* out = (char*)(intptr_t)simpler_exec(av, 1, &code, 0); char* nl = strrchr(out, 10); *st = (nl && code == 0) ? atol(nl + 1) : 0; if (nl) *nl = 0; return (long)(intptr_t)out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); if (simpler_would(post ? \"post to\" : \"fetch\", (const char*)(intptr_t)url, 0, 0)) return (long)(intptr_t)\"\"; long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_fetch(long url, long body, long post, long line) { simpler_fetchok(url, line); if (simpler_would(post ? \"post to\" : \"fetch\", (const char*)(intptr_t)url, 0, 0)) return (long)(intptr_t)\"\"; long st = 0; long out = simpler_curl(url, body, post, &st); if (st < 200 || st > 299) { fprintf(stderr, \"%s: could not fetch \\\"%s\\\" (status %ld)\\n\", simpler_at(line), (const char*)(intptr_t)url, st); exit(1); } return out; }", stdout), fputc(10, stdout));
 
-  (printf("%s\n", (const char*)(intptr_t)u_netRuntime()), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_netRuntime(), stdout), fputc(10, stdout)), 0L);
 
-  (printf("%s\n", (const char*)(intptr_t)u_parRuntime()), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_parRuntime(), stdout), fputc(10, stdout)), 0L);
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_reach(long url, long line) { simpler_fetchok(url, line); if (simpler_would(\"reach\", (const char*)(intptr_t)url, 0, 0)) return 200; long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_reach(long url, long line) { simpler_fetchok(url, line); if (simpler_would(\"reach\", (const char*)(intptr_t)url, 0, 0)) return 200; long st = 0; fflush(stderr); int keep = dup(2); FILE* nul = fopen(\"/dev/null\", \"w\"); if (nul) dup2(fileno(nul), 2); simpler_curl(url, 0, 0, &st); if (nul) { dup2(keep, 2); fclose(nul); } close(keep); return st; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static struct termios simpler_tio; static int simpler_tty = 0; static int simpler_err = -1; static FILE* simpler_errf = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"typedef struct { char g[6]; unsigned short st; } SCell; static SCell* simpler_back = 0; static SCell* simpler_front = 0; static long simpler_tr = 0, simpler_tc = 0; static int simpler_all = 1; static volatile sig_atomic_t simpler_winched = 0; static char simpler_sty[1024][40]; static int simpler_nsty = 1; static char* simpler_ob = 0; static long simpler_on = 0, simpler_ocap = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"typedef struct { char g[6]; unsigned short st; } SCell; static SCell* simpler_back = 0; static SCell* simpler_front = 0; static long simpler_tr = 0, simpler_tc = 0; static int simpler_all = 1; static volatile sig_atomic_t simpler_winched = 0; static char simpler_sty[1024][40]; static int simpler_nsty = 1; static char* simpler_ob = 0; static long simpler_on = 0, simpler_ocap = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_o(const char* s) { long n = (long)strlen(s); if (simpler_on + n + 1 > simpler_ocap) { simpler_ocap = (simpler_on + n + 1) * 2 + 4096; simpler_ob = (char*)gc_trealloc(simpler_ob, simpler_ocap); } memcpy(simpler_ob + simpler_on, s, n); simpler_on += n; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_o(const char* s) { long n = (long)strlen(s); if (simpler_on + n + 1 > simpler_ocap) { simpler_ocap = (simpler_on + n + 1) * 2 + 4096; simpler_ob = (char*)gc_trealloc(simpler_ob, simpler_ocap); } memcpy(simpler_ob + simpler_on, s, n); simpler_on += n; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_blank(SCell* a) { long n = simpler_tr * simpler_tc; memset(a, 0, n * sizeof(SCell)); for (long k = 0; k < n; k++) a[k].g[0] = 32; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_blank(SCell* a) { long n = simpler_tr * simpler_tc; memset(a, 0, n * sizeof(SCell)); for (long k = 0; k < n; k++) a[k].g[0] = 32; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_fit(void) { struct winsize w; long r = 24, c = 80; if (ioctl(1, TIOCGWINSZ, &w) == 0 && w.ws_row && w.ws_col) { r = w.ws_row; c = w.ws_col; } if (simpler_back && r == simpler_tr && c == simpler_tc) return; free(simpler_back); free(simpler_front); simpler_tr = r; simpler_tc = c; simpler_back = (SCell*)malloc(r * c * sizeof(SCell)); simpler_front = (SCell*)malloc(r * c * sizeof(SCell)); simpler_term_blank(simpler_back); simpler_term_blank(simpler_front); simpler_all = 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_fit(void) { struct winsize w; long r = 24, c = 80; if (ioctl(1, TIOCGWINSZ, &w) == 0 && w.ws_row && w.ws_col) { r = w.ws_row; c = w.ws_col; } if (simpler_back && r == simpler_tr && c == simpler_tc) return; free(simpler_back); free(simpler_front); simpler_tr = r; simpler_tc = c; simpler_back = (SCell*)malloc(r * c * sizeof(SCell)); simpler_front = (SCell*)malloc(r * c * sizeof(SCell)); simpler_term_blank(simpler_back); simpler_term_blank(simpler_front); simpler_all = 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_flush(void) { fflush(stdout); if (!simpler_back) return; char b[64]; simpler_on = 0; if (simpler_all) { simpler_o(\"\\033[0m\\033[2J\"); simpler_term_blank(simpler_front); simpler_all = 0; } long cur = -1, pr = -1, pc = -1; for (long r = 0; r < simpler_tr; r++) for (long c = 0; c < simpler_tc; c++) { SCell* k = simpler_back + r * simpler_tc + c; SCell* f = simpler_front + r * simpler_tc + c; if (memcmp(k, f, sizeof(SCell)) == 0) continue; if (pr == r && c > pc && c - pc <= 4) { long g = pc; while (g < c && simpler_back[r * simpler_tc + g].st == cur) g++; if (g == c) { for (g = pc; g < c; g++) simpler_o(simpler_back[r * simpler_tc + g].g); pc = c; } } if (pr != r || pc != c) { snprintf(b, sizeof b, \"\\033[%ld;%ldH\", r + 1, c + 1); simpler_o(b); } if (k->st != cur) { simpler_o(\"\\033[0\"); if (k->st) { simpler_o(\";\"); simpler_o(simpler_sty[k->st]); } simpler_o(\"m\"); cur = k->st; } simpler_o(k->g); *f = *k; pr = r; pc = c + 1; } if (simpler_on == 0) return; simpler_o(\"\\033[0m\"); long off = 0; while (off < simpler_on) { ssize_t n = write(1, simpler_ob + off, simpler_on - off); if (n <= 0) { if (n < 0 && errno == EINTR) continue; break; } off += n; } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_flush(void) { fflush(stdout); if (!simpler_back) return; char b[64]; simpler_on = 0; if (simpler_all) { simpler_o(\"\\033[0m\\033[2J\"); simpler_term_blank(simpler_front); simpler_all = 0; } long cur = -1, pr = -1, pc = -1; for (long r = 0; r < simpler_tr; r++) for (long c = 0; c < simpler_tc; c++) { SCell* k = simpler_back + r * simpler_tc + c; SCell* f = simpler_front + r * simpler_tc + c; if (memcmp(k, f, sizeof(SCell)) == 0) continue; if (pr == r && c > pc && c - pc <= 4) { long g = pc; while (g < c && simpler_back[r * simpler_tc + g].st == cur) g++; if (g == c) { for (g = pc; g < c; g++) simpler_o(simpler_back[r * simpler_tc + g].g); pc = c; } } if (pr != r || pc != c) { snprintf(b, sizeof b, \"\\033[%ld;%ldH\", r + 1, c + 1); simpler_o(b); } if (k->st != cur) { simpler_o(\"\\033[0\"); if (k->st) { simpler_o(\";\"); simpler_o(simpler_sty[k->st]); } simpler_o(\"m\"); cur = k->st; } simpler_o(k->g); *f = *k; pr = r; pc = c + 1; } if (simpler_on == 0) return; simpler_o(\"\\033[0m\"); long off = 0; while (off < simpler_on) { ssize_t n = write(1, simpler_ob + off, simpler_on - off); if (n <= 0) { if (n < 0 && errno == EINTR) continue; break; } off += n; } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_end(void) { if (!simpler_tty) return; simpler_tty = 0; fputs(\"\\033[0m\\033[?25h\\033[?1049l\", stdout); fflush(stdout); tcsetattr(0, TCSAFLUSH, &simpler_tio); if (simpler_err >= 0) { fflush(stderr); dup2(simpler_err, 2); close(simpler_err); simpler_err = -1; if (simpler_errf) { char b[512]; size_t n; rewind(simpler_errf); while ((n = fread(b, 1, sizeof b, simpler_errf)) > 0) fwrite(b, 1, n, stderr); fclose(simpler_errf); simpler_errf = 0; } } }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_end(void) { if (!simpler_tty) return; simpler_tty = 0; fputs(\"\\033[0m\\033[?25h\\033[?1049l\", stdout); fflush(stdout); tcsetattr(0, TCSAFLUSH, &simpler_tio); if (simpler_err >= 0) { fflush(stderr); dup2(simpler_err, 2); close(simpler_err); simpler_err = -1; if (simpler_errf) { char b[512]; size_t n; rewind(simpler_errf); while ((n = fread(b, 1, sizeof b, simpler_errf)) > 0) fwrite(b, 1, n, stderr); fclose(simpler_errf); simpler_errf = 0; } } }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_winch(int g) { (void)g; simpler_winched = 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_winch(int g) { (void)g; simpler_winched = 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_quit(int g) { exit(128 + g); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_quit(int g) { exit(128 + g); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_on(void) { if (simpler_tty) return; if (tcgetattr(0, &simpler_tio) != 0) { fprintf(stderr, \"sys.term needs a terminal on standard input\\n\"); exit(1); } struct termios r = simpler_tio; cfmakeraw(&r); r.c_lflag |= ISIG; tcsetattr(0, TCSADRAIN, &r); static int once = 0; if (!once) { once = 1; atexit(simpler_term_end); struct sigaction sa; memset(&sa, 0, sizeof sa); sa.sa_handler = simpler_winch; sigaction(SIGWINCH, &sa, 0); sa.sa_handler = simpler_quit; sigaction(SIGINT, &sa, 0); sigaction(SIGTERM, &sa, 0); } simpler_errf = simpler_tmp(); if (simpler_errf) { fflush(stderr); simpler_err = dup(2); dup2(fileno(simpler_errf), 2); } simpler_tty = 1; fputs(\"\\033[?1049h\\033[?25l\", stdout); fflush(stdout); simpler_term_fit(); simpler_all = 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static void simpler_term_on(void) { if (simpler_tty) return; if (tcgetattr(0, &simpler_tio) != 0) { fprintf(stderr, \"sys.term needs a terminal on standard input\\n\"); exit(1); } struct termios r = simpler_tio; cfmakeraw(&r); r.c_lflag |= ISIG; tcsetattr(0, TCSADRAIN, &r); static int once = 0; if (!once) { once = 1; atexit(simpler_term_end); struct sigaction sa; memset(&sa, 0, sizeof sa); sa.sa_handler = simpler_winch; sigaction(SIGWINCH, &sa, 0); sa.sa_handler = simpler_quit; sigaction(SIGINT, &sa, 0); sigaction(SIGTERM, &sa, 0); } simpler_errf = simpler_tmp(); if (simpler_errf) { fflush(stderr); simpler_err = dup(2); dup2(fileno(simpler_errf), 2); } simpler_tty = 1; fputs(\"\\033[?1049h\\033[?25l\", stdout); fflush(stdout); simpler_term_fit(); simpler_all = 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_term_stop(void) { simpler_term_end(); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_term_stop(void) { simpler_term_end(); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_term_size(long cols) { if (!simpler_back) simpler_term_fit(); return cols ? simpler_tc : simpler_tr; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_term_size(long cols) { if (!simpler_back) simpler_term_fit(); return cols ? simpler_tc : simpler_tr; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_term_clear(void) { simpler_term_on(); simpler_term_blank(simpler_back); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_term_clear(void) { simpler_term_on(); simpler_term_blank(simpler_back); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_style(const char* w, long n) { static const char* k[] = {\"bold\",\"1\",\"dim\",\"2\",\"underline\",\"4\",\"reverse\",\"7\",\"black\",\"30\",\"red\",\"31\",\"green\",\"32\",\"yellow\",\"33\",\"blue\",\"34\",\"magenta\",\"35\",\"cyan\",\"36\",\"white\",\"37\",\"gray\",\"90\",0}; for (int i = 0; k[i]; i += 2) if ((long)strlen(k[i]) == n && strncmp(k[i], w, n) == 0) return k[i + 1]; int bg = n > 2 && w[0] == 'o' && w[1] == 'n'; static char b[32]; if (n - (bg ? 2 : 0) == 7 && w[bg ? 2 : 0] == '#') { long c = 0; for (long i = (bg ? 3 : 1); i < n; i++) { char h = w[i]; int x = h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : -1; if (x < 0) return 0; c = c * 16 + x; } snprintf(b, sizeof b, \"%d;2;%ld;%ld;%ld\", bg ? 48 : 38, (c >> 16) & 255, (c >> 8) & 255, c & 255); return b; } long v = 0, d = 0; for (long i = bg ? 2 : 0; i < n; i++) { if (w[i] < '0' || w[i] > '9' || ++d > 3) return 0; v = v * 10 + (w[i] - '0'); } if (d == 0 || v > 255) return 0; snprintf(b, sizeof b, \"%d;5;%ld\", bg ? 48 : 38, v); return b; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static const char* simpler_style(const char* w, long n) { static const char* k[] = {\"bold\",\"1\",\"dim\",\"2\",\"underline\",\"4\",\"reverse\",\"7\",\"black\",\"30\",\"red\",\"31\",\"green\",\"32\",\"yellow\",\"33\",\"blue\",\"34\",\"magenta\",\"35\",\"cyan\",\"36\",\"white\",\"37\",\"gray\",\"90\",0}; for (int i = 0; k[i]; i += 2) if ((long)strlen(k[i]) == n && strncmp(k[i], w, n) == 0) return k[i + 1]; int bg = n > 2 && w[0] == 'o' && w[1] == 'n'; static char b[32]; if (n - (bg ? 2 : 0) == 7 && w[bg ? 2 : 0] == '#') { long c = 0; for (long i = (bg ? 3 : 1); i < n; i++) { char h = w[i]; int x = h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : -1; if (x < 0) return 0; c = c * 16 + x; } snprintf(b, sizeof b, \"%d;2;%ld;%ld;%ld\", bg ? 48 : 38, (c >> 16) & 255, (c >> 8) & 255, c & 255); return b; } long v = 0, d = 0; for (long i = bg ? 2 : 0; i < n; i++) { if (w[i] < '0' || w[i] > '9' || ++d > 3) return 0; v = v * 10 + (w[i] - '0'); } if (d == 0 || v > 255) return 0; snprintf(b, sizeof b, \"%d;5;%ld\", bg ? 48 : 38, v); return b; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_tc - col; if (row < 0 || col < 0 || row >= simpler_tr || room <= 0) return 0; char sg[40]; long sn = 0; while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"%s: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255, and on with a number for the background (on52)\\n\", simpler_at(line), (int)n, y); exit(1); } long cn = (long)strlen(c); if (sn + cn + 2 < (long)sizeof sg) { if (sn) sg[sn++] = 59; memcpy(sg + sn, c, cn); sn += cn; } y += n; } sg[sn] = 0; static int last = 0; int st = 0; if (sn) { if (strcmp(simpler_sty[last], sg) == 0) st = last; else { for (int k = 1; k < simpler_nsty && !st; k++) if (strcmp(simpler_sty[k], sg) == 0) st = k; if (!st && simpler_nsty < 1024) { st = simpler_nsty++; strcpy(simpler_sty[st], sg); } last = st; } } SCell* k = simpler_back + row * simpler_tc + col - 1; long gn = 5; for (; *t; t++) { unsigned char ch = (unsigned char)*t; if ((ch & 0xC0) != 0x80) { if (room == 0) break; room--; k++; memset(k, 0, sizeof(SCell)); k->st = (unsigned short)st; gn = 0; } if (gn < 4) k->g[gn++] = (char)(ch < 32 || ch == 127 ? 63 : ch); } return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_term_put(long row, long col, long text, long style, long line) { simpler_term_on(); const char* t = (const char*)(intptr_t)text; const char* y = (const char*)(intptr_t)style; long room = simpler_tc - col; if (row < 0 || col < 0 || row >= simpler_tr || room <= 0) return 0; char sg[40]; long sn = 0; while (*y) { while (*y == 32) y++; long n = 0; while (y[n] && y[n] != 32) n++; if (n == 0) break; const char* c = simpler_style(y, n); if (!c) { fprintf(stderr, \"%s: no style named \\\"%.*s\\\"; the styles are bold, dim, underline, reverse, black, red, green, yellow, blue, magenta, cyan, white, gray, a colour number 0 to 255, and on with a number for the background (on52)\\n\", simpler_at(line), (int)n, y); exit(1); } long cn = (long)strlen(c); if (sn + cn + 2 < (long)sizeof sg) { if (sn) sg[sn++] = 59; memcpy(sg + sn, c, cn); sn += cn; } y += n; } sg[sn] = 0; static int last = 0; int st = 0; if (sn) { if (strcmp(simpler_sty[last], sg) == 0) st = last; else { for (int k = 1; k < simpler_nsty && !st; k++) if (strcmp(simpler_sty[k], sg) == 0) st = k; if (!st && simpler_nsty < 1024) { st = simpler_nsty++; strcpy(simpler_sty[st], sg); } last = st; } } SCell* k = simpler_back + row * simpler_tc + col - 1; long gn = 5; for (; *t; t++) { unsigned char ch = (unsigned char)*t; if ((ch & 0xC0) != 0x80) { if (room == 0) break; room--; k++; memset(k, 0, sizeof(SCell)); k->st = (unsigned short)st; gn = 0; } if (gn < 4) k->g[gn++] = (char)(ch < 32 || ch == 127 ? 63 : ch); } return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static long simpler_keyname(const char* k) { return (long)(intptr_t)k; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static long simpler_keyname(const char* k) { return (long)(intptr_t)k; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_term_key(void) { simpler_term_on(); if (simpler_winched) { simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } simpler_term_flush(); gc_idle(); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) { if (errno != EINTR) return simpler_keyname(\"eof\"); simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)gc_atomic(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_term_key(void) { simpler_term_on(); if (simpler_winched) { simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } simpler_term_flush(); gc_idle(); unsigned char b[16]; ssize_t n = read(0, b, 1); if (n < 0) { if (errno != EINTR) return simpler_keyname(\"eof\"); simpler_winched = 0; simpler_term_fit(); return simpler_keyname(\"resize\"); } if (n == 0) return simpler_keyname(\"eof\"); unsigned char c = b[0]; if (c == 27) { struct pollfd pf = {0, POLLIN, 0}; long m = 0; while (m < 8 && poll(&pf, 1, m == 0 ? 30 : 0) > 0 && read(0, b + m, 1) == 1) { m++; if (m > 1 && b[m - 1] >= 64) break; } if (m == 0) return simpler_keyname(\"esc\"); unsigned char e = b[m - 1]; if (m >= 2 && (b[0] == '[' || b[0] == 'O')) { if (e == 'A') return simpler_keyname(\"up\"); if (e == 'B') return simpler_keyname(\"down\"); if (e == 'C') return simpler_keyname(\"right\"); if (e == 'D') return simpler_keyname(\"left\"); if (e == 'H') return simpler_keyname(\"home\"); if (e == 'F') return simpler_keyname(\"end\"); if (e == '~') { if (b[1] == '1' || b[1] == '7') return simpler_keyname(\"home\"); if (b[1] == '4' || b[1] == '8') return simpler_keyname(\"end\"); if (b[1] == '3') return simpler_keyname(\"delete\"); if (b[1] == '5') return simpler_keyname(\"pgup\"); if (b[1] == '6') return simpler_keyname(\"pgdn\"); } } return simpler_keyname(\"other\"); } if (c == 13 || c == 10) return simpler_keyname(\"enter\"); if (c == 9) return simpler_keyname(\"tab\"); if (c == 127 || c == 8) return simpler_keyname(\"backspace\"); char* r = (char*)gc_atomic(8); if (c < 32) { sprintf(r, \"ctrl-%c\", c + 96); return (long)(intptr_t)r; } long len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1; r[0] = (char)c; for (long i = 1; i < len; i++) if (read(0, r + i, 1) != 1) { len = i; break; } r[len] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_now() { return (long)time(0); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_now() { return (long)time(0); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_fetchwith(long url, long hdrs, long line) { SList* h = (SList*)(intptr_t)hdrs; for (long k = 0; k < h->len; k++) { const char* x = (const char*)(intptr_t)h->data[k]; if (k >= 16 || x[0] == '@' || !strchr(x, ':') || strchr(x, 10) || strchr(x, 13)) { fprintf(stderr, \"%s: a header is one line like \\\"Name: value\\\", and there are at most 16; got \\\"%s\\\"\\n\", simpler_at(line), x); exit(1); } } simpler_hdr = hdrs; long out = simpler_fetch(url, 0, 0, line); simpler_hdr = 0; return out; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_fetchwith(long url, long hdrs, long line) { SList* h = (SList*)(intptr_t)hdrs; for (long k = 0; k < h->len; k++) { const char* x = (const char*)(intptr_t)h->data[k]; if (k >= 16 || x[0] == '@' || !strchr(x, ':') || strchr(x, 10) || strchr(x, 13)) { fprintf(stderr, \"%s: a header is one line like \\\"Name: value\\\", and there are at most 16; got \\\"%s\\\"\\n\", simpler_at(line), x); exit(1); } } simpler_hdr = hdrs; long out = simpler_fetch(url, 0, 0, line); simpler_hdr = 0; return out; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stamp(long t, long pat) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(256); if (strftime(r, 256, (const char*)(intptr_t)pat, m) == 0) r[0] = 0; return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_stamp(long t, long pat) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(256); if (strftime(r, 256, (const char*)(intptr_t)pat, m) == 0) r[0] = 0; return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_secs(long text) { const char* s = (const char*)(intptr_t)text; struct tm m; memset(&m, 0, sizeof m); int y, mo, d, h = 0, mi = 0, se = 0, n = 0; if (sscanf(s, \"%d-%d-%d%n\", &y, &mo, &d, &n) != 3 || mo < 1 || mo > 12 || d < 1 || d > 31) return 0; s += n; if (*s == 'T' || *s == ' ') { n = 0; if (sscanf(s + 1, \"%d:%d%n\", &h, &mi, &n) != 2) return 0; s += 1 + n; n = 0; if (*s == ':' && sscanf(s + 1, \"%d%n\", &se, &n) == 1) s += 1 + n; if (*s == '.') { s++; while (*s >= '0' && *s <= '9') s++; } } m.tm_year = y - 1900; m.tm_mon = mo - 1; m.tm_mday = d; m.tm_hour = h; m.tm_min = mi; m.tm_sec = se; m.tm_isdst = -1; if (*s == 'Z') return (long)timegm(&m); if (*s == '+' || *s == '-') { int oh = 0, om = 0; if (sscanf(s + 1, \"%d:%d\", &oh, &om) < 1) return 0; if (oh > 99) { om = oh % 100; oh = oh / 100; } long off = oh * 3600L + om * 60L; return (long)timegm(&m) - (*s == '-' ? -off : off); } return (long)mktime(&m); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_secs(long text) { const char* s = (const char*)(intptr_t)text; struct tm m; memset(&m, 0, sizeof m); int y, mo, d, h = 0, mi = 0, se = 0, n = 0; if (sscanf(s, \"%d-%d-%d%n\", &y, &mo, &d, &n) != 3 || mo < 1 || mo > 12 || d < 1 || d > 31) return 0; s += n; if (*s == 'T' || *s == ' ') { n = 0; if (sscanf(s + 1, \"%d:%d%n\", &h, &mi, &n) != 2) return 0; s += 1 + n; n = 0; if (*s == ':' && sscanf(s + 1, \"%d%n\", &se, &n) == 1) s += 1 + n; if (*s == '.') { s++; while (*s >= '0' && *s <= '9') s++; } } m.tm_year = y - 1900; m.tm_mon = mo - 1; m.tm_mday = d; m.tm_hour = h; m.tm_min = mi; m.tm_sec = se; m.tm_isdst = -1; if (*s == 'Z') return (long)timegm(&m); if (*s == '+' || *s == '-') { int oh = 0, om = 0; if (sscanf(s + 1, \"%d:%d\", &oh, &om) < 1) return 0; if (oh > 99) { om = oh % 100; oh = oh / 100; } long off = oh * 3600L + om * 60L; return (long)timegm(&m) - (*s == '-' ? -off : off); } return (long)mktime(&m); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_date(long t) { time_t tt = (time_t)t; struct tm* m = localtime(&tt); char* r = (char*)gc_atomic(32); strftime(r, 32, \"%Y-%m-%d %H:%M:%S\", m); return (long)(intptr_t)r; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_setenv(long name, long value) { const char* n = (const char*)(intptr_t)name; if (!n[0] || strchr(n, 61)) return 0; setenv(n, (const char*)(intptr_t)value, 1); return 1; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_setenv(long name, long value) { const char* n = (const char*)(intptr_t)name; if (!n[0] || strchr(n, 61)) return 0; setenv(n, (const char*)(intptr_t)value, 1); return 1; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"static char* simpler_selfp = 0; void simpler_self_init() { const char* e = getenv(\"SIMPLER_SELF\"); if (e) { simpler_selfp = strdup(e); unsetenv(\"SIMPLER_SELF\"); } } long simpler_self() { if (!simpler_selfp) { char b[4096]; ssize_t n = readlink(\"/proc/self/exe\", b, sizeof b - 1); if (n > 0) { b[n] = 0; simpler_selfp = strdup(b); } else { char* r = realpath(simpler_argv[0], 0); simpler_selfp = r ? r : simpler_argv[0]; } } return (long)(intptr_t)simpler_selfp; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"static char* simpler_selfp = 0; void simpler_self_init() { const char* e = getenv(\"SIMPLER_SELF\"); if (e) { simpler_selfp = strdup(e); unsetenv(\"SIMPLER_SELF\"); } } long simpler_self() { if (!simpler_selfp) { char b[4096]; ssize_t n = readlink(\"/proc/self/exe\", b, sizeof b - 1); if (n > 0) { b[n] = 0; simpler_selfp = strdup(b); } else { char* r = realpath(simpler_argv[0], 0); simpler_selfp = r ? r : simpler_argv[0]; } } return (long)(intptr_t)simpler_selfp; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_env(long name) { const char* v = getenv((const char*)(intptr_t)name); return (long)(intptr_t)(v ? v : \"\"); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)gc_trealloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)buf; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_stdin() { long cap = 1024; long len = 0; char* buf = (char*)gc_atomic(cap); int c; while ((c = getchar()) != EOF) { if (len + 1 >= cap) { cap = cap * 2; buf = (char*)gc_trealloc(buf, cap); } buf[len] = (char)c; len = len + 1; } buf[len] = 0; simpler_note(buf, len); return (long)(intptr_t)simpler_nul(buf, len); }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long fail(long msg) { fprintf(stderr, \"%s\\n\", (const char*)(intptr_t)msg); exit(1); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_exit(long c) { exit((int)c); return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_exit(long c) { exit((int)c); return 0; }", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long simpler_failed = 0;");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long simpler_failed = 0;", stdout), fputc(10, stdout));
 
-  printf("%s\n", (const char*)(intptr_t)(long)(intptr_t)"long s_assert(long c) { if (!c) simpler_failed = 1; return 0; }");
+  (simpler_puts((const char*)(intptr_t)(long)(intptr_t)"long s_assert(long c) { if (!c) simpler_failed = 1; return 0; }", stdout), fputc(10, stdout));
 
   {
   long _lst = ((R_Prog*)(intptr_t)prog)->types;
@@ -2370,7 +2379,7 @@ int main(int argc, char** argv) {
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long t = l_at(_lst, _i);
 
-  (printf("%s\n", (const char*)(intptr_t)u_emitType(t)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_emitType(t), stdout), fputc(10, stdout)), 0L);
   }
   }
 
@@ -2380,7 +2389,7 @@ int main(int argc, char** argv) {
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long r = l_at(_lst, _i);
 
-  (printf("%s\n", (const char*)(intptr_t)u_emitRecord(r)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_emitRecord(r), stdout), fputc(10, stdout)), 0L);
   }
   }
 
@@ -2392,12 +2401,12 @@ int main(int argc, char** argv) {
 
   if ((!u_isMain(((R_Fn*)(intptr_t)f)->name))) {
 
-  (printf("%s\n", (const char*)(intptr_t)u_emitProto(f)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_emitProto(f), stdout), fputc(10, stdout)), 0L);
   }
   }
   }
 
-  testing = ((l_len(simpler_args(argc, argv)) > 0L) && s_eq(l_atc(simpler_args(argc, argv), 0L, 740), (long)(intptr_t)"test"));
+  testing = ((l_len(simpler_args(argc, argv)) > 0L) && s_eq(l_atc(simpler_args(argc, argv), 0L, 743), (long)(intptr_t)"test"));
 
   if (((!testing) && (!u_hasName(((R_Sigs*)(intptr_t)sigs)->fnNames, (long)(intptr_t)"main")))) {
 
@@ -2414,16 +2423,16 @@ int main(int argc, char** argv) {
 
   if ((!(testing && u_isMain(((R_Fn*)(intptr_t)f)->name)))) {
 
-  (printf("%s\n", (const char*)(intptr_t)u_emitFn(f, sigs)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_emitFn(f, sigs), stdout), fputc(10, stdout)), 0L);
   }
   }
   }
 
-  (printf("%s\n", (const char*)(intptr_t)u_pieceTable(prog)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_pieceTable(prog), stdout), fputc(10, stdout)), 0L);
 
   if (testing) {
 
-  (printf("%s\n", (const char*)(intptr_t)u_emitTests(((R_Prog*)(intptr_t)prog)->fns)), 0L);
+  ((simpler_puts((const char*)(intptr_t)u_emitTests(((R_Prog*)(intptr_t)prog)->fns), stdout), fputc(10, stdout)), 0L);
   }
   return 0;
 }
@@ -2532,7 +2541,7 @@ long u_pieceFns(long prog, long sigs) {
 
   ({ long _t92 = ((R_Prog*)(intptr_t)prog)->fns; long _t95 = ({ long _t93 = s_concat((long)(intptr_t)"simplerExample", i_tostr(k)); long _t94 = ((R_PieceEx*)(intptr_t)p)->line; Fn(_t93, ps, pt, (long)(intptr_t)"Str", ef, body, _t94); }); l_push(_t92, _t95); });
 
-  k = i_add(k, 1L, 822);
+  k = i_add(k, 1L, 825);
   }
   }
 
@@ -2563,7 +2572,7 @@ long u_pieceNeed(long prog) {
 
   if (({ long _t58 = u_exPiece(((R_PieceEx*)(intptr_t)p)->node); long _t59 = ((R_Fn*)(intptr_t)f)->name; s_eq(_t58, _t59); })) {
 
-  n = i_add(n, 1L, 836);
+  n = i_add(n, 1L, 839);
   }
   }
   }
@@ -2610,7 +2619,7 @@ long u_pieceTable(long prog) {
 
   b = s_concat(({ long _t39 = s_concat(b, (long)(intptr_t)"\""); long _t40 = u_spot(((R_Prog*)(intptr_t)prog)->files, ((R_PieceEx*)(intptr_t)p)->line); s_concat(_t39, _t40); }), (long)(intptr_t)"\", ");
 
-  k = i_add(k, 1L, 861);
+  k = i_add(k, 1L, 864);
   }
   }
 
@@ -2632,15 +2641,15 @@ long u_pieceReach(long name, long w) {
 
   while ((j < l_len(((R_What*)(intptr_t)w)->acts))) {
 
-  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 873), (long)(intptr_t)"calls") && ({ long _t27 = l_atc(((R_What*)(intptr_t)w)->fns, j, 873); long _t28 = l_atc(r, k, 873); s_eq(_t27, _t28); })) && (!u_hasName(r, l_atc(((R_What*)(intptr_t)w)->acts, j, 873))))) {
+  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 876), (long)(intptr_t)"calls") && ({ long _t27 = l_atc(((R_What*)(intptr_t)w)->fns, j, 876); long _t28 = l_atc(r, k, 876); s_eq(_t27, _t28); })) && (!u_hasName(r, l_atc(((R_What*)(intptr_t)w)->acts, j, 876))))) {
 
-  l_push(r, l_atc(((R_What*)(intptr_t)w)->acts, j, 874));
+  l_push(r, l_atc(((R_What*)(intptr_t)w)->acts, j, 877));
   }
 
-  j = i_add(j, 1L, 876);
+  j = i_add(j, 1L, 879);
   }
 
-  k = i_add(k, 1L, 878);
+  k = i_add(k, 1L, 881);
   }
 
   return r;
@@ -2699,14 +2708,14 @@ long u_piecesProg(long prog, long sigs) {
   head = s_concat(head, (long)(intptr_t)", ");
   }
 
-  head = s_concat(head, l_atc(((R_Fn*)(intptr_t)f)->params, k, 902));
+  head = s_concat(head, l_atc(((R_Fn*)(intptr_t)f)->params, k, 905));
 
-  if (((!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 903), (long)(intptr_t)"")) && (!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 903), (long)(intptr_t)"Sys")))) {
+  if (((!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 906), (long)(intptr_t)"")) && (!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 906), (long)(intptr_t)"Sys")))) {
 
-  head = ({ long _t155 = s_concat(head, (long)(intptr_t)" : "); long _t156 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 904); s_concat(_t155, _t156); });
+  head = ({ long _t155 = s_concat(head, (long)(intptr_t)" : "); long _t156 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 907); s_concat(_t155, _t156); });
   }
 
-  k = i_add(k, 1L, 906);
+  k = i_add(k, 1L, 909);
   }
 
   head = s_concat(head, (long)(intptr_t)")");
@@ -2732,16 +2741,16 @@ long u_piecesProg(long prog, long sigs) {
 
   while ((j < l_len(((R_What*)(intptr_t)w)->acts))) {
 
-  line = ({ long _t171 = s_padright(kind, 8L); long _t172 = l_atc(((R_What*)(intptr_t)w)->acts, j, 918); s_concat(_t171, _t172); });
+  line = ({ long _t171 = s_padright(kind, 8L); long _t172 = l_atc(((R_What*)(intptr_t)w)->acts, j, 921); s_concat(_t171, _t172); });
 
-  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 919), kind) && u_hasName(reach, l_atc(((R_What*)(intptr_t)w)->fns, j, 919))) && (!u_hasName(seen, line)))) {
+  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 922), kind) && u_hasName(reach, l_atc(((R_What*)(intptr_t)w)->fns, j, 922))) && (!u_hasName(seen, line)))) {
 
   l_push(seen, line);
 
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"  "), line), (long)(intptr_t)"\n");
   }
 
-  j = i_add(j, 1L, 923);
+  j = i_add(j, 1L, 926);
   }
   }
   }
@@ -2768,14 +2777,14 @@ long u_piecesProg(long prog, long sigs) {
 
   if (({ long _t187 = u_exPiece(((R_PieceEx*)(intptr_t)p)->node); long _t188 = ((R_Fn*)(intptr_t)f)->name; s_eq(_t187, _t188); })) {
 
-  n = i_add(n, 1L, 936);
+  n = i_add(n, 1L, 939);
   }
   }
   }
 
   if (u_isMain(((R_Fn*)(intptr_t)f)->name)) {
 
-  n = i_div(l_len(((R_Prog*)(intptr_t)prog)->examples), 1L, 940);
+  n = i_div(l_len(((R_Prog*)(intptr_t)prog)->examples), 1L, 943);
   }
 
   if ((n == 0L)) {
@@ -2799,7 +2808,7 @@ long u_piecesProg(long prog, long sigs) {
 }
 long u_isMayLine(long toks, long i) {
 
-  return ((((u_isWord(toks, i, (long)(intptr_t)"reads") || u_isWord(toks, i, (long)(intptr_t)"writes")) && (u_isStrTok(toks, i_add(i, 1L, 968)) || u_isWord(toks, i_add(i, 1L, 968), (long)(intptr_t)"args"))) || (((u_isWord(toks, i, (long)(intptr_t)"runs") || u_isWord(toks, i, (long)(intptr_t)"fetches")) || u_isWord(toks, i, (long)(intptr_t)"mails")) && u_isStrTok(toks, i_add(i, 1L, 968)))) || (u_isWord(toks, i, (long)(intptr_t)"listens") && (u_isStrTok(toks, i_add(i, 1L, 968)) || u_portTok(toks, i_add(i, 1L, 968)))));
+  return ((((u_isWord(toks, i, (long)(intptr_t)"reads") || u_isWord(toks, i, (long)(intptr_t)"writes")) && (u_isStrTok(toks, i_add(i, 1L, 971)) || u_isWord(toks, i_add(i, 1L, 971), (long)(intptr_t)"args"))) || (((u_isWord(toks, i, (long)(intptr_t)"runs") || u_isWord(toks, i, (long)(intptr_t)"fetches")) || u_isWord(toks, i, (long)(intptr_t)"mails")) && u_isStrTok(toks, i_add(i, 1L, 971)))) || (u_isWord(toks, i, (long)(intptr_t)"listens") && (u_isStrTok(toks, i_add(i, 1L, 971)) || u_portTok(toks, i_add(i, 1L, 971)))));
   return 0;
 }
 long u_isStrTok(long toks, long i) {
@@ -2830,14 +2839,14 @@ long u_strAt(long toks, long i) {
 }
 long u_isLimitsLine(long toks, long i) {
 
-  return (u_isWord(toks, i, (long)(intptr_t)"limits") && u_isStrTok(toks, i_add(i, 1L, 995)));
+  return (u_isWord(toks, i, (long)(intptr_t)"limits") && u_isStrTok(toks, i_add(i, 1L, 998)));
   return 0;
 }
 long u_parseLimits(long toks, long i, long limits) {
   long j = 0;
   long more = 0;
 
-  j = i_add(i, 1L, 999);
+  j = i_add(i, 1L, 1002);
 
   more = true;
 
@@ -2850,13 +2859,13 @@ long u_parseLimits(long toks, long i, long limits) {
 
   l_push(limits, u_strAt(toks, j));
 
-  j = i_add(j, 1L, 1006);
+  j = i_add(j, 1L, 1009);
 
   more = u_isPunct(toks, j, (long)(intptr_t)",");
 
   if (more) {
 
-  j = i_add(j, 1L, 1009);
+  j = i_add(j, 1L, 1012);
   }
   }
 
@@ -2865,7 +2874,7 @@ long u_parseLimits(long toks, long i, long limits) {
 }
 long u_isExampleLine(long toks, long i) {
 
-  return (u_isWord(toks, i, (long)(intptr_t)"example") && u_isStrTok(toks, i_add(i, 1L, 1018)));
+  return (u_isWord(toks, i, (long)(intptr_t)"example") && u_isStrTok(toks, i_add(i, 1L, 1021)));
   return 0;
 }
 long u_parseExample(long toks, long i, long examples) {
@@ -2874,7 +2883,7 @@ long u_parseExample(long toks, long i, long examples) {
   long c = 0;
   long more = 0;
 
-  j = i_add(i, 1L, 1022);
+  j = i_add(i, 1L, 1025);
 
   n = 0L;
 
@@ -2891,15 +2900,15 @@ long u_parseExample(long toks, long i, long examples) {
 
   c = s_concat(({ long _t42 = s_concat(c, (long)(intptr_t)"\""); long _t43 = u_cEscape(u_strAt(toks, j)); s_concat(_t42, _t43); }), (long)(intptr_t)"\", ");
 
-  n = i_add(n, 1L, 1031);
+  n = i_add(n, 1L, 1034);
 
-  j = i_add(j, 1L, 1032);
+  j = i_add(j, 1L, 1035);
 
   more = u_isPunct(toks, j, (long)(intptr_t)",");
 
   if (more) {
 
-  j = i_add(j, 1L, 1035);
+  j = i_add(j, 1L, 1038);
   }
   }
 
@@ -2942,7 +2951,7 @@ long u_parseMay(long toks, long i, long reads, long writes, long runs, long fetc
 
   if (u_isWord(toks, i, (long)(intptr_t)"listens")) {
 
-  return u_parsePorts(toks, i_add(i, 1L, 1055), listens);
+  return u_parsePorts(toks, i_add(i, 1L, 1058), listens);
   }
 
   w = u_isWord(toks, i, (long)(intptr_t)"writes");
@@ -2953,7 +2962,7 @@ long u_parseMay(long toks, long i, long reads, long writes, long runs, long fetc
 
   ft = u_isWord(toks, i, (long)(intptr_t)"fetches");
 
-  j = i_add(i, 1L, 1061);
+  j = i_add(i, 1L, 1064);
 
   more = true;
 
@@ -2999,13 +3008,13 @@ long u_parseMay(long toks, long i, long reads, long writes, long runs, long fetc
   }
   }
 
-  j = i_add(j, 1L, 1085);
+  j = i_add(j, 1L, 1088);
 
   more = u_isPunct(toks, j, (long)(intptr_t)",");
 
   if (more) {
 
-  j = i_add(j, 1L, 1088);
+  j = i_add(j, 1L, 1091);
   }
   }
 
@@ -3028,7 +3037,7 @@ long u_parsePorts(long toks, long j, long listens) {
   } else {
   if (u_isStrTok(toks, j)) {
 
-  p = s_tointc(u_strAt(toks, j), 1102);
+  p = s_tointc(u_strAt(toks, j), 1105);
   }
   }
 
@@ -3039,13 +3048,13 @@ long u_parsePorts(long toks, long j, long listens) {
 
   l_push(listens, i_tostr(p));
 
-  j = i_add(j, 1L, 1108);
+  j = i_add(j, 1L, 1111);
 
   more = u_isPunct(toks, j, (long)(intptr_t)",");
 
   if (more) {
 
-  j = i_add(j, 1L, 1111);
+  j = i_add(j, 1L, 1114);
   }
   }
 
@@ -3106,31 +3115,31 @@ long u_globOk(long pat, long s) {
 
   i = 0L;
 
-  star = i_sub(0L, 1L, 1153);
+  star = i_sub(0L, 1L, 1156);
 
   mark = 0L;
 
   while ((i < s_len(s))) {
 
-  if (((p < s_len(pat)) && s_eq(s_atc(pat, p, 1156), (long)(intptr_t)"*"))) {
+  if (((p < s_len(pat)) && s_eq(s_atc(pat, p, 1159), (long)(intptr_t)"*"))) {
 
   star = p;
 
   mark = i;
 
-  p = i_add(p, 1L, 1159);
+  p = i_add(p, 1L, 1162);
   } else {
-  if (((p < s_len(pat)) && ({ long _t45 = s_atc(pat, p, 1159); long _t46 = s_atc(s, i, 1159); s_eq(_t45, _t46); }))) {
+  if (((p < s_len(pat)) && ({ long _t45 = s_atc(pat, p, 1162); long _t46 = s_atc(s, i, 1162); s_eq(_t45, _t46); }))) {
 
-  p = i_add(p, 1L, 1161);
+  p = i_add(p, 1L, 1164);
 
-  i = i_add(i, 1L, 1162);
+  i = i_add(i, 1L, 1165);
   } else {
-  if (((star >= 0L) && (!s_eq(s_atc(s, mark, 1162), (long)(intptr_t)"/")))) {
+  if (((star >= 0L) && (!s_eq(s_atc(s, mark, 1165), (long)(intptr_t)"/")))) {
 
-  p = i_add(star, 1L, 1164);
+  p = i_add(star, 1L, 1167);
 
-  mark = i_add(mark, 1L, 1165);
+  mark = i_add(mark, 1L, 1168);
 
   i = mark;
   } else {
@@ -3141,9 +3150,9 @@ long u_globOk(long pat, long s) {
   }
   }
 
-  while (((p < s_len(pat)) && s_eq(s_atc(pat, p, 1171), (long)(intptr_t)"*"))) {
+  while (((p < s_len(pat)) && s_eq(s_atc(pat, p, 1174), (long)(intptr_t)"*"))) {
 
-  p = i_add(p, 1L, 1172);
+  p = i_add(p, 1L, 1175);
   }
 
   return (p == s_len(pat));
@@ -3196,7 +3205,7 @@ long u_mayName(long s, long names) {
 
   if ((s_len(s) > 0L)) {
 
-  if (((!s_eq(s_atc(s, 0L, 1200), (long)(intptr_t)"/")) && (!s_contains(s, (long)(intptr_t)"..")))) {
+  if (((!s_eq(s_atc(s, 0L, 1203), (long)(intptr_t)"/")) && (!s_contains(s, (long)(intptr_t)"..")))) {
 
   r = true;
   }
@@ -3209,9 +3218,9 @@ long u_mayName(long s, long names) {
 
   if ((s_len(s) >= n)) {
 
-  if (s_eq(s_atc(e, i_sub(n, 1L, 1208), 1208), (long)(intptr_t)"/")) {
+  if (s_eq(s_atc(e, i_sub(n, 1L, 1211), 1211), (long)(intptr_t)"/")) {
 
-  if (s_eq(s_slicec(s, 0L, n, 1209), e)) {
+  if (s_eq(s_slicec(s, 0L, n, 1212), e)) {
 
   if ((!s_contains(s, (long)(intptr_t)".."))) {
 
@@ -3238,9 +3247,9 @@ long u_mayCheck(long arg, long names, long verb, long word, long ctx) {
 
   p = u_whatPath(arg);
 
-  if (s_eq(s_atc(p, 0L, 1227), (long)(intptr_t)"\"")) {
+  if (s_eq(s_atc(p, 0L, 1230), (long)(intptr_t)"\"")) {
 
-  lit = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1228), 1228);
+  lit = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1231), 1231);
 
   if (s_eq(verb, (long)(intptr_t)"list")) {
 
@@ -3249,7 +3258,7 @@ long u_mayCheck(long arg, long names, long verb, long word, long ctx) {
   lit = (long)(intptr_t)"/";
   } else {
 
-  if ((!s_eq(s_atc(lit, i_sub(s_len(lit), 1L, 1233), 1233), (long)(intptr_t)"/"))) {
+  if ((!s_eq(s_atc(lit, i_sub(s_len(lit), 1L, 1236), 1236), (long)(intptr_t)"/"))) {
 
   lit = s_concat(lit, (long)(intptr_t)"/");
   }
@@ -3274,26 +3283,26 @@ long u_hostOf(long url) {
 
   if (s_starts(url, (long)(intptr_t)"https://")) {
 
-  rest = s_slicec(url, 8L, s_len(url), 1249);
+  rest = s_slicec(url, 8L, s_len(url), 1252);
   }
 
   if (s_starts(url, (long)(intptr_t)"http://")) {
 
-  rest = s_slicec(url, 7L, s_len(url), 1252);
+  rest = s_slicec(url, 7L, s_len(url), 1255);
   }
 
   k = 0L;
 
   while ((k < s_len(rest))) {
 
-  c = s_atc(rest, k, 1256);
+  c = s_atc(rest, k, 1259);
 
   if ((((s_eq(c, (long)(intptr_t)"/") || s_eq(c, (long)(intptr_t)":")) || s_eq(c, (long)(intptr_t)"?")) || s_eq(c, (long)(intptr_t)"#"))) {
 
-  return s_slicec(rest, 0L, k, 1258);
+  return s_slicec(rest, 0L, k, 1261);
   }
 
-  k = i_add(k, 1L, 1260);
+  k = i_add(k, 1L, 1263);
   }
 
   return rest;
@@ -3309,9 +3318,9 @@ long u_runCheck(long arg, long ctx) {
 
   p = u_whatPath(arg);
 
-  if (s_eq(s_atc(p, 0L, 1271), (long)(intptr_t)"\"")) {
+  if (s_eq(s_atc(p, 0L, 1274), (long)(intptr_t)"\"")) {
 
-  if ((!({ long _t20 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->runs; long _t21 = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1272), 1272); u_globName(_t20, _t21); }))) {
+  if ((!({ long _t20 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->runs; long _t21 = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1275), 1275); u_globName(_t20, _t21); }))) {
 
   u_failAt(s_concat(s_concat((long)(intptr_t)"this program may not run ", p), (long)(intptr_t)"; add it to the runs line at the top"), ctx);
   }
@@ -3332,9 +3341,9 @@ long u_mailCheck(long arg, long ctx) {
 
   p = u_whatPath(arg);
 
-  if (s_eq(s_atc(p, 0L, 1285), (long)(intptr_t)"\"")) {
+  if (s_eq(s_atc(p, 0L, 1288), (long)(intptr_t)"\"")) {
 
-  a = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1286), 1286);
+  a = s_slicec(p, 1L, i_sub(s_len(p), 1L, 1289), 1289);
 
   ok = false;
 
@@ -3407,9 +3416,9 @@ long u_fetchCheck(long arg, long ctx) {
 
   p = u_whatPath(arg);
 
-  if (s_eq(s_atc(p, 0L, 1333), (long)(intptr_t)"\"")) {
+  if (s_eq(s_atc(p, 0L, 1336), (long)(intptr_t)"\"")) {
 
-  h = u_hostOf(s_slicec(p, 1L, i_sub(s_len(p), 1L, 1334), 1334));
+  h = u_hostOf(s_slicec(p, 1L, i_sub(s_len(p), 1L, 1337), 1337));
 
   if ((!u_globName(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fetches, h))) {
 
@@ -3443,7 +3452,7 @@ long u_mayText(long names) {
 
   if ((s_len(n) > 0L)) {
 
-  if (s_eq(s_atc(n, i_sub(s_len(n), 1L, 1353), 1353), (long)(intptr_t)"/")) {
+  if (s_eq(s_atc(n, i_sub(s_len(n), 1L, 1356), 1356), (long)(intptr_t)"/")) {
 
   out = s_concat(out, (long)(intptr_t)"anything under ");
   }
@@ -3579,9 +3588,9 @@ long u_whatKind(long w, long kind) {
 
   while ((k < l_len(((R_What*)(intptr_t)w)->acts))) {
 
-  act = l_atc(((R_What*)(intptr_t)w)->acts, k, 1421);
+  act = l_atc(((R_What*)(intptr_t)w)->acts, k, 1424);
 
-  if ((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, k, 1422), kind) && (!u_hasName(done, act)))) {
+  if ((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, k, 1425), kind) && (!u_hasName(done, act)))) {
 
   l_push(done, act);
 
@@ -3591,23 +3600,23 @@ long u_whatKind(long w, long kind) {
 
   while ((j < l_len(((R_What*)(intptr_t)w)->acts))) {
 
-  if ((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 1427), kind) && s_eq(l_atc(((R_What*)(intptr_t)w)->acts, j, 1427), act))) {
+  if ((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, j, 1430), kind) && s_eq(l_atc(((R_What*)(intptr_t)w)->acts, j, 1430), act))) {
 
   if ((!s_eq(who, (long)(intptr_t)""))) {
 
   who = s_concat(who, (long)(intptr_t)", ");
   }
 
-  who = s_concat(who, s_replace(l_atc(((R_What*)(intptr_t)w)->fns, j, 1431), (long)(intptr_t)"__", (long)(intptr_t)"."));
+  who = s_concat(who, s_replace(l_atc(((R_What*)(intptr_t)w)->fns, j, 1434), (long)(intptr_t)"__", (long)(intptr_t)"."));
   }
 
-  j = i_add(j, 1L, 1433);
+  j = i_add(j, 1L, 1436);
   }
 
   out = s_concat(s_concat(s_concat(s_concat(s_concat(out, s_padright(kind, 8L)), act), (long)(intptr_t)"  (in "), who), (long)(intptr_t)")\n");
   }
 
-  k = i_add(k, 1L, 1437);
+  k = i_add(k, 1L, 1440);
   }
 
   if (s_eq(out, (long)(intptr_t)"")) {
@@ -3625,12 +3634,12 @@ long u_whatAdd(long w, long kind, long act, long fn) {
 
   while ((k < l_len(((R_What*)(intptr_t)w)->acts))) {
 
-  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, k, 1448), kind) && s_eq(l_atc(((R_What*)(intptr_t)w)->acts, k, 1448), act)) && s_eq(l_atc(((R_What*)(intptr_t)w)->fns, k, 1448), fn))) {
+  if (((s_eq(l_atc(((R_What*)(intptr_t)w)->kinds, k, 1451), kind) && s_eq(l_atc(((R_What*)(intptr_t)w)->acts, k, 1451), act)) && s_eq(l_atc(((R_What*)(intptr_t)w)->fns, k, 1451), fn))) {
 
   return 0L;
   }
 
-  k = i_add(k, 1L, 1451);
+  k = i_add(k, 1L, 1454);
   }
 
   l_push(((R_What*)(intptr_t)w)->kinds, kind);
@@ -3662,8 +3671,8 @@ long u_whatStmt(long s, long fn, long w, long sigs) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_whatExpr(e, fn, w, sigs); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_whatExpr(e, fn, w, sigs); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t156 = ({ long _t154 = u_whatExpr(c, fn, w, sigs); long _t155 = u_whatBody(t, fn, w, sigs); i_add(_t154, _t155, 1467); }); long _t157 = u_whatBody(el, fn, w, sigs); i_add(_t156, _t157, 1467); }); }
-  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t163 = u_whatExpr(c, fn, w, sigs); long _t164 = u_whatBody(b, fn, w, sigs); i_add(_t163, _t164, 1467); }); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t156 = ({ long _t154 = u_whatExpr(c, fn, w, sigs); long _t155 = u_whatBody(t, fn, w, sigs); i_add(_t154, _t155, 1470); }); long _t157 = u_whatBody(el, fn, w, sigs); i_add(_t156, _t157, 1470); }); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t163 = u_whatExpr(c, fn, w, sigs); long _t164 = u_whatBody(b, fn, w, sigs); i_add(_t163, _t164, 1470); }); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_whatExpr(e, fn, w, sigs); }
   case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   case T_Jump: { long w = ((Obj*)(intptr_t)s)->v0; return 0L; }
@@ -3679,12 +3688,12 @@ long u_whatExpr(long e, long fn, long w, long sigs) {
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_StrLit: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_whatAll(es, fn, w, sigs); }
-  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t241 = u_whatExpr(a, fn, w, sigs); long _t242 = u_whatExpr(b, fn, w, sigs); i_add(_t241, _t242, 1479); }); }
-  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return ({ long _t248 = u_whatAdd(w, (long)(intptr_t)"calls", name, fn); long _t249 = u_whatAll(args, fn, w, sigs); i_add(_t248, _t249, 1479); }); }
-  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return ({ long _t254 = u_whatExpr(scrut, fn, w, sigs); long _t255 = u_whatArms(arms, fn, w, sigs); i_add(_t254, _t255, 1479); }); }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t241 = u_whatExpr(a, fn, w, sigs); long _t242 = u_whatExpr(b, fn, w, sigs); i_add(_t241, _t242, 1482); }); }
+  case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return ({ long _t248 = u_whatAdd(w, (long)(intptr_t)"calls", name, fn); long _t249 = u_whatAll(args, fn, w, sigs); i_add(_t248, _t249, 1482); }); }
+  case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return ({ long _t254 = u_whatExpr(scrut, fn, w, sigs); long _t255 = u_whatArms(arms, fn, w, sigs); i_add(_t254, _t255, 1482); }); }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_whatField(recv, fld, fn, w, sigs); }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return u_whatMethod(recv, name, args, fn, w, sigs); }
-  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return ({ long _t271 = u_whatExpr(recv, fn, w, sigs); long _t272 = u_whatBody(body, fn, w, sigs); i_add(_t271, _t272, 1479); }); }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return ({ long _t271 = u_whatExpr(recv, fn, w, sigs); long _t272 = u_whatBody(body, fn, w, sigs); i_add(_t271, _t272, 1482); }); }
   }
   return 0;
   return 0;
@@ -3765,42 +3774,42 @@ long u_whatMethod(long recv, long name, long args, long fn, long w, long sigs) {
 
   if (s_eq(name, (long)(intptr_t)"read")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"reads ", u_whatPath(l_atc(args, 0L, 1536))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"reads ", u_whatPath(l_atc(args, 0L, 1539))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"write")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"writes ", u_whatPath(l_atc(args, 0L, 1539))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"writes ", u_whatPath(l_atc(args, 0L, 1542))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"readBytes")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"reads the bytes of ", u_whatPath(l_atc(args, 0L, 1542))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"reads the bytes of ", u_whatPath(l_atc(args, 0L, 1545))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"writeBytes")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"writes bytes to ", u_whatPath(l_atc(args, 0L, 1545))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"writes bytes to ", u_whatPath(l_atc(args, 0L, 1548))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"append")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"adds to ", u_whatPath(l_atc(args, 0L, 1548))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"adds to ", u_whatPath(l_atc(args, 0L, 1551))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"list")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"lists the folder ", u_whatPath(l_atc(args, 0L, 1551))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"lists the folder ", u_whatPath(l_atc(args, 0L, 1554))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"exists")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"looks for ", u_whatPath(l_atc(args, 0L, 1554))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"looks for ", u_whatPath(l_atc(args, 0L, 1557))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"wait")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"waits for a change in ", u_whatPath(l_atc(args, 0L, 1557))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"waits for a change in ", u_whatPath(l_atc(args, 0L, 1560))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"sleep")) {
@@ -3810,37 +3819,37 @@ long u_whatMethod(long recv, long name, long args, long fn, long w, long sigs) {
 
   if (s_eq(name, (long)(intptr_t)"rename")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"renames ", u_whatPath(l_atc(args, 0L, 1563))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"renames ", u_whatPath(l_atc(args, 0L, 1566))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"delete")) {
 
-  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"deletes ", u_whatPath(l_atc(args, 0L, 1566))), fn);
+  u_whatAdd(w, (long)(intptr_t)"files", s_concat((long)(intptr_t)"deletes ", u_whatPath(l_atc(args, 0L, 1569))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"send")) {
 
-  u_whatAdd(w, (long)(intptr_t)"mail", s_concat((long)(intptr_t)"sends to ", s_replace(u_whatPath(l_atc(args, 0L, 1569)), (long)(intptr_t)"a path", (long)(intptr_t)"an address")), fn);
+  u_whatAdd(w, (long)(intptr_t)"mail", s_concat((long)(intptr_t)"sends to ", s_replace(u_whatPath(l_atc(args, 0L, 1572)), (long)(intptr_t)"a path", (long)(intptr_t)"an address")), fn);
   }
 
   if ((((((s_eq(name, (long)(intptr_t)"run") || s_eq(name, (long)(intptr_t)"status")) || s_eq(name, (long)(intptr_t)"start")) || s_eq(name, (long)(intptr_t)"try")) || s_eq(name, (long)(intptr_t)"feed")) || s_eq(name, (long)(intptr_t)"output"))) {
 
-  u_whatAdd(w, (long)(intptr_t)"program", s_concat((long)(intptr_t)"runs ", u_whatPath(l_atc(args, 0L, 1572))), fn);
+  u_whatAdd(w, (long)(intptr_t)"program", s_concat((long)(intptr_t)"runs ", u_whatPath(l_atc(args, 0L, 1575))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"drive")) {
 
-  u_whatAdd(w, (long)(intptr_t)"program", s_concat(s_concat((long)(intptr_t)"runs ", u_whatPath(l_atc(args, 0L, 1575))), (long)(intptr_t)" on a terminal of its own"), fn);
+  u_whatAdd(w, (long)(intptr_t)"program", s_concat(s_concat((long)(intptr_t)"runs ", u_whatPath(l_atc(args, 0L, 1578))), (long)(intptr_t)" on a terminal of its own"), fn);
   }
 
   if (((s_eq(name, (long)(intptr_t)"fetch") || s_eq(name, (long)(intptr_t)"reach")) || s_eq(name, (long)(intptr_t)"fetchWith"))) {
 
-  u_whatAdd(w, (long)(intptr_t)"net", s_concat((long)(intptr_t)"fetches ", u_whatPath(l_atc(args, 0L, 1578))), fn);
+  u_whatAdd(w, (long)(intptr_t)"net", s_concat((long)(intptr_t)"fetches ", u_whatPath(l_atc(args, 0L, 1581))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"post")) {
 
-  u_whatAdd(w, (long)(intptr_t)"net", s_concat((long)(intptr_t)"sends to ", u_whatPath(l_atc(args, 0L, 1581))), fn);
+  u_whatAdd(w, (long)(intptr_t)"net", s_concat((long)(intptr_t)"sends to ", u_whatPath(l_atc(args, 0L, 1584))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"request")) {
@@ -3850,12 +3859,12 @@ long u_whatMethod(long recv, long name, long args, long fn, long w, long sigs) {
 
   if (s_eq(name, (long)(intptr_t)"var")) {
 
-  u_whatAdd(w, (long)(intptr_t)"env", s_concat((long)(intptr_t)"reads the variable ", u_whatPath(l_atc(args, 0L, 1587))), fn);
+  u_whatAdd(w, (long)(intptr_t)"env", s_concat((long)(intptr_t)"reads the variable ", u_whatPath(l_atc(args, 0L, 1590))), fn);
   }
 
   if (s_eq(name, (long)(intptr_t)"setVar")) {
 
-  u_whatAdd(w, (long)(intptr_t)"env", s_concat(s_concat((long)(intptr_t)"sets the variable ", u_whatPath(l_atc(args, 0L, 1590))), (long)(intptr_t)" for itself and the programs it runs"), fn);
+  u_whatAdd(w, (long)(intptr_t)"env", s_concat(s_concat((long)(intptr_t)"sets the variable ", u_whatPath(l_atc(args, 0L, 1593))), (long)(intptr_t)" for itself and the programs it runs"), fn);
   }
   }
 
@@ -3884,7 +3893,7 @@ long u_whatPath(long e) {
 }
 long u_isTest(long name) {
 
-  return ((s_len(name) > 5L) && s_eq(s_slicec(name, 0L, 5L, 1615), (long)(intptr_t)"test_"));
+  return ((s_len(name) > 5L) && s_eq(s_slicec(name, 0L, 5L, 1618), (long)(intptr_t)"test_"));
   return 0;
 }
 long u_emitTests(long fns) {
@@ -3986,16 +3995,16 @@ long u_spot(long files, long line) {
   long m = 0;
   long name = 0;
 
-  m = i_div(line, 1000000L, 1666);
+  m = i_div(line, 1000000L, 1669);
 
   name = (long)(intptr_t)"input.smplr";
 
   if ((m < l_len(files))) {
 
-  name = l_atc(files, m, 1669);
+  name = l_atc(files, m, 1672);
   }
 
-  return s_concat(({ long _t21 = s_concat(name, (long)(intptr_t)":"); long _t22 = i_tostr(i_mod(line, 1000000L, 1671)); s_concat(_t21, _t22); }), (long)(intptr_t)": ");
+  return s_concat(({ long _t21 = s_concat(name, (long)(intptr_t)":"); long _t22 = i_tostr(i_mod(line, 1000000L, 1674)); s_concat(_t21, _t22); }), (long)(intptr_t)": ");
   return 0;
 }
 long u_hasMod(long mods, long name) {
@@ -4029,12 +4038,12 @@ long u_modNameOk(long name) {
 
   while ((k < s_len(name))) {
 
-  if ((!u_isAlnum(s_code(s_atc(name, k, 1688))))) {
+  if ((!u_isAlnum(s_code(s_atc(name, k, 1691))))) {
 
   ok = false;
   }
 
-  k = i_add(k, 1L, 1691);
+  k = i_add(k, 1L, 1694);
   }
 
   return ok;
@@ -4062,37 +4071,37 @@ long u_takeUses(long lx, long mine, long queue, long queueLines) {
 
   if (u_isPunct(lx, i, (long)(intptr_t)"{")) {
 
-  depth = i_add(depth, 1L, 1706);
+  depth = i_add(depth, 1L, 1709);
   }
 
   if (u_isPunct(lx, i, (long)(intptr_t)"}")) {
 
-  depth = i_sub(depth, 1L, 1709);
+  depth = i_sub(depth, 1L, 1712);
   }
 
-  if ((((depth == 0L) && u_isWord(lx, i, (long)(intptr_t)"uses")) && u_isStrTok(lx, i_add(i, 1L, 1711)))) {
+  if ((((depth == 0L) && u_isWord(lx, i, (long)(intptr_t)"uses")) && u_isStrTok(lx, i_add(i, 1L, 1714)))) {
 
-  name = u_strAt(lx, i_add(i, 1L, 1712));
+  name = u_strAt(lx, i_add(i, 1L, 1715));
 
   if ((!u_modNameOk(name))) {
 
-  u_failLine(lx, i_add(i, 1L, 1714), (long)(intptr_t)"a module name has only letters, digits and _");
+  u_failLine(lx, i_add(i, 1L, 1717), (long)(intptr_t)"a module name has only letters, digits and _");
   }
 
   l_push(mine, name);
 
   l_push(queue, name);
 
-  l_push(queueLines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1718));
+  l_push(queueLines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1721));
 
-  i = i_add(i, 2L, 1719);
+  i = i_add(i, 2L, 1722);
   } else {
 
-  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1721));
+  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1724));
 
-  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1722));
+  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1725));
 
-  i = i_add(i, 1L, 1723);
+  i = i_add(i, 1L, 1726);
   }
   }
 
@@ -4129,16 +4138,16 @@ long u_qualify(long lx, long mine) {
 
   if ((i > 0L)) {
 
-  afterDot = u_isPunct(lx, i_sub(i, 1L, 1742), (long)(intptr_t)".");
+  afterDot = u_isPunct(lx, i_sub(i, 1L, 1745), (long)(intptr_t)".");
   }
 
   if ((((!s_eq(id, (long)(intptr_t)"")) && (!afterDot)) && u_hasName(mine, id))) {
 
   named = false;
 
-  if (u_isPunct(lx, i_add(i, 1L, 1746), (long)(intptr_t)".")) {
+  if (u_isPunct(lx, i_add(i, 1L, 1749), (long)(intptr_t)".")) {
 
-  named = u_isIdent(lx, i_add(i, 2L, 1747));
+  named = u_isIdent(lx, i_add(i, 2L, 1750));
   }
 
   if ((!named)) {
@@ -4146,18 +4155,18 @@ long u_qualify(long lx, long mine) {
   u_failLine(lx, i, s_concat(s_concat(s_concat(id, (long)(intptr_t)" is a module here: write "), id), (long)(intptr_t)".name for something in it, and give a variable another name"));
   }
 
-  l_push(toks, Ident(({ long _t62 = s_concat(id, (long)(intptr_t)"__"); long _t63 = u_identAt(lx, i_add(i, 2L, 1752)); s_concat(_t62, _t63); })));
+  l_push(toks, Ident(({ long _t62 = s_concat(id, (long)(intptr_t)"__"); long _t63 = u_identAt(lx, i_add(i, 2L, 1755)); s_concat(_t62, _t63); })));
 
-  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1753));
+  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1756));
 
-  i = i_add(i, 3L, 1754);
+  i = i_add(i, 3L, 1757);
   } else {
 
-  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1756));
+  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1759));
 
-  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1757));
+  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1760));
 
-  i = i_add(i, 1L, 1758);
+  i = i_add(i, 1L, 1761);
   }
   }
 
@@ -4178,9 +4187,9 @@ long u_makeMod(long name, long src, long files, long queue, long queueLines) {
 
   p = u_parse(lx);
 
-  first = u_spot(files, i_add(i_mul(i_sub(l_len(files), 1L, 1769), 1000000L, 1769), 1L, 1769));
+  first = u_spot(files, i_add(i_mul(i_sub(l_len(files), 1L, 1772), 1000000L, 1772), 1L, 1772));
 
-  if ((({ long _t134 = ({ long _t132 = ({ long _t130 = ({ long _t128 = ({ long _t126 = l_len(((R_Prog*)(intptr_t)p)->reads); long _t127 = l_len(((R_Prog*)(intptr_t)p)->writes); i_add(_t126, _t127, 1770); }); long _t129 = l_len(((R_Prog*)(intptr_t)p)->runs); i_add(_t128, _t129, 1770); }); long _t131 = l_len(((R_Prog*)(intptr_t)p)->fetches); i_add(_t130, _t131, 1770); }); long _t133 = l_len(((R_Prog*)(intptr_t)p)->mails); i_add(_t132, _t133, 1770); }); long _t135 = l_len(((R_Prog*)(intptr_t)p)->listens); i_add(_t134, _t135, 1770); }) > 0L)) {
+  if ((({ long _t134 = ({ long _t132 = ({ long _t130 = ({ long _t128 = ({ long _t126 = l_len(((R_Prog*)(intptr_t)p)->reads); long _t127 = l_len(((R_Prog*)(intptr_t)p)->writes); i_add(_t126, _t127, 1773); }); long _t129 = l_len(((R_Prog*)(intptr_t)p)->runs); i_add(_t128, _t129, 1773); }); long _t131 = l_len(((R_Prog*)(intptr_t)p)->fetches); i_add(_t130, _t131, 1773); }); long _t133 = l_len(((R_Prog*)(intptr_t)p)->mails); i_add(_t132, _t133, 1773); }); long _t135 = l_len(((R_Prog*)(intptr_t)p)->listens); i_add(_t134, _t135, 1773); }) > 0L)) {
 
   fail(s_concat(first, (long)(intptr_t)"a module has no reads, writes, runs, fetches, mails or listens line; those belong to the program that uses it"));
   }
@@ -4291,7 +4300,7 @@ long u_joinMods(long mods, long mainLx) {
 
   i = 0L;
 
-  n = i_sub(l_len(((R_Lexed*)(intptr_t)lx)->toks), 1L, 1813);
+  n = i_sub(l_len(((R_Lexed*)(intptr_t)lx)->toks), 1L, 1816);
 
   while ((i < n)) {
 
@@ -4306,7 +4315,7 @@ long u_joinMods(long mods, long mainLx) {
 
   if ((i > 0L)) {
 
-  afterDot = u_isPunct(lx, i_sub(i, 1L, 1821), (long)(intptr_t)".");
+  afterDot = u_isPunct(lx, i_sub(i, 1L, 1824), (long)(intptr_t)".");
   }
 
   if ((((!s_eq(id, (long)(intptr_t)"")) && (!afterDot)) && u_hasName(((R_Mod*)(intptr_t)m)->names, id))) {
@@ -4314,12 +4323,12 @@ long u_joinMods(long mods, long mainLx) {
   l_push(toks, Ident(s_concat(pre, id)));
   } else {
 
-  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1826));
+  l_push(toks, l_atc(((R_Lexed*)(intptr_t)lx)->toks, i, 1829));
   }
 
-  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1828));
+  l_push(lines, l_atc(((R_Lexed*)(intptr_t)lx)->lines, i, 1831));
 
-  i = i_add(i, 1L, 1829);
+  i = i_add(i, 1L, 1832);
   }
   }
   }
@@ -4328,11 +4337,11 @@ long u_joinMods(long mods, long mainLx) {
 
   while ((i < l_len(((R_Lexed*)(intptr_t)mainLx)->toks))) {
 
-  l_push(toks, l_atc(((R_Lexed*)(intptr_t)mainLx)->toks, i, 1834));
+  l_push(toks, l_atc(((R_Lexed*)(intptr_t)mainLx)->toks, i, 1837));
 
-  l_push(lines, l_atc(((R_Lexed*)(intptr_t)mainLx)->lines, i, 1835));
+  l_push(lines, l_atc(((R_Lexed*)(intptr_t)mainLx)->lines, i, 1838));
 
-  i = i_add(i, 1L, 1836);
+  i = i_add(i, 1L, 1839);
   }
 
   return Lexed(toks, lines, ((R_Lexed*)(intptr_t)mainLx)->files);
@@ -4398,7 +4407,7 @@ long u_parse(long toks) {
   } else {
   if (u_isWord(toks, i, (long)(intptr_t)"example")) {
 
-  px = u_parseExpr(toks, i_add(i, 1L, 1863));
+  px = u_parseExpr(toks, i_add(i, 1L, 1866));
 
   l_push(pieces, ({ long _t91 = ((R_Parsed*)(intptr_t)px)->node; long _t92 = u_lineOf(toks, i); PieceEx(_t91, _t92); }));
 
@@ -4416,12 +4425,12 @@ long u_parse(long toks) {
 
   if (u_isTypeDef(toks, i)) {
 
-  if ((!u_isWord(toks, i_add(i, 2L, 1873), (long)(intptr_t)"type"))) {
+  if ((!u_isWord(toks, i_add(i, 2L, 1876), (long)(intptr_t)"type"))) {
 
-  u_failTok(toks, i_add(i, 2L, 1874), (long)(intptr_t)"expected the word type");
+  u_failTok(toks, i_add(i, 2L, 1877), (long)(intptr_t)"expected the word type");
   }
 
-  u_expect(toks, i_add(i, 3L, 1876), (long)(intptr_t)"{");
+  u_expect(toks, i_add(i, 3L, 1879), (long)(intptr_t)"{");
 
   if (u_isRecordDef(toks, i)) {
 
@@ -4440,7 +4449,7 @@ long u_parse(long toks) {
   }
   } else {
 
-  if ((!(u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 1887), (long)(intptr_t)"(")))) {
+  if ((!(u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 1890), (long)(intptr_t)"(")))) {
 
   u_failTok(toks, i, (long)(intptr_t)"expected a function or a type");
   }
@@ -4467,7 +4476,7 @@ long u_tokAt(long toks, long i) {
 
   if ((i < l_len(((R_Lexed*)(intptr_t)toks)->toks))) {
 
-  r = l_atc(((R_Lexed*)(intptr_t)toks)->toks, i, 1904);
+  r = l_atc(((R_Lexed*)(intptr_t)toks)->toks, i, 1907);
   }
 
   return r;
@@ -4476,11 +4485,11 @@ long u_tokAt(long toks, long i) {
 long u_lineOf(long toks, long i) {
   long r = 0;
 
-  r = ({ long _t13 = ((R_Lexed*)(intptr_t)toks)->lines; long _t14 = i_sub(l_len(((R_Lexed*)(intptr_t)toks)->lines), 1L, 1910); l_atc(_t13, _t14, 1910); });
+  r = ({ long _t13 = ((R_Lexed*)(intptr_t)toks)->lines; long _t14 = i_sub(l_len(((R_Lexed*)(intptr_t)toks)->lines), 1L, 1913); l_atc(_t13, _t14, 1913); });
 
   if ((i < l_len(((R_Lexed*)(intptr_t)toks)->lines))) {
 
-  r = l_atc(((R_Lexed*)(intptr_t)toks)->lines, i, 1912);
+  r = l_atc(((R_Lexed*)(intptr_t)toks)->lines, i, 1915);
   }
 
   return r;
@@ -4541,7 +4550,7 @@ long u_expect(long toks, long i, long p) {
   u_failTok(toks, i, s_concat((long)(intptr_t)"expected ", p));
   }
 
-  return i_add(i, 1L, 1958);
+  return i_add(i, 1L, 1961);
   return 0;
 }
 long u_isKeyword(long toks, long i) {
@@ -4566,7 +4575,7 @@ long u_sep(long toks, long j, long close) {
 
   if (u_isPunct(toks, j, (long)(intptr_t)",")) {
 
-  r = i_add(j, 1L, 1976);
+  r = i_add(j, 1L, 1979);
   } else {
 
   if ((!u_isPunct(toks, j, close))) {
@@ -4586,11 +4595,11 @@ long u_parseType(long toks, long i) {
 
   ty = u_expectIdent(toks, i, (long)(intptr_t)"a type");
 
-  k = i_add(i, 1L, 1988);
+  k = i_add(i, 1L, 1991);
 
   if (u_isPunct(toks, k, (long)(intptr_t)"[")) {
 
-  inner = u_parseType(toks, i_add(k, 1L, 1990));
+  inner = u_parseType(toks, i_add(k, 1L, 1993));
 
   ty = s_concat(({ long _t36 = s_concat(ty, (long)(intptr_t)"["); long _t37 = ((R_PType*)(intptr_t)inner)->ty; s_concat(_t36, _t37); }), (long)(intptr_t)"]");
 
@@ -4598,7 +4607,7 @@ long u_parseType(long toks, long i) {
 
   while (u_isPunct(toks, k, (long)(intptr_t)",")) {
 
-  more = u_parseType(toks, i_add(k, 1L, 1994));
+  more = u_parseType(toks, i_add(k, 1L, 1997));
 
   k = ((R_PType*)(intptr_t)more)->next;
   }
@@ -4621,12 +4630,12 @@ long u_parseType(long toks, long i) {
 }
 long u_isTypeDef(long toks, long i) {
 
-  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 2010), (long)(intptr_t)"="));
+  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 2013), (long)(intptr_t)"="));
   return 0;
 }
 long u_isRecordDef(long toks, long i) {
 
-  return u_isPunct(toks, i_add(i, 5L, 2014), (long)(intptr_t)":");
+  return u_isPunct(toks, i_add(i, 5L, 2017), (long)(intptr_t)":");
   return 0;
 }
 long u_parseRecord(long toks, long i) {
@@ -4643,19 +4652,19 @@ long u_parseRecord(long toks, long i) {
 
   ftypes = l_new();
 
-  j = i_add(i, 4L, 2021);
+  j = i_add(i, 4L, 2024);
 
   while (u_inBlock(toks, j)) {
 
   u_once(fields, u_expectIdent(toks, j, (long)(intptr_t)"a field name"), toks, j);
 
-  j = i_add(j, 1L, 2024);
+  j = i_add(j, 1L, 2027);
 
   ty = (long)(intptr_t)"Int";
 
   if (u_isPunct(toks, j, (long)(intptr_t)":")) {
 
-  pt = u_parseType(toks, i_add(j, 1L, 2027));
+  pt = u_parseType(toks, i_add(j, 1L, 2030));
 
   ty = ((R_PType*)(intptr_t)pt)->ty;
 
@@ -4666,7 +4675,7 @@ long u_parseRecord(long toks, long i) {
 
   if (u_isPunct(toks, j, (long)(intptr_t)",")) {
 
-  j = i_add(j, 1L, 2033);
+  j = i_add(j, 1L, 2036);
   }
   }
 
@@ -4685,19 +4694,19 @@ long u_parseTypeDef(long toks, long i, long seen) {
 
   cases = l_new();
 
-  j = i_add(i, 4L, 2042);
+  j = i_add(i, 4L, 2045);
 
   while (u_inBlock(toks, j)) {
 
   cn = u_once(seen, u_expectIdent(toks, j, (long)(intptr_t)"a case name"), toks, j);
 
-  j = i_add(j, 1L, 2045);
+  j = i_add(j, 1L, 2048);
 
   ptypes = l_new();
 
   if (u_isPunct(toks, j, (long)(intptr_t)"(")) {
 
-  j = i_add(j, 1L, 2048);
+  j = i_add(j, 1L, 2051);
 
   while (u_inArgs(toks, j)) {
 
@@ -4725,7 +4734,7 @@ long u_parseFn(long toks, long i) {
 
   name = u_identAt(toks, i);
 
-  pp = u_parseParams(toks, i_add(i, 1L, 2063));
+  pp = u_parseParams(toks, i_add(i, 1L, 2066));
 
   rt = u_parseRet(toks, ((R_PNames*)(intptr_t)pp)->next);
 
@@ -4745,19 +4754,19 @@ long u_parseParams(long toks, long i) {
 
   types = l_new();
 
-  j = i_add(i, 1L, 2073);
+  j = i_add(i, 1L, 2076);
 
   while (u_inArgs(toks, j)) {
 
   u_once(names, u_expectIdent(toks, j, (long)(intptr_t)"a parameter name"), toks, j);
 
-  j = i_add(j, 1L, 2076);
+  j = i_add(j, 1L, 2079);
 
   ty = (long)(intptr_t)"";
 
   if (u_isPunct(toks, j, (long)(intptr_t)":")) {
 
-  pt = u_parseType(toks, i_add(j, 1L, 2079));
+  pt = u_parseType(toks, i_add(j, 1L, 2082));
 
   ty = ((R_PType*)(intptr_t)pt)->ty;
 
@@ -4787,7 +4796,7 @@ long u_parseRet(long toks, long j) {
 
   if (u_isPunct(toks, k, (long)(intptr_t)":")) {
 
-  pt = u_parseType(toks, i_add(k, 1L, 2096));
+  pt = u_parseType(toks, i_add(k, 1L, 2099));
 
   ret = ((R_PType*)(intptr_t)pt)->ty;
 
@@ -4796,16 +4805,16 @@ long u_parseRet(long toks, long j) {
 
   while (u_isPunct(toks, k, (long)(intptr_t)"!")) {
 
-  eff = u_expectIdent(toks, i_add(k, 1L, 2101), (long)(intptr_t)"an effect name");
+  eff = u_expectIdent(toks, i_add(k, 1L, 2104), (long)(intptr_t)"an effect name");
 
   if ((!((s_eq(eff, (long)(intptr_t)"IO") || s_eq(eff, (long)(intptr_t)"Fail")) || s_eq(eff, (long)(intptr_t)"Mut")))) {
 
-  u_failLine(toks, i_add(k, 1L, 2103), s_concat(s_concat((long)(intptr_t)"no effect named ", eff), (long)(intptr_t)"; the effects are !IO, !Fail and !Mut"));
+  u_failLine(toks, i_add(k, 1L, 2106), s_concat(s_concat((long)(intptr_t)"no effect named ", eff), (long)(intptr_t)"; the effects are !IO, !Fail and !Mut"));
   }
 
   l_push(effs, eff);
 
-  k = i_add(k, 2L, 2106);
+  k = i_add(k, 2L, 2109);
   }
 
   if (u_isPunct(toks, k, (long)(intptr_t)":")) {
@@ -4913,15 +4922,15 @@ long u_parseStmt(long toks, long i) {
 
   if (u_isWord(toks, i, (long)(intptr_t)"break")) {
 
-  return PStmt(Jump((long)(intptr_t)"break"), i_add(i, 1L, 2182));
+  return PStmt(Jump((long)(intptr_t)"break"), i_add(i, 1L, 2185));
   }
 
   if (u_isWord(toks, i, (long)(intptr_t)"continue")) {
 
-  return PStmt(Jump((long)(intptr_t)"continue"), i_add(i, 1L, 2185));
+  return PStmt(Jump((long)(intptr_t)"continue"), i_add(i, 1L, 2188));
   }
 
-  if (((u_isWord(toks, i, (long)(intptr_t)"for") && u_isIdent(toks, i_add(i, 1L, 2187))) && u_isWord(toks, i_add(i, 2L, 2187), (long)(intptr_t)"in"))) {
+  if (((u_isWord(toks, i, (long)(intptr_t)"for") && u_isIdent(toks, i_add(i, 1L, 2190))) && u_isWord(toks, i_add(i, 2L, 2190), (long)(intptr_t)"in"))) {
 
   return u_parseFor(toks, i);
   }
@@ -4933,7 +4942,7 @@ long u_parseStmt(long toks, long i) {
 
   if (u_isAssign(toks, i)) {
 
-  ae = u_parseExpr(toks, i_add(i, 2L, 2194));
+  ae = u_parseExpr(toks, i_add(i, 2L, 2197));
 
   return ({ long _t50 = ({ long _t48 = u_expectIdent(toks, i, (long)(intptr_t)"a name"); long _t49 = ((R_Parsed*)(intptr_t)ae)->node; Let(_t48, (long)(intptr_t)"", _t49); }); long _t51 = ((R_Parsed*)(intptr_t)ae)->next; PStmt(_t50, _t51); });
   }
@@ -4942,7 +4951,7 @@ long u_parseStmt(long toks, long i) {
 
   if ((u_isPunct(toks, ((R_Parsed*)(intptr_t)e)->next, (long)(intptr_t)"=") && (!s_eq(u_fieldName(((R_Parsed*)(intptr_t)e)->node), (long)(intptr_t)"")))) {
 
-  v = u_parseExpr(toks, i_add(((R_Parsed*)(intptr_t)e)->next, 1L, 2200));
+  v = u_parseExpr(toks, i_add(((R_Parsed*)(intptr_t)e)->next, 1L, 2203));
 
   return ({ long _t59 = Bare(({ long _t56 = u_fieldRecv(((R_Parsed*)(intptr_t)e)->node); long _t57 = s_concat((long)(intptr_t)"=", u_fieldName(((R_Parsed*)(intptr_t)e)->node)); long _t58 = l_with(l_new(), ((R_Parsed*)(intptr_t)v)->node); Method(_t56, _t57, _t58); })); long _t60 = ((R_Parsed*)(intptr_t)v)->next; PStmt(_t59, _t60); });
   }
@@ -5000,9 +5009,9 @@ long u_parseFor(long toks, long i) {
   long hi = 0;
   long b = 0;
 
-  param = u_expectIdent(toks, i_add(i, 1L, 2245), (long)(intptr_t)"a name for each item");
+  param = u_expectIdent(toks, i_add(i, 1L, 2248), (long)(intptr_t)"a name for each item");
 
-  lo = u_parseAdd(toks, i_add(i, 3L, 2246));
+  lo = u_parseAdd(toks, i_add(i, 3L, 2249));
 
   recv = ((R_Parsed*)(intptr_t)lo)->node;
 
@@ -5010,7 +5019,7 @@ long u_parseFor(long toks, long i) {
 
   if (u_isPunct(toks, k, (long)(intptr_t)"..")) {
 
-  k = i_add(k, 1L, 2250);
+  k = i_add(k, 1L, 2253);
 
   more = 0L;
 
@@ -5018,7 +5027,7 @@ long u_parseFor(long toks, long i) {
 
   more = 1L;
 
-  k = i_add(k, 1L, 2254);
+  k = i_add(k, 1L, 2257);
   }
 
   hi = u_parseAdd(toks, k);
@@ -5038,19 +5047,19 @@ long u_parseFor(long toks, long i) {
 long u_parseReturn(long toks, long i) {
   long re = 0;
 
-  if (u_isPunct(toks, i_add(i, 1L, 2267), (long)(intptr_t)"}")) {
+  if (u_isPunct(toks, i_add(i, 1L, 2270), (long)(intptr_t)"}")) {
 
-  return PStmt(Ret(Num(0L)), i_add(i, 1L, 2268));
+  return PStmt(Ret(Num(0L)), i_add(i, 1L, 2271));
   }
 
-  re = u_parseExpr(toks, i_add(i, 1L, 2270));
+  re = u_parseExpr(toks, i_add(i, 1L, 2273));
 
   return ({ long _t17 = Ret(((R_Parsed*)(intptr_t)re)->node); long _t18 = ((R_Parsed*)(intptr_t)re)->next; PStmt(_t17, _t18); });
   return 0;
 }
 long u_isTypedAssign(long toks, long i) {
 
-  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 2278), (long)(intptr_t)":"));
+  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 2281), (long)(intptr_t)":"));
   return 0;
 }
 long u_parseTypedLet(long toks, long i) {
@@ -5060,7 +5069,7 @@ long u_parseTypedLet(long toks, long i) {
 
   name = u_expectIdent(toks, i, (long)(intptr_t)"a name");
 
-  pt = u_parseType(toks, i_add(i, 2L, 2283));
+  pt = u_parseType(toks, i_add(i, 2L, 2286));
 
   ae = u_parseExpr(toks, u_expect(toks, ((R_PType*)(intptr_t)pt)->next, (long)(intptr_t)"="));
 
@@ -5075,7 +5084,7 @@ long u_parseIf(long toks, long i) {
   long inner = 0;
   long eb = 0;
 
-  c = u_parseExpr(toks, i_add(i, 1L, 2290));
+  c = u_parseExpr(toks, i_add(i, 1L, 2293));
 
   tb = u_parseBlock(toks, ((R_Parsed*)(intptr_t)c)->next);
 
@@ -5085,16 +5094,16 @@ long u_parseIf(long toks, long i) {
 
   if (u_isWord(toks, ((R_PBody*)(intptr_t)tb)->next, (long)(intptr_t)"else")) {
 
-  if (u_isWord(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2295), (long)(intptr_t)"if")) {
+  if (u_isWord(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2298), (long)(intptr_t)"if")) {
 
-  inner = u_parseIf(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2296));
+  inner = u_parseIf(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2299));
 
   l_push(els, ((R_PStmt*)(intptr_t)inner)->node);
 
   nxt = ((R_PStmt*)(intptr_t)inner)->next;
   } else {
 
-  eb = u_parseBlock(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2300));
+  eb = u_parseBlock(toks, i_add(((R_PBody*)(intptr_t)tb)->next, 1L, 2303));
 
   els = ((R_PBody*)(intptr_t)eb)->body;
 
@@ -5125,13 +5134,13 @@ long u_spins(long toks, long from, long to) {
   r = false;
   }
 
-  if ((u_isPunct(toks, i_add(k, 1L, 2320), (long)(intptr_t)"(") && (!u_isPunct(toks, i_sub(k, 1L, 2320), (long)(intptr_t)".")))) {
+  if ((u_isPunct(toks, i_add(k, 1L, 2323), (long)(intptr_t)"(") && (!u_isPunct(toks, i_sub(k, 1L, 2323), (long)(intptr_t)".")))) {
 
   r = false;
   }
   }
 
-  k = i_add(k, 1L, 2324);
+  k = i_add(k, 1L, 2327);
   }
 
   return r;
@@ -5141,11 +5150,11 @@ long u_parseWhile(long toks, long i) {
   long c = 0;
   long b = 0;
 
-  c = u_parseExpr(toks, i_add(i, 1L, 2330));
+  c = u_parseExpr(toks, i_add(i, 1L, 2333));
 
   b = u_parseBlock(toks, ((R_Parsed*)(intptr_t)c)->next);
 
-  if (((u_isWord(toks, i_add(i, 1L, 2332), (long)(intptr_t)"true") && (((R_Parsed*)(intptr_t)c)->next == i_add(i, 2L, 2332))) && ({ long _t16 = ((R_Parsed*)(intptr_t)c)->next; long _t17 = ((R_PBody*)(intptr_t)b)->next; u_spins(toks, _t16, _t17); }))) {
+  if (((u_isWord(toks, i_add(i, 1L, 2335), (long)(intptr_t)"true") && (((R_Parsed*)(intptr_t)c)->next == i_add(i, 2L, 2335))) && ({ long _t16 = ((R_Parsed*)(intptr_t)c)->next; long _t17 = ((R_PBody*)(intptr_t)b)->next; u_spins(toks, _t16, _t17); }))) {
 
   u_failLine(toks, i, (long)(intptr_t)"this loop never ends and never waits, so it would keep the processor busy; wait in it with sys.stdinLine, sys.files.wait(path) or sys.clock.sleep(ms), or leave it with break");
   }
@@ -5167,7 +5176,7 @@ long u_parseExpr(long toks, long pos) {
 
   while (u_isPunct(toks, i, (long)(intptr_t)"||")) {
 
-  r = u_parseAnd(toks, i_add(i, 1L, 2343));
+  r = u_parseAnd(toks, i_add(i, 1L, 2346));
 
   node = Bin((long)(intptr_t)"||", node, ((R_Parsed*)(intptr_t)r)->node);
 
@@ -5191,7 +5200,7 @@ long u_parseAnd(long toks, long pos) {
 
   while (u_isPunct(toks, i, (long)(intptr_t)"&&")) {
 
-  r = u_parseCmp(toks, i_add(i, 1L, 2355));
+  r = u_parseCmp(toks, i_add(i, 1L, 2358));
 
   node = Bin((long)(intptr_t)"&&", node, ((R_Parsed*)(intptr_t)r)->node);
 
@@ -5218,7 +5227,7 @@ long u_parseCmp(long toks, long pos) {
 
   op = u_punctAt(toks, i);
 
-  r = u_parseAdd(toks, i_add(i, 1L, 2368));
+  r = u_parseAdd(toks, i_add(i, 1L, 2371));
 
   if (s_eq(op, (long)(intptr_t)"!=")) {
 
@@ -5251,7 +5260,7 @@ long u_parseAdd(long toks, long pos) {
 
   op = u_punctAt(toks, i);
 
-  r = u_parseTerm(toks, i_add(i, 1L, 2385));
+  r = u_parseTerm(toks, i_add(i, 1L, 2388));
 
   node = Bin(op, node, ((R_Parsed*)(intptr_t)r)->node);
 
@@ -5278,7 +5287,7 @@ long u_parseTerm(long toks, long pos) {
 
   op = u_punctAt(toks, i);
 
-  r = u_parsePostfix(toks, i_add(i, 1L, 2398));
+  r = u_parsePostfix(toks, i_add(i, 1L, 2401));
 
   node = Bin(op, node, ((R_Parsed*)(intptr_t)r)->node);
 
@@ -5305,12 +5314,12 @@ long u_parsePostfix(long toks, long pos) {
 
   if (u_isPunct(toks, i, (long)(intptr_t)"?")) {
 
-  i = i_add(i, 1L, 2411);
+  i = i_add(i, 1L, 2414);
   }
 
   while (u_isPunct(toks, i, (long)(intptr_t)".")) {
 
-  if (u_isWord(toks, i_add(i, 1L, 2414), (long)(intptr_t)"match")) {
+  if (u_isWord(toks, i_add(i, 1L, 2417), (long)(intptr_t)"match")) {
 
   pm = u_parseMatch(toks, node, i);
 
@@ -5319,7 +5328,7 @@ long u_parsePostfix(long toks, long pos) {
   i = ((R_Parsed*)(intptr_t)pm)->next;
   } else {
 
-  if (u_isWord(toks, i_add(i, 1L, 2419), (long)(intptr_t)"each")) {
+  if (u_isWord(toks, i_add(i, 1L, 2422), (long)(intptr_t)"each")) {
 
   pe = u_parseEach(toks, node, i);
 
@@ -5328,11 +5337,11 @@ long u_parsePostfix(long toks, long pos) {
   i = ((R_Parsed*)(intptr_t)pe)->next;
   } else {
 
-  name = u_expectIdent(toks, i_add(i, 1L, 2424), (long)(intptr_t)"a name after the dot");
+  name = u_expectIdent(toks, i_add(i, 1L, 2427), (long)(intptr_t)"a name after the dot");
 
-  if (u_isPunct(toks, i_add(i, 2L, 2425), (long)(intptr_t)"(")) {
+  if (u_isPunct(toks, i_add(i, 2L, 2428), (long)(intptr_t)"(")) {
 
-  pa = u_parseArgs(toks, i_add(i, 2L, 2426));
+  pa = u_parseArgs(toks, i_add(i, 2L, 2429));
 
   node = Method(node, name, ((R_PArgs*)(intptr_t)pa)->list);
 
@@ -5341,14 +5350,14 @@ long u_parsePostfix(long toks, long pos) {
 
   node = Field(node, name);
 
-  i = i_add(i, 2L, 2431);
+  i = i_add(i, 2L, 2434);
   }
   }
   }
 
   if (u_isPunct(toks, i, (long)(intptr_t)"?")) {
 
-  i = i_add(i, 1L, 2436);
+  i = i_add(i, 1L, 2439);
   }
   }
 
@@ -5359,16 +5368,16 @@ long u_parseEach(long toks, long recv, long i) {
   long param = 0;
   long b = 0;
 
-  u_expect(toks, i_add(i, 2L, 2444), (long)(intptr_t)"{");
+  u_expect(toks, i_add(i, 2L, 2447), (long)(intptr_t)"{");
 
-  param = u_expectIdent(toks, i_add(i, 3L, 2445), (long)(intptr_t)"a name for each item");
+  param = u_expectIdent(toks, i_add(i, 3L, 2448), (long)(intptr_t)"a name for each item");
 
-  if ((!u_isWord(toks, i_add(i, 4L, 2446), (long)(intptr_t)"in"))) {
+  if ((!u_isWord(toks, i_add(i, 4L, 2449), (long)(intptr_t)"in"))) {
 
-  u_failTok(toks, i_add(i, 4L, 2447), (long)(intptr_t)"expected the word in");
+  u_failTok(toks, i_add(i, 4L, 2450), (long)(intptr_t)"expected the word in");
   }
 
-  b = u_parseStmts(toks, i_add(i, 5L, 2449));
+  b = u_parseStmts(toks, i_add(i, 5L, 2452));
 
   return ({ long _t24 = Each(recv, param, ((R_PBody*)(intptr_t)b)->body); long _t25 = ((R_PBody*)(intptr_t)b)->next; Parsed(_t24, _t25); });
   return 0;
@@ -5376,9 +5385,9 @@ long u_parseEach(long toks, long recv, long i) {
 long u_parseFactor(long toks, long pos) {
 
   switch (((Obj*)(intptr_t)u_tokAt(toks, pos))->tag) {
-  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(Num(v), i_add(pos, 1L, 2454)); }
-  case T_Float: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(FloatLit(s), i_add(pos, 1L, 2454)); }
-  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(StrLit(s), i_add(pos, 1L, 2454)); }
+  case T_Int: { long v = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(Num(v), i_add(pos, 1L, 2457)); }
+  case T_Float: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(FloatLit(s), i_add(pos, 1L, 2457)); }
+  case T_Str: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return Parsed(StrLit(s), i_add(pos, 1L, 2457)); }
   case T_Ident: { long s = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return u_parseIdentFactor(toks, pos); }
   case T_Punct: { long p = ((Obj*)(intptr_t)u_tokAt(toks, pos))->v0; return u_parsePunctFactor(toks, pos); }
   case T_Eof: { return Parsed(Num(u_failTok(toks, pos, (long)(intptr_t)"expected a value")), pos); }
@@ -5402,7 +5411,7 @@ long u_parsePunctFactor(long toks, long pos) {
 
   if (u_isPunct(toks, pos, (long)(intptr_t)"!")) {
 
-  g = u_parsePostfix(toks, i_add(pos, 1L, 2473));
+  g = u_parsePostfix(toks, i_add(pos, 1L, 2476));
 
   return ({ long _t30 = Field(((R_Parsed*)(intptr_t)g)->node, (long)(intptr_t)"not"); long _t31 = ((R_Parsed*)(intptr_t)g)->next; Parsed(_t30, _t31); });
   }
@@ -5412,14 +5421,14 @@ long u_parsePunctFactor(long toks, long pos) {
   u_failTok(toks, pos, (long)(intptr_t)"expected a value");
   }
 
-  if ((u_isIdent(toks, i_add(pos, 1L, 2481)) || u_isPunct(toks, i_add(pos, 1L, 2481), (long)(intptr_t)"("))) {
+  if ((u_isIdent(toks, i_add(pos, 1L, 2484)) || u_isPunct(toks, i_add(pos, 1L, 2484), (long)(intptr_t)"("))) {
 
-  g = u_parsePostfix(toks, i_add(pos, 1L, 2482));
+  g = u_parsePostfix(toks, i_add(pos, 1L, 2485));
 
   return ({ long _t39 = ({ long _t37 = Num(0L); long _t38 = ((R_Parsed*)(intptr_t)g)->node; Bin((long)(intptr_t)"u-", _t37, _t38); }); long _t40 = ((R_Parsed*)(intptr_t)g)->next; Parsed(_t39, _t40); });
   }
 
-  f = u_parseFactor(toks, i_add(pos, 1L, 2485));
+  f = u_parseFactor(toks, i_add(pos, 1L, 2488));
 
   return ({ long _t49 = ({ long _t47 = Num(0L); long _t48 = ((R_Parsed*)(intptr_t)f)->node; Bin((long)(intptr_t)"u-", _t47, _t48); }); long _t50 = ((R_Parsed*)(intptr_t)f)->next; Parsed(_t49, _t50); });
   return 0;
@@ -5431,7 +5440,7 @@ long u_parseList(long toks, long pos) {
 
   elems = l_new();
 
-  j = i_add(pos, 1L, 2492);
+  j = i_add(pos, 1L, 2495);
 
   while (((!u_isPunct(toks, j, (long)(intptr_t)"]")) && u_notEof(toks, j))) {
 
@@ -5453,21 +5462,21 @@ long u_parseIdentFactor(long toks, long pos) {
 
   name = u_expectIdent(toks, pos, (long)(intptr_t)"a value");
 
-  if ((s_eq(name, (long)(intptr_t)"Map") && u_isPunct(toks, i_add(pos, 1L, 2504), (long)(intptr_t)"["))) {
+  if ((s_eq(name, (long)(intptr_t)"Map") && u_isPunct(toks, i_add(pos, 1L, 2507), (long)(intptr_t)"["))) {
 
   pt = u_parseType(toks, pos);
 
-  if ((u_isPunct(toks, ((R_PType*)(intptr_t)pt)->next, (long)(intptr_t)"(") && u_isPunct(toks, i_add(((R_PType*)(intptr_t)pt)->next, 1L, 2506), (long)(intptr_t)")"))) {
+  if ((u_isPunct(toks, ((R_PType*)(intptr_t)pt)->next, (long)(intptr_t)"(") && u_isPunct(toks, i_add(((R_PType*)(intptr_t)pt)->next, 1L, 2509), (long)(intptr_t)")"))) {
 
-  return ({ long _t26 = Call(((R_PType*)(intptr_t)pt)->ty, l_new()); long _t27 = i_add(((R_PType*)(intptr_t)pt)->next, 2L, 2507); Parsed(_t26, _t27); });
+  return ({ long _t26 = Call(((R_PType*)(intptr_t)pt)->ty, l_new()); long _t27 = i_add(((R_PType*)(intptr_t)pt)->next, 2L, 2510); Parsed(_t26, _t27); });
   }
   }
 
-  r = Parsed(Var(name), i_add(pos, 1L, 2510));
+  r = Parsed(Var(name), i_add(pos, 1L, 2513));
 
-  if (u_isPunct(toks, i_add(pos, 1L, 2511), (long)(intptr_t)"(")) {
+  if (u_isPunct(toks, i_add(pos, 1L, 2514), (long)(intptr_t)"(")) {
 
-  pa = u_parseArgs(toks, i_add(pos, 1L, 2512));
+  pa = u_parseArgs(toks, i_add(pos, 1L, 2515));
 
   r = ({ long _t32 = Call(name, ((R_PArgs*)(intptr_t)pa)->list); long _t33 = ((R_PArgs*)(intptr_t)pa)->next; Parsed(_t32, _t33); });
   }
@@ -5478,7 +5487,7 @@ long u_parseIdentFactor(long toks, long pos) {
 long u_parseParen(long toks, long pos) {
   long inner = 0;
 
-  inner = u_parseExpr(toks, i_add(pos, 1L, 2519));
+  inner = u_parseExpr(toks, i_add(pos, 1L, 2522));
 
   return ({ long _t13 = ((R_Parsed*)(intptr_t)inner)->node; long _t14 = u_expect(toks, ((R_Parsed*)(intptr_t)inner)->next, (long)(intptr_t)")"); Parsed(_t13, _t14); });
   return 0;
@@ -5490,13 +5499,13 @@ long u_parseArgs(long toks, long i) {
 
   list = l_new();
 
-  j = i_add(i, 1L, 2525);
+  j = i_add(i, 1L, 2528);
 
   while (u_inArgs(toks, j)) {
 
   if (u_isAssign(toks, j)) {
 
-  j = i_add(j, 2L, 2528);
+  j = i_add(j, 2L, 2531);
   }
 
   e = u_parseExpr(toks, j);
@@ -5516,7 +5525,7 @@ long u_parseMatch(long toks, long scrut, long i) {
 
   arms = l_new();
 
-  j = u_expect(toks, i_add(i, 2L, 2539), (long)(intptr_t)"{");
+  j = u_expect(toks, i_add(i, 2L, 2542), (long)(intptr_t)"{");
 
   while (u_inBlock(toks, j)) {
 
@@ -5540,17 +5549,17 @@ long u_parseArm(long toks, long j) {
 
   binds = l_new();
 
-  k = i_add(j, 1L, 2551);
+  k = i_add(j, 1L, 2554);
 
   if (u_isPunct(toks, k, (long)(intptr_t)"(")) {
 
-  k = i_add(k, 1L, 2553);
+  k = i_add(k, 1L, 2556);
 
   while (u_inArgs(toks, k)) {
 
   l_push(binds, u_expectIdent(toks, k, (long)(intptr_t)"a name"));
 
-  k = u_sep(toks, i_add(k, 1L, 2556), (long)(intptr_t)")");
+  k = u_sep(toks, i_add(k, 1L, 2559), (long)(intptr_t)")");
   }
 
   k = u_expect(toks, k, (long)(intptr_t)")");
@@ -5599,9 +5608,9 @@ long u_emitEnumType(long t) {
   out = s_concat(out, (long)(intptr_t)",");
   }
 
-  out = ({ long _t27 = s_concat(out, (long)(intptr_t)" "); long _t28 = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2586))->cname; s_concat(_t27, _t28); });
+  out = ({ long _t27 = s_concat(out, (long)(intptr_t)" "); long _t28 = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2589))->cname; s_concat(_t27, _t28); });
 
-  k = i_add(k, 1L, 2587);
+  k = i_add(k, 1L, 2590);
   }
 
   return s_concat(out, (long)(intptr_t)" };");
@@ -5628,9 +5637,9 @@ long u_emitBoxedType(long t) {
   out = s_concat(out, (long)(intptr_t)",");
   }
 
-  out = ({ long _t47 = s_concat(out, (long)(intptr_t)" T_"); long _t48 = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2600))->cname; s_concat(_t47, _t48); });
+  out = ({ long _t47 = s_concat(out, (long)(intptr_t)" T_"); long _t48 = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2603))->cname; s_concat(_t47, _t48); });
 
-  k = i_add(k, 1L, 2601);
+  k = i_add(k, 1L, 2604);
   }
 
   out = s_concat(out, (long)(intptr_t)" };");
@@ -5639,9 +5648,9 @@ long u_emitBoxedType(long t) {
 
   while ((k < m)) {
 
-  cn = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2606))->cname;
+  cn = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2609))->cname;
 
-  ar = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2607))->arity;
+  ar = ((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2610))->arity;
 
   if ((ar > 8L)) {
 
@@ -5657,7 +5666,7 @@ long u_emitBoxedType(long t) {
 
   out = s_concat(({ long _t65 = s_concat(s_concat(s_concat(s_concat(s_concat(({ long _t63 = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\nlong "), cn), (long)(intptr_t)"("); long _t64 = u_ctorParams(ar); s_concat(_t63, _t64); }), (long)(intptr_t)") { return "), mkName), (long)(intptr_t)"(T_"), cn), (long)(intptr_t)", "); long _t66 = u_ctorArgs(ar); s_concat(_t65, _t66); }), (long)(intptr_t)"); }");
 
-  k = i_add(k, 1L, 2616);
+  k = i_add(k, 1L, 2619);
   }
 
   return out;
@@ -5676,12 +5685,12 @@ long u_hasPayload(long t) {
 
   while ((k < m)) {
 
-  if ((((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2626))->arity > 0L)) {
+  if ((((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 2629))->arity > 0L)) {
 
   has = true;
   }
 
-  k = i_add(k, 1L, 2629);
+  k = i_add(k, 1L, 2632);
   }
 
   return has;
@@ -5701,9 +5710,9 @@ long u_emitRecord(long rec) {
 
   while ((k < m)) {
 
-  out = s_concat(({ long _t35 = s_concat(out, (long)(intptr_t)" long "); long _t36 = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2639); s_concat(_t35, _t36); }), (long)(intptr_t)";");
+  out = s_concat(({ long _t35 = s_concat(out, (long)(intptr_t)" long "); long _t36 = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2642); s_concat(_t35, _t36); }), (long)(intptr_t)";");
 
-  k = i_add(k, 1L, 2640);
+  k = i_add(k, 1L, 2643);
   }
 
   out = s_concat(({ long _t39 = s_concat(s_concat(out, (long)(intptr_t)" } "), (long)(intptr_t)"R_"); long _t40 = ((R_RecDef*)(intptr_t)rec)->name; s_concat(_t39, _t40); }), (long)(intptr_t)";");
@@ -5714,11 +5723,11 @@ long u_emitRecord(long rec) {
 
   while ((k < m)) {
 
-  fn = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2646);
+  fn = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2649);
 
   out = s_concat(s_concat(s_concat(s_concat(s_concat(out, (long)(intptr_t)" _o->"), fn), (long)(intptr_t)" = "), fn), (long)(intptr_t)";");
 
-  k = i_add(k, 1L, 2648);
+  k = i_add(k, 1L, 2651);
   }
 
   return s_concat(out, (long)(intptr_t)" return (long)(intptr_t)_o; }");
@@ -5742,9 +5751,9 @@ long u_recParams(long rec) {
   out = s_concat(out, (long)(intptr_t)", ");
   }
 
-  out = ({ long _t27 = s_concat(out, (long)(intptr_t)"long "); long _t28 = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2661); s_concat(_t27, _t28); });
+  out = ({ long _t27 = s_concat(out, (long)(intptr_t)"long "); long _t28 = l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 2664); s_concat(_t27, _t28); });
 
-  k = i_add(k, 1L, 2662);
+  k = i_add(k, 1L, 2665);
   }
 
   return out;
@@ -5772,7 +5781,7 @@ long u_ctorParams(long arity) {
 
   out = ({ long _t23 = s_concat(out, (long)(intptr_t)"long "); long _t24 = u_slotName(k); s_concat(_t23, _t24); });
 
-  k = i_add(k, 1L, 2679);
+  k = i_add(k, 1L, 2682);
   }
 
   return out;
@@ -5811,7 +5820,7 @@ long u_ctorArgs(long arity) {
 
   out = s_concat(out, slot);
 
-  k = i_add(k, 1L, 2700);
+  k = i_add(k, 1L, 2703);
   }
 
   return out;
@@ -5879,12 +5888,12 @@ long u_emitFn(long f, long sigs) {
 
   while ((d < dn)) {
 
-  if ((!({ long _t74 = ((R_Fn*)(intptr_t)f)->params; long _t75 = l_atc(decls, d, 2741); u_hasName(_t74, _t75); }))) {
+  if ((!({ long _t74 = ((R_Fn*)(intptr_t)f)->params; long _t75 = l_atc(decls, d, 2744); u_hasName(_t74, _t75); }))) {
 
-  out = s_concat(({ long _t77 = s_concat(out, (long)(intptr_t)"\n  long "); long _t78 = l_atc(decls, d, 2742); s_concat(_t77, _t78); }), (long)(intptr_t)" = 0;");
+  out = s_concat(({ long _t77 = s_concat(out, (long)(intptr_t)"\n  long "); long _t78 = l_atc(decls, d, 2745); s_concat(_t77, _t78); }), (long)(intptr_t)" = 0;");
   }
 
-  d = i_add(d, 1L, 2744);
+  d = i_add(d, 1L, 2747);
   }
 
   k = 0L;
@@ -5893,11 +5902,11 @@ long u_emitFn(long f, long sigs) {
 
   while ((k < m)) {
 
-  last = ((i_add(k, 1L, 2749) == m) && (!u_isMain(((R_Fn*)(intptr_t)f)->name)));
+  last = ((i_add(k, 1L, 2752) == m) && (!u_isMain(((R_Fn*)(intptr_t)f)->name)));
 
-  out = ({ long _t85 = s_concat(out, (long)(intptr_t)"\n"); long _t86 = u_emitStmt(l_atc(((R_Fn*)(intptr_t)f)->body, k, 2750), last, ctx); s_concat(_t85, _t86); });
+  out = ({ long _t85 = s_concat(out, (long)(intptr_t)"\n"); long _t86 = u_emitStmt(l_atc(((R_Fn*)(intptr_t)f)->body, k, 2753), last, ctx); s_concat(_t85, _t86); });
 
-  k = i_add(k, 1L, 2751);
+  k = i_add(k, 1L, 2754);
   }
 
   return s_concat(out, (long)(intptr_t)"\n  return 0;\n}");
@@ -5917,9 +5926,9 @@ long u_fnCtx(long f, long sigs) {
 
   while ((pk < pn)) {
 
-  ({ long _t36 = l_atc(((R_Fn*)(intptr_t)f)->params, pk, 2762); long _t37 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, pk, 2762); u_envPut(env, _t36, _t37); });
+  ({ long _t36 = l_atc(((R_Fn*)(intptr_t)f)->params, pk, 2765); long _t37 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, pk, 2765); u_envPut(env, _t36, _t37); });
 
-  pk = i_add(pk, 1L, 2763);
+  pk = i_add(pk, 1L, 2766);
   }
 
   ctx = Ctx(env, sigs);
@@ -5932,7 +5941,7 @@ long u_fnCtx(long f, long sigs) {
 
   if ((l_len(((R_Fn*)(intptr_t)f)->params) > 0L)) {
 
-  u_envPut(env, l_atc(((R_Fn*)(intptr_t)f)->params, 0L, 2770), (long)(intptr_t)"Sys");
+  u_envPut(env, l_atc(((R_Fn*)(intptr_t)f)->params, 0L, 2773), (long)(intptr_t)"Sys");
   }
   } else {
 
@@ -5969,9 +5978,9 @@ long u_paramDecls(long f) {
   out = s_concat(out, (long)(intptr_t)", ");
   }
 
-  out = ({ long _t27 = s_concat(out, (long)(intptr_t)"long "); long _t28 = l_atc(((R_Fn*)(intptr_t)f)->params, k, 2791); s_concat(_t27, _t28); });
+  out = ({ long _t27 = s_concat(out, (long)(intptr_t)"long "); long _t28 = l_atc(((R_Fn*)(intptr_t)f)->params, k, 2794); s_concat(_t27, _t28); });
 
-  k = i_add(k, 1L, 2792);
+  k = i_add(k, 1L, 2795);
   }
 
   return out;
@@ -6035,9 +6044,9 @@ long u_envRestore(long env, long names, long olds) {
 
   while ((k < l_len(names))) {
 
-  ({ long _t19 = l_atc(names, k, 2832); long _t20 = l_atc(olds, k, 2832); u_envPut(env, _t19, _t20); });
+  ({ long _t19 = l_atc(names, k, 2835); long _t20 = l_atc(olds, k, 2835); u_envPut(env, _t19, _t20); });
 
-  k = i_add(k, 1L, 2833);
+  k = i_add(k, 1L, 2836);
   }
 
   return 0L;
@@ -6056,12 +6065,12 @@ long u_envGet(long env, long name) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)env)->names, k, 2843), name)) {
+  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)env)->names, k, 2846), name)) {
 
-  r = l_atc(((R_TyEnv*)(intptr_t)env)->tys, k, 2844);
+  r = l_atc(((R_TyEnv*)(intptr_t)env)->tys, k, 2847);
   }
 
-  k = i_add(k, 1L, 2846);
+  k = i_add(k, 1L, 2849);
   }
 
   return r;
@@ -6079,13 +6088,13 @@ long u_seedEnv(long body, long ctx) {
 
   while ((k < m)) {
 
-  s = l_atc(body, k, 2858);
+  s = l_atc(body, k, 2861);
 
   if ((!s_eq(u_envOld(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__anyren__"), (long)(intptr_t)"__gone__"))) {
 
   s = u_renTop(s, ctx);
 
-  l_setc(body, k, s, 2861);
+  l_setc(body, k, s, 2864);
   }
 
   nn = u_shadowName(s, ctx);
@@ -6094,12 +6103,12 @@ long u_seedEnv(long body, long ctx) {
 
   s = u_reLet(s, nn);
 
-  l_setc(body, k, s, 2866);
+  l_setc(body, k, s, 2869);
   }
 
   u_seedStmt(s, ctx);
 
-  k = i_add(k, 1L, 2869);
+  k = i_add(k, 1L, 2872);
   }
 
   return 0L;
@@ -6150,7 +6159,7 @@ long u_shadowLet(long name, long ty, long ctx) {
 
   while ((u_hasName(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, fresh) || ({ long _t45 = ((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names; long _t46 = s_concat((long)(intptr_t)"__src__", fresh); u_hasName(_t45, _t46); }))) {
 
-  n = i_add(n, 1L, 2906);
+  n = i_add(n, 1L, 2909);
 
   fresh = ({ long _t49 = s_concat(src, (long)(intptr_t)"__"); long _t50 = i_tostr(n); s_concat(_t49, _t50); });
   }
@@ -6240,9 +6249,9 @@ long u_renUnmask(long names, long olds, long ctx) {
 
   while ((k < l_len(names))) {
 
-  ({ long _t19 = s_concat((long)(intptr_t)"__ren__", l_atc(names, k, 2959)); long _t20 = l_atc(olds, k, 2959); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t19, _t20); });
+  ({ long _t19 = s_concat((long)(intptr_t)"__ren__", l_atc(names, k, 2962)); long _t20 = l_atc(olds, k, 2962); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t19, _t20); });
 
-  k = i_add(k, 1L, 2960);
+  k = i_add(k, 1L, 2963);
   }
 
   return 0L;
@@ -6389,7 +6398,7 @@ long u_seedBlock(long body, long ctx) {
 
   while ((j < n1)) {
 
-  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 3049);
+  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 3052);
 
   if (s_starts(key, (long)(intptr_t)"__ren__")) {
 
@@ -6399,18 +6408,18 @@ long u_seedBlock(long body, long ctx) {
 
   while ((i < n0)) {
 
-  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 3054), key)) {
+  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 3057), key)) {
 
-  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 3055);
+  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 3058);
   }
 
-  i = i_add(i, 1L, 3057);
+  i = i_add(i, 1L, 3060);
   }
 
   u_envPut(((R_Ctx*)(intptr_t)ctx)->env, key, was);
   }
 
-  j = i_add(j, 1L, 3061);
+  j = i_add(j, 1L, 3064);
   }
   }
 
@@ -6570,12 +6579,12 @@ long u_callRet(long name, long ctx) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fnNames, k, 3172), name)) {
+  if (s_eq(l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fnNames, k, 3175), name)) {
 
-  r = l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fnRets, k, 3173);
+  r = l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fnRets, k, 3176);
   }
 
-  k = i_add(k, 1L, 3175);
+  k = i_add(k, 1L, 3178);
   }
 
   return r;
@@ -6598,14 +6607,14 @@ long u_variantOf(long name, long ctx) {
 
   while ((k < m)) {
 
-  t = l_atc(types, k, 3187);
+  t = l_atc(types, k, 3190);
 
   if (u_hasCase(t, name)) {
 
   r = ((R_TyDef*)(intptr_t)t)->name;
   }
 
-  k = i_add(k, 1L, 3191);
+  k = i_add(k, 1L, 3194);
   }
 
   return r;
@@ -6624,12 +6633,12 @@ long u_hasCase(long t, long name) {
 
   while ((k < m)) {
 
-  if (s_eq(((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 3201))->cname, name)) {
+  if (s_eq(((R_Case*)(intptr_t)l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 3204))->cname, name)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 3204);
+  k = i_add(k, 1L, 3207);
   }
 
   return found;
@@ -6660,9 +6669,9 @@ long u_collectBody(long body, long names) {
 
   while ((k < m)) {
 
-  u_collectStmt(l_atc(body, k, 3225), names);
+  u_collectStmt(l_atc(body, k, 3228), names);
 
-  k = i_add(k, 1L, 3226);
+  k = i_add(k, 1L, 3229);
   }
 
   return 0L;
@@ -6732,12 +6741,12 @@ long u_hasName(long names, long name) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(names, k, 3279), name)) {
+  if (s_eq(l_atc(names, k, 3282), name)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 3282);
+  k = i_add(k, 1L, 3285);
   }
 
   return found;
@@ -6807,9 +6816,9 @@ long u_emitBlock(long body, long asReturn, long ctx) {
 
   while ((k < m)) {
 
-  out = ({ long _t25 = s_concat(out, (long)(intptr_t)"\n"); long _t26 = u_emitStmt(l_atc(body, k, 3333), (asReturn && (i_add(k, 1L, 3333) == m)), ctx); s_concat(_t25, _t26); });
+  out = ({ long _t25 = s_concat(out, (long)(intptr_t)"\n"); long _t26 = u_emitStmt(l_atc(body, k, 3336), (asReturn && (i_add(k, 1L, 3336) == m)), ctx); s_concat(_t25, _t26); });
 
-  k = i_add(k, 1L, 3334);
+  k = i_add(k, 1L, 3337);
   }
 
   return out;
@@ -6876,7 +6885,7 @@ long u_emitCallStmt(long name, long args, long e, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"print") && (l_len(args) == 1L))) {
 
-  r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_atc(args, 0L, 3391), ctx)), (long)(intptr_t)";");
+  r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_atc(args, 0L, 3394), ctx)), (long)(intptr_t)";");
   }
 
   return r;
@@ -6887,9 +6896,9 @@ long u_emitMethodStmt(long name, long args, long e, long ctx) {
 
   r = s_concat(s_concat((long)(intptr_t)"  ", u_emitExpr(e, ctx)), (long)(intptr_t)";");
 
-  if (((s_eq(name, (long)(intptr_t)"print") && (l_len(args) == 1L)) && u_calm(l_atc(args, 0L, 3400)))) {
+  if (((s_eq(name, (long)(intptr_t)"print") && (l_len(args) == 1L)) && u_calm(l_atc(args, 0L, 3403)))) {
 
-  r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_atc(args, 0L, 3401), ctx)), (long)(intptr_t)";");
+  r = s_concat(s_concat((long)(intptr_t)"  ", u_emitPrint(l_atc(args, 0L, 3404), ctx)), (long)(intptr_t)";");
   }
 
   return r;
@@ -6900,6 +6909,7 @@ long u_emitPrint(long arg, long ctx) {
   long cast = 0;
   long val = 0;
   long t = 0;
+  long r = 0;
 
   fmt = (long)(intptr_t)"%ld";
 
@@ -6908,13 +6918,6 @@ long u_emitPrint(long arg, long ctx) {
   val = u_emitExpr(arg, ctx);
 
   t = u_exprType(arg, ctx);
-
-  if (s_eq(t, (long)(intptr_t)"Str")) {
-
-  fmt = (long)(intptr_t)"%s";
-
-  cast = (long)(intptr_t)"(const char*)(intptr_t)";
-  }
 
   if (s_eq(t, (long)(intptr_t)"Float")) {
 
@@ -6932,7 +6935,14 @@ long u_emitPrint(long arg, long ctx) {
   val = s_concat(s_concat((long)(intptr_t)"(", val), (long)(intptr_t)" ? \"true\" : \"false\")");
   }
 
-  return s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"printf(\"", fmt), (long)(intptr_t)"\\n\", "), cast), val), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"printf(\"", fmt), (long)(intptr_t)"\\n\", "), cast), val), (long)(intptr_t)")");
+
+  if (s_eq(t, (long)(intptr_t)"Str")) {
+
+  r = s_concat(s_concat((long)(intptr_t)"(simpler_puts((const char*)(intptr_t)", val), (long)(intptr_t)", stdout), fputc(10, stdout))");
+  }
+
+  return r;
   return 0;
 }
 long u_emitEach(long recv, long param, long body, long ctx) {
@@ -6974,9 +6984,9 @@ long u_emitEach(long recv, long param, long body, long ctx) {
 
   if ((l_len(span) == 2L)) {
 
-  out = s_concat(({ long _t82 = s_concat(out, (long)(intptr_t)"\n  long _hi = "); long _t83 = u_emitExpr(l_atc(span, 1L, 3449), ctx); s_concat(_t82, _t83); }), (long)(intptr_t)";");
+  out = s_concat(({ long _t82 = s_concat(out, (long)(intptr_t)"\n  long _hi = "); long _t83 = u_emitExpr(l_atc(span, 1L, 3452), ctx); s_concat(_t82, _t83); }), (long)(intptr_t)";");
 
-  out = s_concat(({ long _t85 = s_concat(out, (long)(intptr_t)"\n  for (long _i = "); long _t86 = u_emitExpr(l_atc(span, 0L, 3450), ctx); s_concat(_t85, _t86); }), (long)(intptr_t)"; _i < _hi; _i++) {");
+  out = s_concat(({ long _t85 = s_concat(out, (long)(intptr_t)"\n  for (long _i = "); long _t86 = u_emitExpr(l_atc(span, 0L, 3453), ctx); s_concat(_t85, _t86); }), (long)(intptr_t)"; _i < _hi; _i++) {");
 
   out = s_concat(s_concat(s_concat(out, (long)(intptr_t)"\n  long "), param), (long)(intptr_t)" = _i;");
 
@@ -7061,20 +7071,20 @@ long u_emitParallel(long recvC, long t, long args, long ctx, long ln) {
   long ret = 0;
   long kind = 0;
 
-  fname = u_parName(l_atc(args, 0L, 3921));
+  fname = u_parName(l_atc(args, 0L, 3924));
 
   k = 0L;
 
-  at = i_neg(1L, 3923);
+  at = i_neg(1L, 3926);
 
   while ((k < l_len(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fns))) {
 
-  if (s_eq(((R_Fn*)(intptr_t)l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fns, k, 3925))->name, fname)) {
+  if (s_eq(((R_Fn*)(intptr_t)l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fns, k, 3928))->name, fname)) {
 
   at = k;
   }
 
-  k = i_add(k, 1L, 3928);
+  k = i_add(k, 1L, 3931);
   }
 
   if ((at < 0L)) {
@@ -7082,7 +7092,7 @@ long u_emitParallel(long recvC, long t, long args, long ctx, long ln) {
   u_failAt((long)(intptr_t)"parallel takes the name of one of your functions, as in: xs.parallel(double)", ctx);
   }
 
-  f = l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fns, at, 3933);
+  f = l_atc(((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->fns, at, 3936);
 
   if ((!u_isListType(t))) {
 
@@ -7094,9 +7104,9 @@ long u_emitParallel(long recvC, long t, long args, long ctx, long ln) {
   u_failAt(s_concat(fname, (long)(intptr_t)" must take one value to run in parallel"), ctx);
   }
 
-  if (((!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3940), (long)(intptr_t)"")) && (!({ long _t63 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3940); long _t64 = u_elemOf(t); s_eq(_t63, _t64); })))) {
+  if (((!s_eq(l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3943), (long)(intptr_t)"")) && (!({ long _t63 = l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3943); long _t64 = u_elemOf(t); s_eq(_t63, _t64); })))) {
 
-  u_failAt(({ long _t68 = s_concat(({ long _t66 = s_concat(fname, (long)(intptr_t)" takes "); long _t67 = u_capShow(l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3941)); s_concat(_t66, _t67); }), (long)(intptr_t)", but the list holds "); long _t69 = u_capShow(u_elemOf(t)); s_concat(_t68, _t69); }), ctx);
+  u_failAt(({ long _t68 = s_concat(({ long _t66 = s_concat(fname, (long)(intptr_t)" takes "); long _t67 = u_capShow(l_atc(((R_Fn*)(intptr_t)f)->ptypes, 0L, 3944)); s_concat(_t66, _t67); }), (long)(intptr_t)", but the list holds "); long _t69 = u_capShow(u_elemOf(t)); s_concat(_t68, _t69); }), ctx);
   }
 
   if (u_hasName(((R_Fn*)(intptr_t)f)->effs, (long)(intptr_t)"IO")) {
@@ -7133,7 +7143,7 @@ long u_parRet(long recv, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"parallel") && (l_len(args) == 1L))) {
 
-  r = s_concat(s_concat((long)(intptr_t)"List[", u_callRet(u_parName(l_atc(args, 0L, 3964)), ctx)), (long)(intptr_t)"]");
+  r = s_concat(s_concat((long)(intptr_t)"List[", u_callRet(u_parName(l_atc(args, 0L, 3967)), ctx)), (long)(intptr_t)"]");
   } else {
 
   r = u_methodRet(recv, name, ctx);
@@ -7175,7 +7185,7 @@ long u_usesWord(long toks, long word) {
   r = true;
   }
 
-  k = i_add(k, 1L, 3996);
+  k = i_add(k, 1L, 3999);
   }
 
   return r;
@@ -7217,7 +7227,7 @@ long u_isListType(long t) {
 
   if ((s_len(t) > 3L)) {
 
-  if (s_eq(s_slicec(t, 0L, 4L, 4145), (long)(intptr_t)"List")) {
+  if (s_eq(s_slicec(t, 0L, 4L, 4148), (long)(intptr_t)"List")) {
 
   r = true;
   }
@@ -7246,7 +7256,7 @@ long u_elemOf(long t) {
 
   if (u_isListType(t)) {
 
-  r = s_slicec(t, 5L, i_sub(s_len(t), 1L, 4164), 4164);
+  r = s_slicec(t, 5L, i_sub(s_len(t), 1L, 4167), 4167);
   }
 
   return r;
@@ -7264,7 +7274,7 @@ long u_isMapType(long t) {
 
   if ((s_len(t) > 4L)) {
 
-  if (s_eq(s_slicec(t, 0L, 4L, 4177), (long)(intptr_t)"Map[")) {
+  if (s_eq(s_slicec(t, 0L, 4L, 4180), (long)(intptr_t)"Map[")) {
 
   r = true;
   }
@@ -7280,7 +7290,7 @@ long u_mapValueOf(long t) {
 
   if (u_isMapType(t)) {
 
-  r = s_slicec(t, 4L, i_sub(s_len(t), 1L, 4187), 4187);
+  r = s_slicec(t, 4L, i_sub(s_len(t), 1L, 4190), 4190);
   }
 
   return r;
@@ -7341,9 +7351,9 @@ long u_emitSwitch(long scrut, long arms, long ctx) {
 
   while ((k < m)) {
 
-  out = ({ long _t47 = s_concat(out, (long)(intptr_t)"\n"); long _t48 = u_emitArm(l_atc(arms, k, 4225), scrutC, boxed, styp, (long)(intptr_t)"return ", (long)(intptr_t)";", ctx); s_concat(_t47, _t48); });
+  out = ({ long _t47 = s_concat(out, (long)(intptr_t)"\n"); long _t48 = u_emitArm(l_atc(arms, k, 4228), scrutC, boxed, styp, (long)(intptr_t)"return ", (long)(intptr_t)";", ctx); s_concat(_t47, _t48); });
 
-  k = i_add(k, 1L, 4226);
+  k = i_add(k, 1L, 4229);
   }
 
   out = s_concat(out, (long)(intptr_t)"\n  }");
@@ -7383,9 +7393,9 @@ long u_emitMatchExpr(long scrut, long arms, long ctx) {
 
   while ((k < m)) {
 
-  out = s_concat(out, u_emitArm(l_atc(arms, k, 4249), scrutC, boxed, styp, (long)(intptr_t)"_m = ", (long)(intptr_t)"; break;", ctx));
+  out = s_concat(out, u_emitArm(l_atc(arms, k, 4252), scrutC, boxed, styp, (long)(intptr_t)"_m = ", (long)(intptr_t)"; break;", ctx));
 
-  k = i_add(k, 1L, 4250);
+  k = i_add(k, 1L, 4253);
   }
 
   return s_concat(out, (long)(intptr_t)" } _m; })");
@@ -7409,11 +7419,11 @@ long u_emitArm(long a, long scrutC, long boxed, long styp, long pre, long post, 
 
   while ((bi < l_len(((R_Arm*)(intptr_t)a)->binds))) {
 
-  ({ long _t40 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4264); long _t41 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t40, _t41); });
+  ({ long _t40 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4267); long _t41 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t40, _t41); });
 
-  decls = s_concat(({ long _t45 = s_concat(({ long _t43 = s_concat(decls, (long)(intptr_t)" long "); long _t44 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4265); s_concat(_t43, _t44); }), (long)(intptr_t)" = "); long _t46 = u_boxField(scrutC, u_slotName(bi)); s_concat(_t45, _t46); }), (long)(intptr_t)";");
+  decls = s_concat(({ long _t45 = s_concat(({ long _t43 = s_concat(decls, (long)(intptr_t)" long "); long _t44 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4268); s_concat(_t43, _t44); }), (long)(intptr_t)" = "); long _t46 = u_boxField(scrutC, u_slotName(bi)); s_concat(_t45, _t46); }), (long)(intptr_t)";");
 
-  bi = i_add(bi, 1L, 4266);
+  bi = i_add(bi, 1L, 4269);
   }
 
   r = s_concat(s_concat(({ long _t49 = s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"  case T_", ((R_Arm*)(intptr_t)a)->tag), (long)(intptr_t)": {"), decls), (long)(intptr_t)" "), pre); long _t50 = u_emitExpr(((R_Arm*)(intptr_t)a)->body, ctx); s_concat(_t49, _t50); }), post), (long)(intptr_t)" }");
@@ -7444,14 +7454,14 @@ long u_payloadType(long tyName, long caseTag, long idx, long ctx) {
 
   while ((k < m)) {
 
-  t = l_atc(types, k, 4283);
+  t = l_atc(types, k, 4286);
 
   if (s_eq(((R_TyDef*)(intptr_t)t)->name, tyName)) {
 
   r = u_casePayloadType(t, caseTag, idx);
   }
 
-  k = i_add(k, 1L, 4287);
+  k = i_add(k, 1L, 4290);
   }
 
   return r;
@@ -7471,17 +7481,17 @@ long u_casePayloadType(long t, long caseTag, long idx) {
 
   while ((k < m)) {
 
-  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 4297);
+  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 4300);
 
   if (s_eq(((R_Case*)(intptr_t)c)->cname, caseTag)) {
 
   if ((idx < l_len(((R_Case*)(intptr_t)c)->ptypes))) {
 
-  r = l_atc(((R_Case*)(intptr_t)c)->ptypes, idx, 4300);
+  r = l_atc(((R_Case*)(intptr_t)c)->ptypes, idx, 4303);
   }
   }
 
-  k = i_add(k, 1L, 4303);
+  k = i_add(k, 1L, 4306);
   }
 
   return r;
@@ -7506,7 +7516,7 @@ long u_checkExhaustive(long styp, long arms, long ctx) {
 
   while ((k < m)) {
 
-  t = l_atc(types, k, 4319);
+  t = l_atc(types, k, 4322);
 
   if (s_eq(((R_TyDef*)(intptr_t)t)->name, styp)) {
 
@@ -7515,7 +7525,7 @@ long u_checkExhaustive(long styp, long arms, long ctx) {
   u_checkArities(t, arms, ctx);
   }
 
-  k = i_add(k, 1L, 4324);
+  k = i_add(k, 1L, 4327);
   }
 
   return 0L;
@@ -7533,7 +7543,7 @@ long u_checkArities(long t, long arms, long ctx) {
 
   while ((k < m)) {
 
-  a = l_atc(arms, k, 4334);
+  a = l_atc(arms, k, 4337);
 
   ar = u_caseArityIn(t, ((R_Arm*)(intptr_t)a)->tag);
 
@@ -7550,7 +7560,7 @@ long u_checkArities(long t, long arms, long ctx) {
   }
   }
 
-  k = i_add(k, 1L, 4344);
+  k = i_add(k, 1L, 4347);
   }
 
   return 0L;
@@ -7570,7 +7580,7 @@ long u_emitLine(long n, long ctx) {
 }
 long u_failAt(long msg, long ctx) {
 
-  return fail(({ long _t14 = ({ long _t12 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->files; long _t13 = s_tointc(u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"), 4361); u_spot(_t12, _t13); }); long _t15 = s_replace(msg, (long)(intptr_t)"__", (long)(intptr_t)"."); s_concat(_t14, _t15); }));
+  return fail(({ long _t14 = ({ long _t12 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->files; long _t13 = s_tointc(u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"), 4364); u_spot(_t12, _t13); }); long _t15 = s_replace(msg, (long)(intptr_t)"__", (long)(intptr_t)"."); s_concat(_t14, _t15); }));
   return 0;
 }
 long u_plainType(long t) {
@@ -7590,7 +7600,7 @@ long u_holdOf(long s, long ctx) {
 
   if (({ long _t14 = ((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names; long _t15 = s_concat((long)(intptr_t)"__i__", s); u_hasName(_t14, _t15); })) {
 
-  r = s_tointc(u_envGet(((R_Ctx*)(intptr_t)ctx)->env, s_concat((long)(intptr_t)"__i__", s)), 4389);
+  r = s_tointc(u_envGet(((R_Ctx*)(intptr_t)ctx)->env, s_concat((long)(intptr_t)"__i__", s)), 4392);
   }
 
   return r;
@@ -7619,7 +7629,7 @@ long u_oneLess(long d) {
 
   if ((d > 1L)) {
 
-  r = i_sub(d, 1L, 4407);
+  r = i_sub(d, 1L, 4410);
   }
 
   return r;
@@ -7637,7 +7647,7 @@ long u_makerDepth(long name, long args, long ctx) {
 
   if (u_isMaker(name, ctx)) {
 
-  r = i_add(1L, u_minLevel(args, ctx), 4421);
+  r = i_add(1L, u_minLevel(args, ctx), 4424);
   }
 
   return r;
@@ -7685,7 +7695,7 @@ long u_holdDepth(long e, long ctx) {
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return u_holdOf(s, ctx); }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_oneLess(u_holdDepth(recv, ctx)); }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return u_holdMethod(recv, name, ctx); }
-  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return i_add(1L, u_minLevel(es, ctx), 4452); }
+  case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return i_add(1L, u_minLevel(es, ctx), 4455); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_makerDepth(name, args, ctx); }
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return 0L; }
   case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return 0L; }
@@ -7702,7 +7712,7 @@ long u_minLevel(long es, long ctx) {
   long l = 0;
   long d = 0;
 
-  r = i_sub(0L, 1L, 4470);
+  r = i_sub(0L, 1L, 4473);
 
   {
   long _lst = es;
@@ -7710,7 +7720,7 @@ long u_minLevel(long es, long ctx) {
   for (long _i = 0; _i < _n; _i = _i + 1) {
   long x = l_at(_lst, _i);
 
-  l = i_sub(0L, 1L, 4472);
+  l = i_sub(0L, 1L, 4475);
 
   if (u_handed(x, ctx)) {
 
@@ -7738,8 +7748,8 @@ long u_minLevel(long es, long ctx) {
 long u_pathLen(long e) {
 
   switch (((Obj*)(intptr_t)e)->tag) {
-  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return i_add(1L, u_pathLen(recv), 4490); }
-  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return i_add(1L, u_pathLen(recv), 4490); }
+  case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return i_add(1L, u_pathLen(recv), 4493); }
+  case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return i_add(1L, u_pathLen(recv), 4493); }
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return 0L; }
@@ -7834,12 +7844,12 @@ long u_callHanded(long name, long args, long ctx) {
 
   while ((j < l_len(args))) {
 
-  if ((({ long _t31 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->retP; long _t34 = ({ long _t32 = s_concat(name, (long)(intptr_t)":"); long _t33 = i_tostr(j); s_concat(_t32, _t33); }); u_hasName(_t31, _t34); }) && u_handed(l_atc(args, j, 4565), ctx))) {
+  if ((({ long _t31 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->retP; long _t34 = ({ long _t32 = s_concat(name, (long)(intptr_t)":"); long _t33 = i_tostr(j); s_concat(_t32, _t33); }); u_hasName(_t31, _t34); }) && u_handed(l_atc(args, j, 4568), ctx))) {
 
   r = true;
   }
 
-  j = i_add(j, 1L, 4568);
+  j = i_add(j, 1L, 4571);
   }
 
   return r;
@@ -7852,12 +7862,12 @@ long u_markFn(long f, long ctx) {
 
   while ((k < l_len(((R_Fn*)(intptr_t)f)->params))) {
 
-  if ((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4576)))) {
+  if ((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4579)))) {
 
-  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4577), ctx);
+  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4580), ctx);
   }
 
-  k = i_add(k, 1L, 4579);
+  k = i_add(k, 1L, 4582);
   }
 
   return u_markAgain(f, ctx);
@@ -7905,11 +7915,11 @@ long u_paramFacts(long f, long sigs) {
 
   needM = (!u_hasName(((R_Sigs*)(intptr_t)sigs)->mutP, key));
 
-  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4611))) && (needR || needM))) {
+  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4614))) && (needR || needM))) {
 
   ctx = u_fnCtx(f, sigs);
 
-  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4613), ctx);
+  u_setHanded(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4616), ctx);
 
   u_markAgain(f, ctx);
 
@@ -7934,11 +7944,11 @@ long u_paramFacts(long f, long sigs) {
   }
   }
 
-  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4628))) && (!({ long _t75 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t76 = s_concat((long)(intptr_t)"deep:", key); u_hasName(_t75, _t76); })))) {
+  if (((!u_plainType(l_atc(((R_Fn*)(intptr_t)f)->ptypes, k, 4631))) && (!({ long _t75 = ((R_Sigs*)(intptr_t)sigs)->mutP; long _t76 = s_concat((long)(intptr_t)"deep:", key); u_hasName(_t75, _t76); })))) {
 
   ctx2 = u_fnCtx(f, sigs);
 
-  u_setHolding(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4630), 1L, ctx2);
+  u_setHolding(l_atc(((R_Fn*)(intptr_t)f)->params, k, 4633), 1L, ctx2);
 
   u_markAgain(f, ctx2);
 
@@ -7956,7 +7966,7 @@ long u_paramFacts(long f, long sigs) {
   }
   }
 
-  k = i_add(k, 1L, 4640);
+  k = i_add(k, 1L, 4643);
   }
 
   return found;
@@ -7969,17 +7979,17 @@ long u_typeBase(long t) {
 
   if ((s_len(t) > 5L)) {
 
-  if (s_eq(s_slicec(t, 0L, 5L, 4649), (long)(intptr_t)"List[")) {
+  if (s_eq(s_slicec(t, 0L, 5L, 4652), (long)(intptr_t)"List[")) {
 
-  r = u_typeBase(s_slicec(t, 5L, i_sub(s_len(t), 1L, 4650), 4650));
+  r = u_typeBase(s_slicec(t, 5L, i_sub(s_len(t), 1L, 4653), 4653));
   }
   }
 
   if ((s_len(t) > 4L)) {
 
-  if (s_eq(s_slicec(t, 0L, 4L, 4654), (long)(intptr_t)"Map[")) {
+  if (s_eq(s_slicec(t, 0L, 4L, 4657), (long)(intptr_t)"Map[")) {
 
-  r = u_typeBase(s_slicec(t, 4L, i_sub(s_len(t), 1L, 4655), 4655));
+  r = u_typeBase(s_slicec(t, 4L, i_sub(s_len(t), 1L, 4658), 4658));
   }
   }
 
@@ -8018,7 +8028,7 @@ long u_asWritten(long n) {
 
   if ((s_len(b) > 2L)) {
 
-  cut = s_slicec(b, 0L, i_sub(s_len(b), 2L, 4676), 4676);
+  cut = s_slicec(b, 0L, i_sub(s_len(b), 2L, 4679), 4679);
 
   if (s_eq(u_safeName(cut, u_cTaken()), b)) {
 
@@ -8141,8 +8151,8 @@ long u_jumpStmt(long fl, long s, long inLoop, long line) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return line; }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_jumpExpr(fl, e, inLoop, line); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t149 = i_add(line, u_jumpBody(fl, t, inLoop), 4729); long _t150 = u_jumpBody(fl, el, inLoop); i_add(_t149, _t150, 4729); }); }
-  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return i_add(line, u_jumpBody(fl, b, true), 4729); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t149 = i_add(line, u_jumpBody(fl, t, inLoop), 4732); long _t150 = u_jumpBody(fl, el, inLoop); i_add(_t149, _t150, 4732); }); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return i_add(line, u_jumpBody(fl, b, true), 4732); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return line; }
   case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return n; }
   case T_Jump: { long w = ((Obj*)(intptr_t)s)->v0; return u_jumpAt(fl, w, inLoop, line); }
@@ -8173,7 +8183,7 @@ long u_jumpExpr(long fl, long e, long inLoop, long line) {
   case T_Match: { long scrut = ((Obj*)(intptr_t)e)->v0; long arms = ((Obj*)(intptr_t)e)->v1; return line; }
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return line; }
   case T_Method: { long recv = ((Obj*)(intptr_t)e)->v0; long name = ((Obj*)(intptr_t)e)->v1; long args = ((Obj*)(intptr_t)e)->v2; return line; }
-  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return i_add(line, u_jumpBody(fl, body, true), 4748); }
+  case T_Each: { long recv = ((Obj*)(intptr_t)e)->v0; long param = ((Obj*)(intptr_t)e)->v1; long body = ((Obj*)(intptr_t)e)->v2; return i_add(line, u_jumpBody(fl, body, true), 4751); }
   }
   return 0;
   return 0;
@@ -8364,9 +8374,9 @@ long u_bindArm(long styp, long a, long ctx) {
 
   while ((bi < l_len(((R_Arm*)(intptr_t)a)->binds))) {
 
-  ({ long _t21 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4869); long _t22 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t21, _t22); });
+  ({ long _t21 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 4872); long _t22 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t21, _t22); });
 
-  bi = i_add(bi, 1L, 4870);
+  bi = i_add(bi, 1L, 4873);
   }
 
   return olds;
@@ -8410,8 +8420,8 @@ long u_markStmt(long s, long ctx) {
   switch (((Obj*)(intptr_t)s)->tag) {
   case T_Let: { long name = ((Obj*)(intptr_t)s)->v0; long ty = ((Obj*)(intptr_t)s)->v1; long e = ((Obj*)(intptr_t)s)->v2; return u_markLet(name, e, ctx); }
   case T_Bare: { long e = ((Obj*)(intptr_t)s)->v0; return u_markExpr(e, ctx); }
-  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t153 = ({ long _t151 = u_markExpr(c, ctx); long _t152 = u_markBlock(t, ctx); i_add(_t151, _t152, 4900); }); long _t154 = u_markBlock(el, ctx); i_add(_t153, _t154, 4900); }); }
-  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t160 = u_markExpr(c, ctx); long _t161 = u_markBody(b, ctx); i_add(_t160, _t161, 4900); }); }
+  case T_If: { long c = ((Obj*)(intptr_t)s)->v0; long t = ((Obj*)(intptr_t)s)->v1; long el = ((Obj*)(intptr_t)s)->v2; return ({ long _t153 = ({ long _t151 = u_markExpr(c, ctx); long _t152 = u_markBlock(t, ctx); i_add(_t151, _t152, 4903); }); long _t154 = u_markBlock(el, ctx); i_add(_t153, _t154, 4903); }); }
+  case T_While: { long c = ((Obj*)(intptr_t)s)->v0; long b = ((Obj*)(intptr_t)s)->v1; return ({ long _t160 = u_markExpr(c, ctx); long _t161 = u_markBody(b, ctx); i_add(_t160, _t161, 4903); }); }
   case T_Ret: { long e = ((Obj*)(intptr_t)s)->v0; return u_markExpr(e, ctx); }
   case T_Line: { long n = ((Obj*)(intptr_t)s)->v0; return 0L; }
   case T_Jump: { long w = ((Obj*)(intptr_t)s)->v0; return 0L; }
@@ -8450,7 +8460,7 @@ long u_dropHeld(long n0, long ctx) {
 
   while ((j < n1)) {
 
-  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 4934);
+  key = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, j, 4937);
 
   if (s_starts(key, (long)(intptr_t)"__i__")) {
 
@@ -8460,18 +8470,18 @@ long u_dropHeld(long n0, long ctx) {
 
   while ((i < n0)) {
 
-  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 4939), key)) {
+  if (s_eq(l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->names, i, 4942), key)) {
 
-  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 4940);
+  was = l_atc(((R_TyEnv*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->env)->tys, i, 4943);
   }
 
-  i = i_add(i, 1L, 4942);
+  i = i_add(i, 1L, 4945);
   }
 
   u_envPut(((R_Ctx*)(intptr_t)ctx)->env, key, was);
   }
 
-  j = i_add(j, 1L, 4946);
+  j = i_add(j, 1L, 4949);
   }
 
   return 0L;
@@ -8582,7 +8592,7 @@ long u_markExpr(long e, long ctx) {
   case T_Field: { long recv = ((Obj*)(intptr_t)e)->v0; long fld = ((Obj*)(intptr_t)e)->v1; return u_markExpr(recv, ctx); }
   case T_ListLit: { long es = ((Obj*)(intptr_t)e)->v0; return u_markAll(es, ctx); }
   case T_Call: { long name = ((Obj*)(intptr_t)e)->v0; long args = ((Obj*)(intptr_t)e)->v1; return u_markAll(args, ctx); }
-  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t248 = u_markExpr(a, ctx); long _t249 = u_markExpr(b, ctx); i_add(_t248, _t249, 5010); }); }
+  case T_Bin: { long op = ((Obj*)(intptr_t)e)->v0; long a = ((Obj*)(intptr_t)e)->v1; long b = ((Obj*)(intptr_t)e)->v2; return ({ long _t248 = u_markExpr(a, ctx); long _t249 = u_markExpr(b, ctx); i_add(_t248, _t249, 5013); }); }
   case T_Var: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_Num: { long v = ((Obj*)(intptr_t)e)->v0; return 0L; }
   case T_FloatLit: { long s = ((Obj*)(intptr_t)e)->v0; return 0L; }
@@ -8624,7 +8634,7 @@ long u_markEach(long recv, long param, long body, long ctx) {
 
   if ((ed > 1L)) {
 
-  u_setHolding(param, i_sub(ed, 1L, 5040), ctx);
+  u_setHolding(param, i_sub(ed, 1L, 5043), ctx);
   }
   }
 
@@ -8695,7 +8705,7 @@ long u_markMethod(long recv, long name, long args, long ctx) {
 
   if ((ml >= 0L)) {
 
-  u_setHolding(root, i_add(i_add(ml, 1L, 5075), u_pathLen(recv), 5075), ctx);
+  u_setHolding(root, i_add(i_add(ml, 1L, 5078), u_pathLen(recv), 5078), ctx);
   }
   }
 
@@ -8724,7 +8734,7 @@ long u_checkEffects(long f, long ctx) {
 
   while ((k < m)) {
 
-  e = l_atc(used, k, 5090);
+  e = l_atc(used, k, 5093);
 
   if (((!u_hasName(((R_Fn*)(intptr_t)f)->effs, e)) && (!s_eq(e, (long)(intptr_t)"Fail")))) {
 
@@ -8736,7 +8746,7 @@ long u_checkEffects(long f, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"uses !", e), (long)(intptr_t)" but does not declare it"), ctx);
   }
 
-  k = i_add(k, 1L, 5098);
+  k = i_add(k, 1L, 5101);
   }
   }
 
@@ -8753,9 +8763,9 @@ long u_effBody(long body, long used, long ctx) {
 
   while ((k < m)) {
 
-  u_effStmt(l_atc(body, k, 5108), used, ctx);
+  u_effStmt(l_atc(body, k, 5111), used, ctx);
 
-  k = i_add(k, 1L, 5109);
+  k = i_add(k, 1L, 5112);
   }
 
   return 0L;
@@ -8882,7 +8892,7 @@ long u_effCallE(long name, long args, long used, long ctx) {
 
   while ((k < m)) {
 
-  g = l_atc(fns, k, 5195);
+  g = l_atc(fns, k, 5198);
 
   if (s_eq(((R_Fn*)(intptr_t)g)->name, name)) {
 
@@ -8905,22 +8915,22 @@ long u_effCallE(long name, long args, long used, long ctx) {
 
   while ((j < l_len(args))) {
 
-  if ((({ long _t66 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t69 = ({ long _t67 = s_concat(name, (long)(intptr_t)":"); long _t68 = i_tostr(j); s_concat(_t67, _t68); }); u_hasName(_t66, _t69); }) && u_handed(l_atc(args, j, 5205), ctx))) {
+  if ((({ long _t66 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t69 = ({ long _t67 = s_concat(name, (long)(intptr_t)":"); long _t68 = i_tostr(j); s_concat(_t67, _t68); }); u_hasName(_t66, _t69); }) && u_handed(l_atc(args, j, 5208), ctx))) {
 
   l_push(used, (long)(intptr_t)"Mut");
   }
 
-  if ((({ long _t72 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t75 = ({ long _t73 = s_concat(s_concat((long)(intptr_t)"deep:", name), (long)(intptr_t)":"); long _t74 = i_tostr(j); s_concat(_t73, _t74); }); u_hasName(_t72, _t75); }) && (u_holdDepth(l_atc(args, j, 5208), ctx) > 0L))) {
+  if ((({ long _t72 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->mutP; long _t75 = ({ long _t73 = s_concat(s_concat((long)(intptr_t)"deep:", name), (long)(intptr_t)":"); long _t74 = i_tostr(j); s_concat(_t73, _t74); }); u_hasName(_t72, _t75); }) && (u_holdDepth(l_atc(args, j, 5211), ctx) > 0L))) {
 
   l_push(used, (long)(intptr_t)"Mut");
   }
 
-  j = i_add(j, 1L, 5211);
+  j = i_add(j, 1L, 5214);
   }
   }
   }
 
-  k = i_add(k, 1L, 5215);
+  k = i_add(k, 1L, 5218);
   }
 
   u_effArgs(args, used, ctx);
@@ -8988,9 +8998,9 @@ long u_effArgs(long args, long used, long ctx) {
 
   while ((k < m)) {
 
-  u_effExpr(l_atc(args, k, 5251), used, ctx);
+  u_effExpr(l_atc(args, k, 5254), used, ctx);
 
-  k = i_add(k, 1L, 5252);
+  k = i_add(k, 1L, 5255);
   }
 
   return 0L;
@@ -9006,9 +9016,9 @@ long u_addAll(long src, long dst) {
 
   while ((k < m)) {
 
-  l_push(dst, l_atc(src, k, 5261));
+  l_push(dst, l_atc(src, k, 5264));
 
-  k = i_add(k, 1L, 5262);
+  k = i_add(k, 1L, 5265);
   }
 
   return 0L;
@@ -9020,7 +9030,7 @@ long u_caseArityIn(long t, long tag) {
   long m = 0;
   long c = 0;
 
-  r = i_sub(0L, 1L, 5268);
+  r = i_sub(0L, 1L, 5271);
 
   k = 0L;
 
@@ -9028,14 +9038,14 @@ long u_caseArityIn(long t, long tag) {
 
   while ((k < m)) {
 
-  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5272);
+  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5275);
 
   if (s_eq(((R_Case*)(intptr_t)c)->cname, tag)) {
 
   r = ((R_Case*)(intptr_t)c)->arity;
   }
 
-  k = i_add(k, 1L, 5276);
+  k = i_add(k, 1L, 5279);
   }
 
   return r;
@@ -9052,14 +9062,14 @@ long u_checkCases(long t, long arms, long ctx) {
 
   while ((k < m)) {
 
-  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5285);
+  c = l_atc(((R_TyDef*)(intptr_t)t)->cases, k, 5288);
 
   if ((!u_armCovers(arms, ((R_Case*)(intptr_t)c)->cname))) {
 
   u_failAt(({ long _t28 = s_concat(s_concat((long)(intptr_t)"non-exhaustive match in ", ((R_TyDef*)(intptr_t)t)->name), (long)(intptr_t)", missing case: "); long _t29 = ((R_Case*)(intptr_t)c)->cname; s_concat(_t28, _t29); }), ctx);
   }
 
-  k = i_add(k, 1L, 5289);
+  k = i_add(k, 1L, 5292);
   }
 
   return 0L;
@@ -9078,12 +9088,12 @@ long u_armCovers(long arms, long cname) {
 
   while ((k < m)) {
 
-  if (s_eq(((R_Arm*)(intptr_t)l_atc(arms, k, 5299))->tag, cname)) {
+  if (s_eq(((R_Arm*)(intptr_t)l_atc(arms, k, 5302))->tag, cname)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 5302);
+  k = i_add(k, 1L, 5305);
   }
 
   return found;
@@ -9102,12 +9112,12 @@ long u_armHasBind(long arms) {
 
   while ((k < m)) {
 
-  if ((l_len(((R_Arm*)(intptr_t)l_atc(arms, k, 5312))->binds) > 0L)) {
+  if ((l_len(((R_Arm*)(intptr_t)l_atc(arms, k, 5315))->binds) > 0L)) {
 
   has = true;
   }
 
-  k = i_add(k, 1L, 5315);
+  k = i_add(k, 1L, 5318);
   }
 
   return has;
@@ -9167,7 +9177,7 @@ long u_hoist(long ops, long ctx) {
 
   if ((!u_calm(o))) {
 
-  busy = i_add(busy, 1L, 5365);
+  busy = i_add(busy, 1L, 5368);
   }
   }
   }
@@ -9228,7 +9238,7 @@ long u_emitBin(long op, long a, long b, long ctx) {
 
   h = u_hoist(l_with(l_with(l_new(), a), b), ctx);
 
-  return ({ long _t23 = ((R_Hoist*)(intptr_t)h)->pre; long _t26 = ({ long _t24 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5400); long _t25 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 1L, 5400); u_emitBin0(op, _t24, _t25, ctx); }); u_inOrder(_t23, _t26); });
+  return ({ long _t23 = ((R_Hoist*)(intptr_t)h)->pre; long _t26 = ({ long _t24 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5403); long _t25 = l_atc(((R_Hoist*)(intptr_t)h)->ops, 1L, 5403); u_emitBin0(op, _t24, _t25, ctx); }); u_inOrder(_t23, _t26); });
   return 0;
 }
 long u_emitCall(long name, long args, long ctx) {
@@ -9247,7 +9257,7 @@ long u_emitMethod(long recv, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"slice") && (l_len(args) == 1L))) {
 
-  return u_emitMethod(recv, name, ({ long _t45 = l_atc(args, 0L, 5411); long _t46 = Field(recv, (long)(intptr_t)"length"); l_with(l_with(l_new(), _t45), _t46); }), ctx);
+  return u_emitMethod(recv, name, ({ long _t45 = l_atc(args, 0L, 5414); long _t46 = Field(recv, (long)(intptr_t)"length"); l_with(l_with(l_new(), _t45), _t46); }), ctx);
   }
 
   if ((s_eq(name, (long)(intptr_t)"and") || s_eq(name, (long)(intptr_t)"or"))) {
@@ -9275,12 +9285,12 @@ long u_emitMethod(long recv, long name, long args, long ctx) {
 
   while ((k < l_len(((R_Hoist*)(intptr_t)h)->ops))) {
 
-  l_push(rest, l_atc(((R_Hoist*)(intptr_t)h)->ops, k, 5424));
+  l_push(rest, l_atc(((R_Hoist*)(intptr_t)h)->ops, k, 5427));
 
-  k = i_add(k, 1L, 5425);
+  k = i_add(k, 1L, 5428);
   }
 
-  return ({ long _t63 = ((R_Hoist*)(intptr_t)h)->pre; long _t64 = u_emitMethod0(l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5427), name, rest, ctx); u_inOrder(_t63, _t64); });
+  return ({ long _t63 = ((R_Hoist*)(intptr_t)h)->pre; long _t64 = u_emitMethod0(l_atc(((R_Hoist*)(intptr_t)h)->ops, 0L, 5430), name, rest, ctx); u_inOrder(_t63, _t64); });
   return 0;
 }
 long u_emitList(long es, long ctx) {
@@ -9304,9 +9314,9 @@ long u_emitList0(long es, long ctx) {
 
   while ((k < m)) {
 
-  r = s_concat(({ long _t24 = s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "); long _t25 = u_emitExpr(l_atc(es, k, 5441), ctx); s_concat(_t24, _t25); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t24 = s_concat(s_concat((long)(intptr_t)"l_with(", r), (long)(intptr_t)", "); long _t25 = u_emitExpr(l_atc(es, k, 5444), ctx); s_concat(_t24, _t25); }), (long)(intptr_t)")");
 
-  k = i_add(k, 1L, 5442);
+  k = i_add(k, 1L, 5445);
   }
 
   return r;
@@ -9319,7 +9329,7 @@ long u_listType(long es, long ctx) {
 
   if ((l_len(es) > 0L)) {
 
-  r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_atc(es, 0L, 5450), ctx)), (long)(intptr_t)"]");
+  r = s_concat(s_concat((long)(intptr_t)"List[", u_exprType(l_atc(es, 0L, 5453), ctx)), (long)(intptr_t)"]");
   }
 
   return r;
@@ -9576,9 +9586,9 @@ long u_emitCall0(long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"assert takes one Bool", ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 5617), ctx), (long)(intptr_t)"Bool"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 5620), ctx), (long)(intptr_t)"Bool"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"assert needs a Bool, got ", u_exprType(l_atc(args, 0L, 5618), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"assert needs a Bool, got ", u_exprType(l_atc(args, 0L, 5621), ctx)), ctx);
   }
   }
 
@@ -9591,9 +9601,9 @@ long u_emitCall0(long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"exit takes the exit status, one Int", ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 5626), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 5629), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"exit takes the exit status as an Int, got ", u_exprType(l_atc(args, 0L, 5627), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"exit takes the exit status as an Int, got ", u_exprType(l_atc(args, 0L, 5630), ctx)), ctx);
   }
   }
 
@@ -9614,7 +9624,7 @@ long u_checkReturn(long f, long ctx) {
 
   if ((n > 0L)) {
 
-  ({ long _t17 = l_atc(((R_Fn*)(intptr_t)f)->body, i_sub(n, 1L, 5643), 5643); long _t18 = ((R_Fn*)(intptr_t)f)->ret; u_checkReturnStmt(_t17, _t18, ctx); });
+  ({ long _t17 = l_atc(((R_Fn*)(intptr_t)f)->body, i_sub(n, 1L, 5646), 5646); long _t18 = ((R_Fn*)(intptr_t)f)->ret; u_checkReturnStmt(_t17, _t18, ctx); });
   }
   }
 
@@ -9687,7 +9697,7 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  f = l_atc(fns, k, 5696);
+  f = l_atc(fns, k, 5699);
 
   if (s_eq(((R_Fn*)(intptr_t)f)->name, name)) {
 
@@ -9699,7 +9709,7 @@ long u_checkCall(long name, long args, long ctx) {
   u_checkArgTypes(name, ((R_Fn*)(intptr_t)f)->ptypes, args, ctx);
   }
 
-  k = i_add(k, 1L, 5703);
+  k = i_add(k, 1L, 5706);
   }
 
   recs = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->records;
@@ -9710,7 +9720,7 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 5709);
+  rec = l_atc(recs, k, 5712);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, name)) {
 
@@ -9722,7 +9732,7 @@ long u_checkCall(long name, long args, long ctx) {
   u_checkArgTypes(name, ((R_RecDef*)(intptr_t)rec)->ftypes, args, ctx);
   }
 
-  k = i_add(k, 1L, 5716);
+  k = i_add(k, 1L, 5719);
   }
 
   types = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->types;
@@ -9733,14 +9743,14 @@ long u_checkCall(long name, long args, long ctx) {
 
   while ((k < m)) {
 
-  ar = u_caseArityIn(l_atc(types, k, 5722), name);
+  ar = u_caseArityIn(l_atc(types, k, 5725), name);
 
   if (((!(ar < 0L)) && (!(l_len(args) == ar)))) {
 
   u_failAt(({ long _t98 = s_concat(({ long _t96 = s_concat(s_concat((long)(intptr_t)"case ", name), (long)(intptr_t)" takes "); long _t97 = i_tostr(ar); s_concat(_t96, _t97); }), (long)(intptr_t)" values, got "); long _t99 = i_tostr(l_len(args)); s_concat(_t98, _t99); }), ctx);
   }
 
-  k = i_add(k, 1L, 5726);
+  k = i_add(k, 1L, 5729);
   }
 
   return 0L;
@@ -9760,16 +9770,16 @@ long u_checkArgTypes(long name, long ptypes, long args, long ctx) {
 
   while ((k < n)) {
 
-  pt = l_atc(ptypes, k, 5736);
+  pt = l_atc(ptypes, k, 5739);
 
-  at = u_exprType(l_atc(args, k, 5737), ctx);
+  at = u_exprType(l_atc(args, k, 5740), ctx);
 
   if ((!u_compatible(pt, at, ctx))) {
 
-  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr(i_add(k, 1L, 5739))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
+  u_failAt(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"argument ", i_tostr(i_add(k, 1L, 5742))), (long)(intptr_t)" of "), name), (long)(intptr_t)": expects "), pt), (long)(intptr_t)", got "), at), ctx);
   }
 
-  k = i_add(k, 1L, 5741);
+  k = i_add(k, 1L, 5744);
   }
   }
 
@@ -9879,12 +9889,12 @@ long u_isVariant(long t, long ctx) {
 
   while ((k < m)) {
 
-  if (s_eq(((R_TyDef*)(intptr_t)l_atc(types, k, 5813))->name, t)) {
+  if (s_eq(((R_TyDef*)(intptr_t)l_atc(types, k, 5816))->name, t)) {
 
   found = true;
   }
 
-  k = i_add(k, 1L, 5816);
+  k = i_add(k, 1L, 5819);
   }
 
   return found;
@@ -10239,7 +10249,7 @@ long u_recHasField(long t, long fld, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 6034);
+  rec = l_atc(recs, k, 6037);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, t)) {
 
@@ -10249,7 +10259,7 @@ long u_recHasField(long t, long fld, long ctx) {
   }
   }
 
-  k = i_add(k, 1L, 6040);
+  k = i_add(k, 1L, 6043);
   }
 
   return found;
@@ -10428,7 +10438,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"at") && (l_len(args) == 1L))) {
 
-  at = u_exprType(l_atc(args, 0L, 6162), ctx);
+  at = u_exprType(l_atc(args, 0L, 6165), ctx);
 
   if ((s_eq(at, (long)(intptr_t)"Str") || s_eq(at, (long)(intptr_t)"Float"))) {
 
@@ -10438,7 +10448,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if (((s_eq(name, (long)(intptr_t)"push") && u_isListType(t)) && (l_len(args) == 1L))) {
 
-  pt = u_exprType(l_atc(args, 0L, 6168), ctx);
+  pt = u_exprType(l_atc(args, 0L, 6171), ctx);
 
   if ((!u_compatible(u_elemOf(t), pt, ctx))) {
 
@@ -10448,12 +10458,12 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if (((s_eq(name, (long)(intptr_t)"set") && u_isListType(t)) && (l_len(args) == 2L))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6174), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6177), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"set on a list expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6175), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"set on a list expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6178), ctx)), ctx);
   }
 
-  pt = u_exprType(l_atc(args, 1L, 6177), ctx);
+  pt = u_exprType(l_atc(args, 1L, 6180), ctx);
 
   if ((!u_compatible(u_elemOf(t), pt, ctx))) {
 
@@ -10468,15 +10478,15 @@ long u_checkMethod(long t, long name, long args, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"join puts a list of texts together; ", t), (long)(intptr_t)" has no method join"), ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6186), ctx), (long)(intptr_t)"Str"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6189), ctx), (long)(intptr_t)"Str"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"join expects the text to put between, got ", u_exprType(l_atc(args, 0L, 6187), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"join expects the text to put between, got ", u_exprType(l_atc(args, 0L, 6190), ctx)), ctx);
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"findByte")) {
 
-  if ((((!s_eq(t, (long)(intptr_t)"Bytes")) || (!s_eq(u_exprType(l_atc(args, 0L, 6191), ctx), (long)(intptr_t)"Int"))) || (!s_eq(u_exprType(l_atc(args, 1L, 6191), ctx), (long)(intptr_t)"Int")))) {
+  if ((((!s_eq(t, (long)(intptr_t)"Bytes")) || (!s_eq(u_exprType(l_atc(args, 0L, 6194), ctx), (long)(intptr_t)"Int"))) || (!s_eq(u_exprType(l_atc(args, 1L, 6194), ctx), (long)(intptr_t)"Int")))) {
 
   u_failAt((long)(intptr_t)"findByte(n, from) gives the place of the next byte n in Bytes, or -1", ctx);
   }
@@ -10505,15 +10515,15 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"writeBytes") && (l_len(args) == 2L))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 1L, 6206), ctx), (long)(intptr_t)"List[Int]"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 1L, 6209), ctx), (long)(intptr_t)"List[Int]"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"writeBytes takes a path and a List[Int] of bytes, got ", u_exprType(l_atc(args, 1L, 6207), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"writeBytes takes a path and a List[Int] of bytes, got ", u_exprType(l_atc(args, 1L, 6210), ctx)), ctx);
   }
   }
 
   if ((((s_eq(name, (long)(intptr_t)"print") || s_eq(name, (long)(intptr_t)"part")) || s_eq(name, (long)(intptr_t)"error")) && (l_len(args) == 1L))) {
 
-  if (s_eq(u_exprType(l_atc(args, 0L, 6211), ctx), (long)(intptr_t)"Bytes")) {
+  if (s_eq(u_exprType(l_atc(args, 0L, 6214), ctx), (long)(intptr_t)"Bytes")) {
 
   u_failAt((long)(intptr_t)"Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx);
   }
@@ -10542,7 +10552,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"json") && (l_len(args) == 1L))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6226), ctx), (long)(intptr_t)"Str")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6229), ctx), (long)(intptr_t)"Str")))) {
 
   u_failAt((long)(intptr_t)"json takes a key or a place as a text, and gives the value there as a text", ctx);
   }
@@ -10550,7 +10560,7 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"find") && (l_len(args) == 1L))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6231), ctx), (long)(intptr_t)"Str")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Str")) || (!s_eq(u_exprType(l_atc(args, 0L, 6234), ctx), (long)(intptr_t)"Str")))) {
 
   u_failAt((long)(intptr_t)"find looks for a text in a text and gives its place, or -1", ctx);
   }
@@ -10558,9 +10568,9 @@ long u_checkMethod(long t, long name, long args, long ctx) {
 
   if ((s_eq(name, (long)(intptr_t)"remove") && u_anyMap(t))) {
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6236), ctx), (long)(intptr_t)"Str"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6239), ctx), (long)(intptr_t)"Str"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"remove on a map expects the key as a Str, got ", u_exprType(l_atc(args, 0L, 6237), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"remove on a map expects the key as a Str, got ", u_exprType(l_atc(args, 0L, 6240), ctx)), ctx);
   }
   }
 
@@ -10571,9 +10581,9 @@ long u_checkMethod(long t, long name, long args, long ctx) {
   u_failAt(s_concat(s_concat((long)(intptr_t)"remove takes an item out of a list or a key out of a map; ", t), (long)(intptr_t)" has no method remove"), ctx);
   }
 
-  if ((!s_eq(u_exprType(l_atc(args, 0L, 6244), ctx), (long)(intptr_t)"Int"))) {
+  if ((!s_eq(u_exprType(l_atc(args, 0L, 6247), ctx), (long)(intptr_t)"Int"))) {
 
-  u_failAt(s_concat((long)(intptr_t)"remove expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6245), ctx)), ctx);
+  u_failAt(s_concat((long)(intptr_t)"remove expects the place as an Int, got ", u_exprType(l_atc(args, 0L, 6248), ctx)), ctx);
   }
   }
   }
@@ -10605,7 +10615,7 @@ long u_checkSysField(long t, long fld, long ctx) {
 long u_methodArgs(long name) {
   long r = 0;
 
-  r = i_sub(0L, 1L, 6269);
+  r = i_sub(0L, 1L, 6272);
 
   if (((((((((((((((((((((((((((((((((((((((u_isTextMethod(name) || s_eq(name, (long)(intptr_t)"print")) || s_eq(name, (long)(intptr_t)"read")) || s_eq(name, (long)(intptr_t)"list")) || s_eq(name, (long)(intptr_t)"exists")) || s_eq(name, (long)(intptr_t)"wait")) || s_eq(name, (long)(intptr_t)"sleep")) || s_eq(name, (long)(intptr_t)"delete")) || s_eq(name, (long)(intptr_t)"remove")) || s_eq(name, (long)(intptr_t)"bitAnd")) || s_eq(name, (long)(intptr_t)"bitOr")) || s_eq(name, (long)(intptr_t)"bitXor")) || s_eq(name, (long)(intptr_t)"shl")) || s_eq(name, (long)(intptr_t)"shr")) || s_eq(name, (long)(intptr_t)"fetch")) || s_eq(name, (long)(intptr_t)"reach")) || s_eq(name, (long)(intptr_t)"part")) || s_eq(name, (long)(intptr_t)"error")) || s_eq(name, (long)(intptr_t)"atan2")) || s_eq(name, (long)(intptr_t)"pow")) || s_eq(name, (long)(intptr_t)"atan2_c")) || s_eq(name, (long)(intptr_t)"pow_c")) || s_eq(name, (long)(intptr_t)"readBytes")) || s_eq(name, (long)(intptr_t)"floatAt")) || s_eq(name, (long)(intptr_t)"secsOf")) || s_eq(name, (long)(intptr_t)"date")) || s_eq(name, (long)(intptr_t)"var")) || s_eq(name, (long)(intptr_t)"mod")) || s_eq(name, (long)(intptr_t)"atan2")) || s_eq(name, (long)(intptr_t)"get")) || s_eq(name, (long)(intptr_t)"has")) || s_eq(name, (long)(intptr_t)"ge")) || s_eq(name, (long)(intptr_t)"le")) || s_eq(name, (long)(intptr_t)"and")) || s_eq(name, (long)(intptr_t)"or")) || s_eq(name, (long)(intptr_t)"send")) || s_eq(name, (long)(intptr_t)"request")) || s_eq(name, (long)(intptr_t)"end")) || s_eq(name, (long)(intptr_t)"parallel"))) {
 
@@ -10638,11 +10648,11 @@ long u_emitSetField(long recv, long fld, long args, long ctx) {
 
   u_checkField(t, fld, ctx);
 
-  ({ long _t24 = l_atc(args, 0L, 6288); long _t25 = u_fieldType(recv, fld, ctx); long _t26 = s_concat((long)(intptr_t)".", fld); u_wantType(_t24, _t25, _t26, ctx); });
+  ({ long _t24 = l_atc(args, 0L, 6291); long _t25 = u_fieldType(recv, fld, ctx); long _t26 = s_concat((long)(intptr_t)".", fld); u_wantType(_t24, _t25, _t26, ctx); });
 
   recvC = u_emitExpr(recv, ctx);
 
-  return s_concat(({ long _t31 = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(((R_", t), (long)(intptr_t)"*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld), (long)(intptr_t)" = "); long _t32 = u_emitExpr(l_atc(args, 0L, 6290), ctx); s_concat(_t31, _t32); }), (long)(intptr_t)", 0L)");
+  return s_concat(({ long _t31 = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(((R_", t), (long)(intptr_t)"*)(intptr_t)"), recvC), (long)(intptr_t)")->"), fld), (long)(intptr_t)" = "); long _t32 = u_emitExpr(l_atc(args, 0L, 6293), ctx); s_concat(_t31, _t32); }), (long)(intptr_t)", 0L)");
   return 0;
 }
 long u_emitMethod0(long recv, long name, long args, long ctx) {
@@ -10660,7 +10670,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (u_isSetField(name)) {
 
-  return u_emitSetField(recv, s_slicec(name, 1L, s_len(name), 6295), args, ctx);
+  return u_emitSetField(recv, s_slicec(name, 1L, s_len(name), 6298), args, ctx);
   }
 
   rv = u_rootVar(recv);
@@ -10679,15 +10689,15 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   u_failAt((long)(intptr_t)"a Term has key, rows, cols, clear, stop and put(row, col, text, style)", ctx);
   }
 
-  u_wantType(l_atc(args, 0L, 6306), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 0L, 6309), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 1L, 6307), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 1L, 6310), (long)(intptr_t)"Int", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 2L, 6308), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 2L, 6311), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
 
-  u_wantType(l_atc(args, 3L, 6309), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
+  u_wantType(l_atc(args, 3L, 6312), (long)(intptr_t)"Str", (long)(intptr_t)"put", ctx);
 
-  return s_concat(({ long _t376 = s_concat(({ long _t374 = s_concat(({ long _t372 = s_concat(({ long _t370 = s_concat(s_concat((long)(intptr_t)"simpler_term_put(", u_emitExpr(l_atc(args, 0L, 6310), ctx)), (long)(intptr_t)", "); long _t371 = u_emitExpr(l_atc(args, 1L, 6310), ctx); s_concat(_t370, _t371); }), (long)(intptr_t)", "); long _t373 = u_emitExpr(l_atc(args, 2L, 6310), ctx); s_concat(_t372, _t373); }), (long)(intptr_t)", "); long _t375 = u_emitExpr(l_atc(args, 3L, 6310), ctx); s_concat(_t374, _t375); }), (long)(intptr_t)", "); long _t377 = u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"); s_concat(_t376, _t377); }), (long)(intptr_t)")");
+  return s_concat(({ long _t376 = s_concat(({ long _t374 = s_concat(({ long _t372 = s_concat(({ long _t370 = s_concat(s_concat((long)(intptr_t)"simpler_term_put(", u_emitExpr(l_atc(args, 0L, 6313), ctx)), (long)(intptr_t)", "); long _t371 = u_emitExpr(l_atc(args, 1L, 6313), ctx); s_concat(_t370, _t371); }), (long)(intptr_t)", "); long _t373 = u_emitExpr(l_atc(args, 2L, 6313), ctx); s_concat(_t372, _t373); }), (long)(intptr_t)", "); long _t375 = u_emitExpr(l_atc(args, 3L, 6313), ctx); s_concat(_t374, _t375); }), (long)(intptr_t)", "); long _t377 = u_envGet(((R_Ctx*)(intptr_t)ctx)->env, (long)(intptr_t)"__line__"); s_concat(_t376, _t377); }), (long)(intptr_t)")");
   }
 
   u_checkCap(recv, name, ctx);
@@ -10706,14 +10716,14 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"print")) {
 
-  if (s_eq(u_exprType(l_atc(args, 0L, 6321), ctx), (long)(intptr_t)"Bytes")) {
+  if (s_eq(u_exprType(l_atc(args, 0L, 6324), ctx), (long)(intptr_t)"Bytes")) {
 
   u_failAt((long)(intptr_t)"Bytes cannot be printed; print a part with textAt(i, n) or a number with at(i)", ctx);
   }
 
   u_emitExpr(recv, ctx);
 
-  return s_concat(s_concat((long)(intptr_t)"(", u_emitPrint(l_atc(args, 0L, 6325), ctx)), (long)(intptr_t)", 0L)");
+  return s_concat(s_concat((long)(intptr_t)"(", u_emitPrint(l_atc(args, 0L, 6328), ctx)), (long)(intptr_t)", 0L)");
   }
 
   u_checkMethod(t, name, args, ctx);
@@ -10726,7 +10736,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"concat")) {
 
-  r = s_concat(({ long _t399 = s_concat(s_concat((long)(intptr_t)"s_concat(", recvC), (long)(intptr_t)", "); long _t400 = u_emitExpr(l_atc(args, 0L, 6332), ctx); s_concat(_t399, _t400); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t399 = s_concat(s_concat((long)(intptr_t)"s_concat(", recvC), (long)(intptr_t)", "); long _t400 = u_emitExpr(l_atc(args, 0L, 6335), ctx); s_concat(_t399, _t400); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"slice")) {
@@ -10738,40 +10748,40 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   cut = (long)(intptr_t)"l_slicec(";
   }
 
-  u_wantType(l_atc(args, 0L, 6339), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6342), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6340), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 1L, 6343), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t410 = s_concat(({ long _t408 = s_concat(s_concat(cut, recvC), (long)(intptr_t)", "); long _t409 = u_emitExpr(l_atc(args, 0L, 6341), ctx); s_concat(_t408, _t409); }), (long)(intptr_t)", "); long _t411 = u_emitExpr(l_atc(args, 1L, 6341), ctx); s_concat(_t410, _t411); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t410 = s_concat(({ long _t408 = s_concat(s_concat(cut, recvC), (long)(intptr_t)", "); long _t409 = u_emitExpr(l_atc(args, 0L, 6344), ctx); s_concat(_t408, _t409); }), (long)(intptr_t)", "); long _t411 = u_emitExpr(l_atc(args, 1L, 6344), ctx); s_concat(_t410, _t411); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"at")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t414 = s_concat(s_concat((long)(intptr_t)"s_atc(", recvC), (long)(intptr_t)", "); long _t415 = u_emitExpr(l_atc(args, 0L, 6344), ctx); s_concat(_t414, _t415); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t414 = s_concat(s_concat((long)(intptr_t)"s_atc(", recvC), (long)(intptr_t)", "); long _t415 = u_emitExpr(l_atc(args, 0L, 6347), ctx); s_concat(_t414, _t415); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t418 = s_concat(s_concat((long)(intptr_t)"y_atc(", recvC), (long)(intptr_t)", "); long _t419 = u_emitExpr(l_atc(args, 0L, 6346), ctx); s_concat(_t418, _t419); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t418 = s_concat(s_concat((long)(intptr_t)"y_atc(", recvC), (long)(intptr_t)", "); long _t419 = u_emitExpr(l_atc(args, 0L, 6349), ctx); s_concat(_t418, _t419); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (u_isListType(t)) {
 
-  r = s_concat(s_concat(s_concat(({ long _t422 = s_concat(s_concat((long)(intptr_t)"l_atc(", recvC), (long)(intptr_t)", "); long _t423 = u_emitExpr(l_atc(args, 0L, 6349), ctx); s_concat(_t422, _t423); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t422 = s_concat(s_concat((long)(intptr_t)"l_atc(", recvC), (long)(intptr_t)", "); long _t423 = u_emitExpr(l_atc(args, 0L, 6352), ctx); s_concat(_t422, _t423); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"push")) {
 
-  r = s_concat(({ long _t426 = s_concat(s_concat((long)(intptr_t)"l_push(", recvC), (long)(intptr_t)", "); long _t427 = u_emitExpr(l_atc(args, 0L, 6353), ctx); s_concat(_t426, _t427); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t426 = s_concat(s_concat((long)(intptr_t)"l_push(", recvC), (long)(intptr_t)", "); long _t427 = u_emitExpr(l_atc(args, 0L, 6356), ctx); s_concat(_t426, _t427); }), (long)(intptr_t)")");
   }
 
   if ((((s_eq(name, (long)(intptr_t)"run") || s_eq(name, (long)(intptr_t)"status")) || s_eq(name, (long)(intptr_t)"start")) || s_eq(name, (long)(intptr_t)"try"))) {
 
-  u_runCheck(l_atc(args, 0L, 6356), ctx);
+  u_runCheck(l_atc(args, 0L, 6359), ctx);
 
-  u_wantType(l_atc(args, 0L, 6357), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6360), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6358), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6361), (long)(intptr_t)"List[Str]", name, ctx);
 
   mid = (long)(intptr_t)", ";
 
@@ -10780,71 +10790,71 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   mid = (long)(intptr_t)", 0, ";
   }
 
-  r = s_concat(s_concat(s_concat(({ long _t438 = s_concat(({ long _t436 = s_concat(s_concat((long)(intptr_t)"simpler_", name), (long)(intptr_t)"("); long _t437 = u_emitExpr(l_atc(args, 0L, 6363), ctx); s_concat(_t436, _t437); }), (long)(intptr_t)", "); long _t439 = u_emitExpr(l_atc(args, 1L, 6363), ctx); s_concat(_t438, _t439); }), mid), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t438 = s_concat(({ long _t436 = s_concat(s_concat((long)(intptr_t)"simpler_", name), (long)(intptr_t)"("); long _t437 = u_emitExpr(l_atc(args, 0L, 6366), ctx); s_concat(_t436, _t437); }), (long)(intptr_t)", "); long _t439 = u_emitExpr(l_atc(args, 1L, 6366), ctx); s_concat(_t438, _t439); }), mid), ln), (long)(intptr_t)")");
   }
 
   if ((s_eq(name, (long)(intptr_t)"feed") || s_eq(name, (long)(intptr_t)"output"))) {
 
-  u_runCheck(l_atc(args, 0L, 6366), ctx);
+  u_runCheck(l_atc(args, 0L, 6369), ctx);
 
-  u_wantType(l_atc(args, 0L, 6367), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6370), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6368), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6371), (long)(intptr_t)"List[Str]", name, ctx);
 
-  u_wantType(l_atc(args, 2L, 6369), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 2L, 6372), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t450 = s_concat(({ long _t448 = s_concat(({ long _t446 = s_concat(s_concat((long)(intptr_t)"simpler_", s_replace(name, (long)(intptr_t)"feed", (long)(intptr_t)"run")), (long)(intptr_t)"("); long _t447 = u_emitExpr(l_atc(args, 0L, 6370), ctx); s_concat(_t446, _t447); }), (long)(intptr_t)", "); long _t449 = u_emitExpr(l_atc(args, 1L, 6370), ctx); s_concat(_t448, _t449); }), (long)(intptr_t)", "); long _t451 = u_emitExpr(l_atc(args, 2L, 6370), ctx); s_concat(_t450, _t451); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t450 = s_concat(({ long _t448 = s_concat(({ long _t446 = s_concat(s_concat((long)(intptr_t)"simpler_", s_replace(name, (long)(intptr_t)"feed", (long)(intptr_t)"run")), (long)(intptr_t)"("); long _t447 = u_emitExpr(l_atc(args, 0L, 6373), ctx); s_concat(_t446, _t447); }), (long)(intptr_t)", "); long _t449 = u_emitExpr(l_atc(args, 1L, 6373), ctx); s_concat(_t448, _t449); }), (long)(intptr_t)", "); long _t451 = u_emitExpr(l_atc(args, 2L, 6373), ctx); s_concat(_t450, _t451); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reach")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6373), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6376), ctx);
 
-  u_wantType(l_atc(args, 0L, 6374), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6377), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_reach(", u_emitExpr(l_atc(args, 0L, 6375), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_reach(", u_emitExpr(l_atc(args, 0L, 6378), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"send")) {
 
-  u_mailCheck(l_atc(args, 0L, 6378), ctx);
+  u_mailCheck(l_atc(args, 0L, 6381), ctx);
 
-  u_wantType(l_atc(args, 0L, 6379), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6382), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6380), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6383), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 2L, 6381), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 2L, 6384), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t464 = s_concat(({ long _t462 = s_concat(s_concat((long)(intptr_t)"simpler_send(", u_emitExpr(l_atc(args, 0L, 6382), ctx)), (long)(intptr_t)", "); long _t463 = u_emitExpr(l_atc(args, 1L, 6382), ctx); s_concat(_t462, _t463); }), (long)(intptr_t)", "); long _t465 = u_emitExpr(l_atc(args, 2L, 6382), ctx); s_concat(_t464, _t465); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t464 = s_concat(({ long _t462 = s_concat(s_concat((long)(intptr_t)"simpler_send(", u_emitExpr(l_atc(args, 0L, 6385), ctx)), (long)(intptr_t)", "); long _t463 = u_emitExpr(l_atc(args, 1L, 6385), ctx); s_concat(_t462, _t463); }), (long)(intptr_t)", "); long _t465 = u_emitExpr(l_atc(args, 2L, 6385), ctx); s_concat(_t464, _t465); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"fetch")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6385), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6388), ctx);
 
-  u_wantType(l_atc(args, 0L, 6386), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6389), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6387), ctx)), (long)(intptr_t)", 0, 0, "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6390), ctx)), (long)(intptr_t)", 0, 0, "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"post")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6390), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6393), ctx);
 
-  u_wantType(l_atc(args, 0L, 6391), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6394), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6392), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6395), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t475 = s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6393), ctx)), (long)(intptr_t)", "); long _t476 = u_emitExpr(l_atc(args, 1L, 6393), ctx); s_concat(_t475, _t476); }), (long)(intptr_t)", 1, "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t475 = s_concat(s_concat((long)(intptr_t)"simpler_fetch(", u_emitExpr(l_atc(args, 0L, 6396), ctx)), (long)(intptr_t)", "); long _t476 = u_emitExpr(l_atc(args, 1L, 6396), ctx); s_concat(_t475, _t476); }), (long)(intptr_t)", 1, "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"request")) {
 
-  u_listenCheck(l_atc(args, 0L, 6396), ctx);
+  u_listenCheck(l_atc(args, 0L, 6399), ctx);
 
-  u_wantType(l_atc(args, 0L, 6397), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6400), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_request(", u_emitExpr(l_atc(args, 0L, 6398), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_request(", u_emitExpr(l_atc(args, 0L, 6401), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"parallel")) {
@@ -10854,176 +10864,176 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   if (s_eq(name, (long)(intptr_t)"drive")) {
 
-  u_runCheck(l_atc(args, 0L, 6404), ctx);
+  u_runCheck(l_atc(args, 0L, 6407), ctx);
 
-  u_wantType(l_atc(args, 0L, 6405), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6408), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6406), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6409), (long)(intptr_t)"List[Str]", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t488 = s_concat(s_concat((long)(intptr_t)"simpler_drive(", u_emitExpr(l_atc(args, 0L, 6407), ctx)), (long)(intptr_t)", "); long _t489 = u_emitExpr(l_atc(args, 1L, 6407), ctx); s_concat(_t488, _t489); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t488 = s_concat(s_concat((long)(intptr_t)"simpler_drive(", u_emitExpr(l_atc(args, 0L, 6410), ctx)), (long)(intptr_t)", "); long _t489 = u_emitExpr(l_atc(args, 1L, 6410), ctx); s_concat(_t488, _t489); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"press")) {
 
-  u_wantType(l_atc(args, 0L, 6410), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6413), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6411), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6414), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t494 = s_concat(s_concat((long)(intptr_t)"simpler_press(", u_emitExpr(l_atc(args, 0L, 6412), ctx)), (long)(intptr_t)", "); long _t495 = u_emitExpr(l_atc(args, 1L, 6412), ctx); s_concat(_t494, _t495); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t494 = s_concat(s_concat((long)(intptr_t)"simpler_press(", u_emitExpr(l_atc(args, 0L, 6415), ctx)), (long)(intptr_t)", "); long _t495 = u_emitExpr(l_atc(args, 1L, 6415), ctx); s_concat(_t494, _t495); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"shown")) {
 
-  u_wantType(l_atc(args, 0L, 6415), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6418), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6416), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 1L, 6419), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t500 = s_concat(s_concat((long)(intptr_t)"simpler_shown(", u_emitExpr(l_atc(args, 0L, 6417), ctx)), (long)(intptr_t)", "); long _t501 = u_emitExpr(l_atc(args, 1L, 6417), ctx); s_concat(_t500, _t501); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t500 = s_concat(s_concat((long)(intptr_t)"simpler_shown(", u_emitExpr(l_atc(args, 0L, 6420), ctx)), (long)(intptr_t)", "); long _t501 = u_emitExpr(l_atc(args, 1L, 6420), ctx); s_concat(_t500, _t501); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"end")) {
 
-  u_wantType(l_atc(args, 0L, 6420), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6423), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_end(", u_emitExpr(l_atc(args, 0L, 6421), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_end(", u_emitExpr(l_atc(args, 0L, 6424), ctx)), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reply")) {
 
-  u_wantType(l_atc(args, 0L, 6424), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6427), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6425), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6428), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t509 = s_concat(s_concat((long)(intptr_t)"simpler_reply(", u_emitExpr(l_atc(args, 0L, 6426), ctx)), (long)(intptr_t)", "); long _t510 = u_emitExpr(l_atc(args, 1L, 6426), ctx); s_concat(_t509, _t510); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t509 = s_concat(s_concat((long)(intptr_t)"simpler_reply(", u_emitExpr(l_atc(args, 0L, 6429), ctx)), (long)(intptr_t)", "); long _t510 = u_emitExpr(l_atc(args, 1L, 6429), ctx); s_concat(_t509, _t510); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"date")) {
 
-  u_wantType(l_atc(args, 0L, 6429), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6432), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_date(", u_emitExpr(l_atc(args, 0L, 6430), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_date(", u_emitExpr(l_atc(args, 0L, 6433), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"dateAs")) {
 
-  u_wantType(l_atc(args, 0L, 6433), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6436), (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6434), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6437), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(({ long _t518 = s_concat(s_concat((long)(intptr_t)"simpler_stamp(", u_emitExpr(l_atc(args, 0L, 6435), ctx)), (long)(intptr_t)", "); long _t519 = u_emitExpr(l_atc(args, 1L, 6435), ctx); s_concat(_t518, _t519); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t518 = s_concat(s_concat((long)(intptr_t)"simpler_stamp(", u_emitExpr(l_atc(args, 0L, 6438), ctx)), (long)(intptr_t)", "); long _t519 = u_emitExpr(l_atc(args, 1L, 6438), ctx); s_concat(_t518, _t519); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"sleep")) {
 
-  u_wantType(l_atc(args, 0L, 6438), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6441), (long)(intptr_t)"Int", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_sleep(", u_emitExpr(l_atc(args, 0L, 6439), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_sleep(", u_emitExpr(l_atc(args, 0L, 6442), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"wait")) {
 
-  ({ long _t525 = l_atc(args, 0L, 6442); long _t526 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t525, _t526, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t525 = l_atc(args, 0L, 6445); long _t526 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t525, _t526, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_wait(simpler_may(", u_emitExpr(l_atc(args, 0L, 6443), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_wait(simpler_may(", u_emitExpr(l_atc(args, 0L, 6446), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"secsOf")) {
 
-  u_wantType(l_atc(args, 0L, 6446), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6449), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_secs(", u_emitExpr(l_atc(args, 0L, 6447), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_secs(", u_emitExpr(l_atc(args, 0L, 6450), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"error")) {
 
-  u_wantType(l_atc(args, 0L, 6450), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6453), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"(fflush(stdout), fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6451), ctx)), (long)(intptr_t)", stderr), fputc(10, stderr), 0L)");
+  r = s_concat(s_concat((long)(intptr_t)"(fflush(stdout), simpler_puts((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6454), ctx)), (long)(intptr_t)", stderr), fputc(10, stderr), 0L)");
   }
 
   if (s_eq(name, (long)(intptr_t)"part")) {
 
-  u_wantType(l_atc(args, 0L, 6454), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6457), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"(fputs((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6455), ctx)), (long)(intptr_t)", stdout), 0L)");
+  r = s_concat(s_concat((long)(intptr_t)"(simpler_puts((const char*)(intptr_t)", u_emitExpr(l_atc(args, 0L, 6458), ctx)), (long)(intptr_t)", stdout), 0L)");
   }
 
   if (s_eq(name, (long)(intptr_t)"fetchWith")) {
 
-  u_fetchCheck(l_atc(args, 0L, 6458), ctx);
+  u_fetchCheck(l_atc(args, 0L, 6461), ctx);
 
-  u_wantType(l_atc(args, 0L, 6459), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6462), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6460), (long)(intptr_t)"List[Str]", name, ctx);
+  u_wantType(l_atc(args, 1L, 6463), (long)(intptr_t)"List[Str]", name, ctx);
 
-  r = s_concat(s_concat(s_concat(({ long _t542 = s_concat(s_concat((long)(intptr_t)"simpler_fetchwith(", u_emitExpr(l_atc(args, 0L, 6461), ctx)), (long)(intptr_t)", "); long _t543 = u_emitExpr(l_atc(args, 1L, 6461), ctx); s_concat(_t542, _t543); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t542 = s_concat(s_concat((long)(intptr_t)"simpler_fetchwith(", u_emitExpr(l_atc(args, 0L, 6464), ctx)), (long)(intptr_t)", "); long _t543 = u_emitExpr(l_atc(args, 1L, 6464), ctx); s_concat(_t542, _t543); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"var")) {
 
-  u_wantType(l_atc(args, 0L, 6464), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6467), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(s_concat((long)(intptr_t)"simpler_env(", u_emitExpr(l_atc(args, 0L, 6465), ctx)), (long)(intptr_t)")");
+  r = s_concat(s_concat((long)(intptr_t)"simpler_env(", u_emitExpr(l_atc(args, 0L, 6468), ctx)), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"setVar")) {
 
-  u_wantType(l_atc(args, 0L, 6468), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 0L, 6471), (long)(intptr_t)"Str", name, ctx);
 
-  u_wantType(l_atc(args, 1L, 6469), (long)(intptr_t)"Str", name, ctx);
+  u_wantType(l_atc(args, 1L, 6472), (long)(intptr_t)"Str", name, ctx);
 
-  r = s_concat(({ long _t551 = s_concat(s_concat((long)(intptr_t)"simpler_setenv(", u_emitExpr(l_atc(args, 0L, 6470), ctx)), (long)(intptr_t)", "); long _t552 = u_emitExpr(l_atc(args, 1L, 6470), ctx); s_concat(_t551, _t552); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t551 = s_concat(s_concat((long)(intptr_t)"simpler_setenv(", u_emitExpr(l_atc(args, 0L, 6473), ctx)), (long)(intptr_t)", "); long _t552 = u_emitExpr(l_atc(args, 1L, 6473), ctx); s_concat(_t551, _t552); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"read")) {
 
-  ({ long _t555 = l_atc(args, 0L, 6473); long _t556 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t555, _t556, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t555 = l_atc(args, 0L, 6476); long _t556 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t555, _t556, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6474), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(long)(intptr_t)simpler_read((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6477), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"readBytes")) {
 
-  ({ long _t560 = l_atc(args, 0L, 6477); long _t561 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t560, _t561, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t560 = l_atc(args, 0L, 6480); long _t561 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t560, _t561, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_readbytes((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6478), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_readbytes((const char*)(intptr_t)simpler_may(", u_emitExpr(l_atc(args, 0L, 6481), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"writeBytes")) {
 
-  ({ long _t565 = l_atc(args, 0L, 6481); long _t566 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t565, _t566, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t565 = l_atc(args, 0L, 6484); long _t566 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t565, _t566, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(({ long _t568 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_writebytes(simpler_may(", u_emitExpr(l_atc(args, 0L, 6482), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t569 = u_emitExpr(l_atc(args, 1L, 6482), ctx); s_concat(_t568, _t569); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t568 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_writebytes(simpler_may(", u_emitExpr(l_atc(args, 0L, 6485), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t569 = u_emitExpr(l_atc(args, 1L, 6485), ctx); s_concat(_t568, _t569); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"findByte")) {
 
-  r = s_concat(({ long _t574 = s_concat(({ long _t572 = s_concat(s_concat((long)(intptr_t)"y_find(", recvC), (long)(intptr_t)", "); long _t573 = u_emitExpr(l_atc(args, 0L, 6485), ctx); s_concat(_t572, _t573); }), (long)(intptr_t)", "); long _t575 = u_emitExpr(l_atc(args, 1L, 6485), ctx); s_concat(_t574, _t575); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t574 = s_concat(({ long _t572 = s_concat(s_concat((long)(intptr_t)"y_find(", recvC), (long)(intptr_t)", "); long _t573 = u_emitExpr(l_atc(args, 0L, 6488), ctx); s_concat(_t572, _t573); }), (long)(intptr_t)", "); long _t575 = u_emitExpr(l_atc(args, 1L, 6488), ctx); s_concat(_t574, _t575); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"textAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t580 = s_concat(({ long _t578 = s_concat(s_concat((long)(intptr_t)"b_text(", recvC), (long)(intptr_t)", "); long _t579 = u_emitExpr(l_atc(args, 0L, 6488), ctx); s_concat(_t578, _t579); }), (long)(intptr_t)", "); long _t581 = u_emitExpr(l_atc(args, 1L, 6488), ctx); s_concat(_t580, _t581); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t580 = s_concat(({ long _t578 = s_concat(s_concat((long)(intptr_t)"b_text(", recvC), (long)(intptr_t)", "); long _t579 = u_emitExpr(l_atc(args, 0L, 6491), ctx); s_concat(_t578, _t579); }), (long)(intptr_t)", "); long _t581 = u_emitExpr(l_atc(args, 1L, 6491), ctx); s_concat(_t580, _t581); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t586 = s_concat(({ long _t584 = s_concat(s_concat((long)(intptr_t)"y_text(", recvC), (long)(intptr_t)", "); long _t585 = u_emitExpr(l_atc(args, 0L, 6490), ctx); s_concat(_t584, _t585); }), (long)(intptr_t)", "); long _t587 = u_emitExpr(l_atc(args, 1L, 6490), ctx); s_concat(_t586, _t587); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t586 = s_concat(({ long _t584 = s_concat(s_concat((long)(intptr_t)"y_text(", recvC), (long)(intptr_t)", "); long _t585 = u_emitExpr(l_atc(args, 0L, 6493), ctx); s_concat(_t584, _t585); }), (long)(intptr_t)", "); long _t587 = u_emitExpr(l_atc(args, 1L, 6493), ctx); s_concat(_t586, _t587); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"intAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t592 = s_concat(({ long _t590 = s_concat(s_concat((long)(intptr_t)"b_int(", recvC), (long)(intptr_t)", "); long _t591 = u_emitExpr(l_atc(args, 0L, 6494), ctx); s_concat(_t590, _t591); }), (long)(intptr_t)", "); long _t593 = u_emitExpr(l_atc(args, 1L, 6494), ctx); s_concat(_t592, _t593); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t592 = s_concat(({ long _t590 = s_concat(s_concat((long)(intptr_t)"b_int(", recvC), (long)(intptr_t)", "); long _t591 = u_emitExpr(l_atc(args, 0L, 6497), ctx); s_concat(_t590, _t591); }), (long)(intptr_t)", "); long _t593 = u_emitExpr(l_atc(args, 1L, 6497), ctx); s_concat(_t592, _t593); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t598 = s_concat(({ long _t596 = s_concat(s_concat((long)(intptr_t)"y_int(", recvC), (long)(intptr_t)", "); long _t597 = u_emitExpr(l_atc(args, 0L, 6496), ctx); s_concat(_t596, _t597); }), (long)(intptr_t)", "); long _t599 = u_emitExpr(l_atc(args, 1L, 6496), ctx); s_concat(_t598, _t599); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t598 = s_concat(({ long _t596 = s_concat(s_concat((long)(intptr_t)"y_int(", recvC), (long)(intptr_t)", "); long _t597 = u_emitExpr(l_atc(args, 0L, 6499), ctx); s_concat(_t596, _t597); }), (long)(intptr_t)", "); long _t599 = u_emitExpr(l_atc(args, 1L, 6499), ctx); s_concat(_t598, _t599); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if ((((s_eq(name, (long)(intptr_t)"atan2") || s_eq(name, (long)(intptr_t)"pow")) || s_eq(name, (long)(intptr_t)"atan2_c")) || s_eq(name, (long)(intptr_t)"pow_c"))) {
 
-  if (((!s_eq(t, (long)(intptr_t)"Float")) || (!s_eq(u_exprType(l_atc(args, 0L, 6500), ctx), (long)(intptr_t)"Float")))) {
+  if (((!s_eq(t, (long)(intptr_t)"Float")) || (!s_eq(u_exprType(l_atc(args, 0L, 6503), ctx), (long)(intptr_t)"Float")))) {
 
   u_failAt((long)(intptr_t)"atan2 and pow work on two Float numbers: y.atan2(x), x.pow(y)", ctx);
   }
@@ -11035,150 +11045,150 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   cf = (long)(intptr_t)"atan2";
   }
 
-  r = s_concat(({ long _t607 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(", cf), (long)(intptr_t)"(l2d("), recvC), (long)(intptr_t)"), l2d("); long _t608 = u_emitExpr(l_atc(args, 0L, 6507), ctx); s_concat(_t607, _t608); }), (long)(intptr_t)")))");
+  r = s_concat(({ long _t607 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"d2l(", cf), (long)(intptr_t)"(l2d("), recvC), (long)(intptr_t)"), l2d("); long _t608 = u_emitExpr(l_atc(args, 0L, 6510), ctx); s_concat(_t607, _t608); }), (long)(intptr_t)")))");
   }
 
   if (s_eq(name, (long)(intptr_t)"floatAt")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t611 = s_concat(s_concat((long)(intptr_t)"b_float(", recvC), (long)(intptr_t)", "); long _t612 = u_emitExpr(l_atc(args, 0L, 6510), ctx); s_concat(_t611, _t612); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t611 = s_concat(s_concat((long)(intptr_t)"b_float(", recvC), (long)(intptr_t)", "); long _t612 = u_emitExpr(l_atc(args, 0L, 6513), ctx); s_concat(_t611, _t612); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (s_eq(t, (long)(intptr_t)"Bytes")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t615 = s_concat(s_concat((long)(intptr_t)"y_float(", recvC), (long)(intptr_t)", "); long _t616 = u_emitExpr(l_atc(args, 0L, 6512), ctx); s_concat(_t615, _t616); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t615 = s_concat(s_concat((long)(intptr_t)"y_float(", recvC), (long)(intptr_t)", "); long _t616 = u_emitExpr(l_atc(args, 0L, 6515), ctx); s_concat(_t615, _t616); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"write")) {
 
-  ({ long _t619 = l_atc(args, 0L, 6516); long _t620 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t619, _t620, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t619 = l_atc(args, 0L, 6519); long _t620 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t619, _t620, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(({ long _t622 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(simpler_may(", u_emitExpr(l_atc(args, 0L, 6517), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t623 = u_emitExpr(l_atc(args, 1L, 6517), ctx); s_concat(_t622, _t623); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t622 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_write(simpler_may(", u_emitExpr(l_atc(args, 0L, 6520), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t623 = u_emitExpr(l_atc(args, 1L, 6520), ctx); s_concat(_t622, _t623); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"append")) {
 
-  ({ long _t626 = l_atc(args, 0L, 6520); long _t627 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t626, _t627, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t626 = l_atc(args, 0L, 6523); long _t627 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t626, _t627, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(({ long _t629 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(simpler_may(", u_emitExpr(l_atc(args, 0L, 6521), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t630 = u_emitExpr(l_atc(args, 1L, 6521), ctx); s_concat(_t629, _t630); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t629 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_append(simpler_may(", u_emitExpr(l_atc(args, 0L, 6524), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "); long _t630 = u_emitExpr(l_atc(args, 1L, 6524), ctx); s_concat(_t629, _t630); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"list")) {
 
-  ({ long _t633 = l_atc(args, 0L, 6524); long _t634 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t633, _t634, (long)(intptr_t)"list", (long)(intptr_t)"reads", ctx); });
+  ({ long _t633 = l_atc(args, 0L, 6527); long _t634 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t633, _t634, (long)(intptr_t)"list", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_list(simpler_may(simpler_dir(", u_emitExpr(l_atc(args, 0L, 6525), ctx)), (long)(intptr_t)"), simpler_rd, "), ln), (long)(intptr_t)", \"list\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_list(simpler_may(simpler_dir(", u_emitExpr(l_atc(args, 0L, 6528), ctx)), (long)(intptr_t)"), simpler_rd, "), ln), (long)(intptr_t)", \"list\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"exists")) {
 
-  ({ long _t638 = l_atc(args, 0L, 6528); long _t639 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t638, _t639, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
+  ({ long _t638 = l_atc(args, 0L, 6531); long _t639 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->reads; u_mayCheck(_t638, _t639, (long)(intptr_t)"read", (long)(intptr_t)"reads", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_exists(simpler_may(", u_emitExpr(l_atc(args, 0L, 6529), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
+  r = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_exists(simpler_may(", u_emitExpr(l_atc(args, 0L, 6532), ctx)), (long)(intptr_t)", simpler_rd, "), ln), (long)(intptr_t)", \"read\"))");
   }
 
   if (s_eq(name, (long)(intptr_t)"rename")) {
 
-  ({ long _t643 = l_atc(args, 0L, 6532); long _t644 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t643, _t644, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t643 = l_atc(args, 0L, 6535); long _t644 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t643, _t644, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  ({ long _t646 = l_atc(args, 1L, 6533); long _t647 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t646, _t647, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t646 = l_atc(args, 1L, 6536); long _t647 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t646, _t647, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(({ long _t649 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_rename(simpler_may(", u_emitExpr(l_atc(args, 0L, 6534), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), simpler_may("); long _t650 = u_emitExpr(l_atc(args, 1L, 6534), ctx); s_concat(_t649, _t650); }), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(({ long _t649 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_rename(simpler_may(", u_emitExpr(l_atc(args, 0L, 6537), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), simpler_may("); long _t650 = u_emitExpr(l_atc(args, 1L, 6537), ctx); s_concat(_t649, _t650); }), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"delete")) {
 
-  ({ long _t653 = l_atc(args, 0L, 6537); long _t654 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t653, _t654, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
+  ({ long _t653 = l_atc(args, 0L, 6540); long _t654 = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->writes; u_mayCheck(_t653, _t654, (long)(intptr_t)"write", (long)(intptr_t)"writes", ctx); });
 
-  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_delete(simpler_may(", u_emitExpr(l_atc(args, 0L, 6538), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"simpler_delete(simpler_may(", u_emitExpr(l_atc(args, 0L, 6541), ctx)), (long)(intptr_t)", simpler_wr, "), ln), (long)(intptr_t)", \"write\"), "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"split")) {
 
-  r = s_concat(({ long _t658 = s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "); long _t659 = u_emitExpr(l_atc(args, 0L, 6541), ctx); s_concat(_t658, _t659); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t658 = s_concat(s_concat((long)(intptr_t)"s_split(", recvC), (long)(intptr_t)", "); long _t659 = u_emitExpr(l_atc(args, 0L, 6544), ctx); s_concat(_t658, _t659); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"contains")) {
 
-  r = s_concat(({ long _t662 = s_concat(s_concat((long)(intptr_t)"s_contains(", recvC), (long)(intptr_t)", "); long _t663 = u_emitExpr(l_atc(args, 0L, 6544), ctx); s_concat(_t662, _t663); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t662 = s_concat(s_concat((long)(intptr_t)"s_contains(", recvC), (long)(intptr_t)", "); long _t663 = u_emitExpr(l_atc(args, 0L, 6547), ctx); s_concat(_t662, _t663); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"find")) {
 
-  r = s_concat(({ long _t666 = s_concat(s_concat((long)(intptr_t)"s_find(", recvC), (long)(intptr_t)", "); long _t667 = u_emitExpr(l_atc(args, 0L, 6547), ctx); s_concat(_t666, _t667); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t666 = s_concat(s_concat((long)(intptr_t)"s_find(", recvC), (long)(intptr_t)", "); long _t667 = u_emitExpr(l_atc(args, 0L, 6550), ctx); s_concat(_t666, _t667); }), (long)(intptr_t)")");
   }
 
   if ((((s_eq(name, (long)(intptr_t)"reTest") || s_eq(name, (long)(intptr_t)"reFind")) || s_eq(name, (long)(intptr_t)"reAll")) || s_eq(name, (long)(intptr_t)"reSplit"))) {
 
-  r = s_concat(s_concat(s_concat(({ long _t670 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"re_", s_case(s_slicec(name, 2L, s_len(name), 6550), 0)), (long)(intptr_t)"("), recvC), (long)(intptr_t)", "); long _t671 = u_emitExpr(l_atc(args, 0L, 6550), ctx); s_concat(_t670, _t671); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t670 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"re_", s_case(s_slicec(name, 2L, s_len(name), 6553), 0)), (long)(intptr_t)"("), recvC), (long)(intptr_t)", "); long _t671 = u_emitExpr(l_atc(args, 0L, 6553), ctx); s_concat(_t670, _t671); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"reReplace")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t676 = s_concat(({ long _t674 = s_concat(s_concat((long)(intptr_t)"re_replace(", recvC), (long)(intptr_t)", "); long _t675 = u_emitExpr(l_atc(args, 0L, 6553), ctx); s_concat(_t674, _t675); }), (long)(intptr_t)", "); long _t677 = u_emitExpr(l_atc(args, 1L, 6553), ctx); s_concat(_t676, _t677); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t676 = s_concat(({ long _t674 = s_concat(s_concat((long)(intptr_t)"re_replace(", recvC), (long)(intptr_t)", "); long _t675 = u_emitExpr(l_atc(args, 0L, 6556), ctx); s_concat(_t674, _t675); }), (long)(intptr_t)", "); long _t677 = u_emitExpr(l_atc(args, 1L, 6556), ctx); s_concat(_t676, _t677); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"json")) {
 
-  r = s_concat(({ long _t680 = s_concat(s_concat((long)(intptr_t)"s_json(", recvC), (long)(intptr_t)", "); long _t681 = u_emitExpr(l_atc(args, 0L, 6556), ctx); s_concat(_t680, _t681); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t680 = s_concat(s_concat((long)(intptr_t)"s_json(", recvC), (long)(intptr_t)", "); long _t681 = u_emitExpr(l_atc(args, 0L, 6559), ctx); s_concat(_t680, _t681); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"join")) {
 
-  r = s_concat(({ long _t684 = s_concat(s_concat((long)(intptr_t)"l_join(", recvC), (long)(intptr_t)", "); long _t685 = u_emitExpr(l_atc(args, 0L, 6559), ctx); s_concat(_t684, _t685); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t684 = s_concat(s_concat((long)(intptr_t)"l_join(", recvC), (long)(intptr_t)", "); long _t685 = u_emitExpr(l_atc(args, 0L, 6562), ctx); s_concat(_t684, _t685); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"startsWith")) {
 
-  r = s_concat(({ long _t688 = s_concat(s_concat((long)(intptr_t)"s_starts(", recvC), (long)(intptr_t)", "); long _t689 = u_emitExpr(l_atc(args, 0L, 6562), ctx); s_concat(_t688, _t689); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t688 = s_concat(s_concat((long)(intptr_t)"s_starts(", recvC), (long)(intptr_t)", "); long _t689 = u_emitExpr(l_atc(args, 0L, 6565), ctx); s_concat(_t688, _t689); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"endsWith")) {
 
-  r = s_concat(({ long _t692 = s_concat(s_concat((long)(intptr_t)"s_ends(", recvC), (long)(intptr_t)", "); long _t693 = u_emitExpr(l_atc(args, 0L, 6565), ctx); s_concat(_t692, _t693); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t692 = s_concat(s_concat((long)(intptr_t)"s_ends(", recvC), (long)(intptr_t)", "); long _t693 = u_emitExpr(l_atc(args, 0L, 6568), ctx); s_concat(_t692, _t693); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"replace")) {
 
-  r = s_concat(({ long _t698 = s_concat(({ long _t696 = s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "); long _t697 = u_emitExpr(l_atc(args, 0L, 6568), ctx); s_concat(_t696, _t697); }), (long)(intptr_t)", "); long _t699 = u_emitExpr(l_atc(args, 1L, 6568), ctx); s_concat(_t698, _t699); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t698 = s_concat(({ long _t696 = s_concat(s_concat((long)(intptr_t)"s_replace(", recvC), (long)(intptr_t)", "); long _t697 = u_emitExpr(l_atc(args, 0L, 6571), ctx); s_concat(_t696, _t697); }), (long)(intptr_t)", "); long _t699 = u_emitExpr(l_atc(args, 1L, 6571), ctx); s_concat(_t698, _t699); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"mod")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t702 = s_concat(s_concat((long)(intptr_t)"i_mod(", recvC), (long)(intptr_t)", "); long _t703 = u_emitExpr(l_atc(args, 0L, 6571), ctx); s_concat(_t702, _t703); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t702 = s_concat(s_concat((long)(intptr_t)"i_mod(", recvC), (long)(intptr_t)", "); long _t703 = u_emitExpr(l_atc(args, 0L, 6574), ctx); s_concat(_t702, _t703); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"atan2")) {
 
-  r = s_concat(({ long _t706 = s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("); long _t707 = u_emitExpr(l_atc(args, 0L, 6574), ctx); s_concat(_t706, _t707); }), (long)(intptr_t)")))");
+  r = s_concat(({ long _t706 = s_concat(s_concat((long)(intptr_t)"d2l(atan2(l2d(", recvC), (long)(intptr_t)"), l2d("); long _t707 = u_emitExpr(l_atc(args, 0L, 6577), ctx); s_concat(_t706, _t707); }), (long)(intptr_t)")))");
   }
 
   if (s_eq(name, (long)(intptr_t)"padLeft")) {
 
-  r = s_concat(({ long _t710 = s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "); long _t711 = u_emitExpr(l_atc(args, 0L, 6577), ctx); s_concat(_t710, _t711); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t710 = s_concat(s_concat((long)(intptr_t)"s_padleft(", recvC), (long)(intptr_t)", "); long _t711 = u_emitExpr(l_atc(args, 0L, 6580), ctx); s_concat(_t710, _t711); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"padRight")) {
 
-  r = s_concat(({ long _t714 = s_concat(s_concat((long)(intptr_t)"s_padright(", recvC), (long)(intptr_t)", "); long _t715 = u_emitExpr(l_atc(args, 0L, 6580), ctx); s_concat(_t714, _t715); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t714 = s_concat(s_concat((long)(intptr_t)"s_padright(", recvC), (long)(intptr_t)", "); long _t715 = u_emitExpr(l_atc(args, 0L, 6583), ctx); s_concat(_t714, _t715); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"set")) {
 
-  r = s_concat(({ long _t720 = s_concat(({ long _t718 = s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "); long _t719 = u_emitExpr(l_atc(args, 0L, 6583), ctx); s_concat(_t718, _t719); }), (long)(intptr_t)", "); long _t721 = u_emitExpr(l_atc(args, 1L, 6583), ctx); s_concat(_t720, _t721); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t720 = s_concat(({ long _t718 = s_concat(s_concat((long)(intptr_t)"m_set(", recvC), (long)(intptr_t)", "); long _t719 = u_emitExpr(l_atc(args, 0L, 6586), ctx); s_concat(_t718, _t719); }), (long)(intptr_t)", "); long _t721 = u_emitExpr(l_atc(args, 1L, 6586), ctx); s_concat(_t720, _t721); }), (long)(intptr_t)")");
 
   if (u_isListType(t)) {
 
-  r = s_concat(s_concat(s_concat(({ long _t726 = s_concat(({ long _t724 = s_concat(s_concat((long)(intptr_t)"l_setc(", recvC), (long)(intptr_t)", "); long _t725 = u_emitExpr(l_atc(args, 0L, 6585), ctx); s_concat(_t724, _t725); }), (long)(intptr_t)", "); long _t727 = u_emitExpr(l_atc(args, 1L, 6585), ctx); s_concat(_t726, _t727); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t726 = s_concat(({ long _t724 = s_concat(s_concat((long)(intptr_t)"l_setc(", recvC), (long)(intptr_t)", "); long _t725 = u_emitExpr(l_atc(args, 0L, 6588), ctx); s_concat(_t724, _t725); }), (long)(intptr_t)", "); long _t727 = u_emitExpr(l_atc(args, 1L, 6588), ctx); s_concat(_t726, _t727); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"remove")) {
 
-  r = s_concat(s_concat(s_concat(({ long _t730 = s_concat(s_concat((long)(intptr_t)"l_removec(", recvC), (long)(intptr_t)", "); long _t731 = u_emitExpr(l_atc(args, 0L, 6589), ctx); s_concat(_t730, _t731); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t730 = s_concat(s_concat((long)(intptr_t)"l_removec(", recvC), (long)(intptr_t)", "); long _t731 = u_emitExpr(l_atc(args, 0L, 6592), ctx); s_concat(_t730, _t731); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
 
   if (u_anyMap(t)) {
 
-  r = s_concat(({ long _t734 = s_concat(s_concat((long)(intptr_t)"m_remove(", recvC), (long)(intptr_t)", "); long _t735 = u_emitExpr(l_atc(args, 0L, 6591), ctx); s_concat(_t734, _t735); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t734 = s_concat(s_concat((long)(intptr_t)"m_remove(", recvC), (long)(intptr_t)", "); long _t735 = u_emitExpr(l_atc(args, 0L, 6594), ctx); s_concat(_t734, _t735); }), (long)(intptr_t)")");
   }
   }
 
@@ -11186,7 +11196,7 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
 
   u_wantType(recv, (long)(intptr_t)"Int", name, ctx);
 
-  u_wantType(l_atc(args, 0L, 6596), (long)(intptr_t)"Int", name, ctx);
+  u_wantType(l_atc(args, 0L, 6599), (long)(intptr_t)"Int", name, ctx);
 
   bop = (long)(intptr_t)"&";
 
@@ -11200,59 +11210,59 @@ long u_emitMethod0(long recv, long name, long args, long ctx) {
   bop = (long)(intptr_t)"^";
   }
 
-  r = s_concat(({ long _t745 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" "), bop), (long)(intptr_t)" "); long _t746 = u_emitExpr(l_atc(args, 0L, 6604), ctx); s_concat(_t745, _t746); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t745 = s_concat(s_concat(s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" "), bop), (long)(intptr_t)" "); long _t746 = u_emitExpr(l_atc(args, 0L, 6607), ctx); s_concat(_t745, _t746); }), (long)(intptr_t)")");
 
   if (s_eq(name, (long)(intptr_t)"shl")) {
 
-  r = s_concat(({ long _t749 = s_concat(s_concat((long)(intptr_t)"(long)((unsigned long)", recvC), (long)(intptr_t)" << ("); long _t750 = u_emitExpr(l_atc(args, 0L, 6606), ctx); s_concat(_t749, _t750); }), (long)(intptr_t)" & 63))");
+  r = s_concat(({ long _t749 = s_concat(s_concat((long)(intptr_t)"(long)((unsigned long)", recvC), (long)(intptr_t)" << ("); long _t750 = u_emitExpr(l_atc(args, 0L, 6609), ctx); s_concat(_t749, _t750); }), (long)(intptr_t)" & 63))");
   }
 
   if (s_eq(name, (long)(intptr_t)"shr")) {
 
-  r = s_concat(({ long _t753 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >> ("); long _t754 = u_emitExpr(l_atc(args, 0L, 6609), ctx); s_concat(_t753, _t754); }), (long)(intptr_t)" & 63))");
+  r = s_concat(({ long _t753 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >> ("); long _t754 = u_emitExpr(l_atc(args, 0L, 6612), ctx); s_concat(_t753, _t754); }), (long)(intptr_t)" & 63))");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"get")) {
 
-  r = s_concat(({ long _t757 = s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "); long _t758 = u_emitExpr(l_atc(args, 0L, 6613), ctx); s_concat(_t757, _t758); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t757 = s_concat(s_concat((long)(intptr_t)"m_get(", recvC), (long)(intptr_t)", "); long _t758 = u_emitExpr(l_atc(args, 0L, 6616), ctx); s_concat(_t757, _t758); }), (long)(intptr_t)")");
 
   mv = u_mapValueOf(t);
 
   if (s_eq(mv, (long)(intptr_t)"Str")) {
 
-  r = s_concat(({ long _t762 = s_concat(s_concat((long)(intptr_t)"m_gets(", recvC), (long)(intptr_t)", "); long _t763 = u_emitExpr(l_atc(args, 0L, 6617), ctx); s_concat(_t762, _t763); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t762 = s_concat(s_concat((long)(intptr_t)"m_gets(", recvC), (long)(intptr_t)", "); long _t763 = u_emitExpr(l_atc(args, 0L, 6620), ctx); s_concat(_t762, _t763); }), (long)(intptr_t)")");
   }
 
   if ((u_isMapType(t) && (!u_plainType(mv)))) {
 
-  r = s_concat(s_concat(s_concat(({ long _t766 = s_concat(s_concat((long)(intptr_t)"m_getp(", recvC), (long)(intptr_t)", "); long _t767 = u_emitExpr(l_atc(args, 0L, 6621), ctx); s_concat(_t766, _t767); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
+  r = s_concat(s_concat(s_concat(({ long _t766 = s_concat(s_concat((long)(intptr_t)"m_getp(", recvC), (long)(intptr_t)", "); long _t767 = u_emitExpr(l_atc(args, 0L, 6624), ctx); s_concat(_t766, _t767); }), (long)(intptr_t)", "), ln), (long)(intptr_t)")");
   }
   }
 
   if (s_eq(name, (long)(intptr_t)"has")) {
 
-  r = s_concat(({ long _t770 = s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "); long _t771 = u_emitExpr(l_atc(args, 0L, 6625), ctx); s_concat(_t770, _t771); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t770 = s_concat(s_concat((long)(intptr_t)"m_has(", recvC), (long)(intptr_t)", "); long _t771 = u_emitExpr(l_atc(args, 0L, 6628), ctx); s_concat(_t770, _t771); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"ge")) {
 
-  r = s_concat(({ long _t774 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "); long _t775 = u_emitExpr(l_atc(args, 0L, 6628), ctx); s_concat(_t774, _t775); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t774 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" >= "); long _t775 = u_emitExpr(l_atc(args, 0L, 6631), ctx); s_concat(_t774, _t775); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"le")) {
 
-  r = s_concat(({ long _t778 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" <= "); long _t779 = u_emitExpr(l_atc(args, 0L, 6631), ctx); s_concat(_t778, _t779); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t778 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" <= "); long _t779 = u_emitExpr(l_atc(args, 0L, 6634), ctx); s_concat(_t778, _t779); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"and")) {
 
-  r = s_concat(({ long _t782 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" && "); long _t783 = u_emitExpr(l_atc(args, 0L, 6634), ctx); s_concat(_t782, _t783); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t782 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" && "); long _t783 = u_emitExpr(l_atc(args, 0L, 6637), ctx); s_concat(_t782, _t783); }), (long)(intptr_t)")");
   }
 
   if (s_eq(name, (long)(intptr_t)"or")) {
 
-  r = s_concat(({ long _t786 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" || "); long _t787 = u_emitExpr(l_atc(args, 0L, 6637), ctx); s_concat(_t786, _t787); }), (long)(intptr_t)")");
+  r = s_concat(({ long _t786 = s_concat(s_concat((long)(intptr_t)"(", recvC), (long)(intptr_t)" || "); long _t787 = u_emitExpr(l_atc(args, 0L, 6640), ctx); s_concat(_t786, _t787); }), (long)(intptr_t)")");
   }
 
   return r;
@@ -11273,9 +11283,9 @@ long u_cEscape(long s) {
 
   while ((k < n)) {
 
-  c = s_code(s_atc(s, k, 6649));
+  c = s_code(s_atc(s, k, 6652));
 
-  piece = s_atc(s, k, 6650);
+  piece = s_atc(s, k, 6653);
 
   if ((c == 34L)) {
 
@@ -11304,7 +11314,7 @@ long u_cEscape(long s) {
 
   out = s_concat(out, piece);
 
-  k = i_add(k, 1L, 6667);
+  k = i_add(k, 1L, 6670);
   }
 
   return out;
@@ -11314,7 +11324,7 @@ long u_caseArity(long name, long ctx) {
   long r = 0;
   long a = 0;
 
-  r = i_sub(0L, 1L, 6675);
+  r = i_sub(0L, 1L, 6678);
 
   {
   long _lst = ((R_Sigs*)(intptr_t)((R_Ctx*)(intptr_t)ctx)->sigs)->types;
@@ -11390,9 +11400,9 @@ long u_emitArgs(long args, long ctx) {
   out = s_concat(out, (long)(intptr_t)", ");
   }
 
-  out = s_concat(out, u_emitExpr(l_atc(args, k, 6716), ctx));
+  out = s_concat(out, u_emitExpr(l_atc(args, k, 6719), ctx));
 
-  k = i_add(k, 1L, 6717);
+  k = i_add(k, 1L, 6720);
   }
 
   return out;
@@ -11469,7 +11479,7 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   if ((l_len(arms) > 0L)) {
 
-  a = l_atc(arms, 0L, 6771);
+  a = l_atc(arms, 0L, 6774);
 
   styp = u_exprType(scrut, ctx);
 
@@ -11479,9 +11489,9 @@ long u_matchType(long scrut, long arms, long ctx) {
 
   while ((bi < l_len(((R_Arm*)(intptr_t)a)->binds))) {
 
-  ({ long _t37 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 6776); long _t38 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t37, _t38); });
+  ({ long _t37 = l_atc(((R_Arm*)(intptr_t)a)->binds, bi, 6779); long _t38 = u_payloadType(styp, ((R_Arm*)(intptr_t)a)->tag, bi, ctx); u_envPut(((R_Ctx*)(intptr_t)ctx)->env, _t37, _t38); });
 
-  bi = i_add(bi, 1L, 6777);
+  bi = i_add(bi, 1L, 6780);
   }
 
   r = u_exprType(((R_Arm*)(intptr_t)a)->body, ctx);
@@ -11645,14 +11655,14 @@ long u_recFieldType(long tyName, long fld, long ctx) {
 
   while ((k < m)) {
 
-  rec = l_atc(recs, k, 6874);
+  rec = l_atc(recs, k, 6877);
 
   if (s_eq(((R_RecDef*)(intptr_t)rec)->name, tyName)) {
 
   r = u_fieldTypeIn(rec, fld);
   }
 
-  k = i_add(k, 1L, 6878);
+  k = i_add(k, 1L, 6881);
   }
 
   return r;
@@ -11671,12 +11681,12 @@ long u_fieldTypeIn(long rec, long fld) {
 
   while ((k < m)) {
 
-  if (s_eq(l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 6888), fld)) {
+  if (s_eq(l_atc(((R_RecDef*)(intptr_t)rec)->fields, k, 6891), fld)) {
 
-  r = l_atc(((R_RecDef*)(intptr_t)rec)->ftypes, k, 6889);
+  r = l_atc(((R_RecDef*)(intptr_t)rec)->ftypes, k, 6892);
   }
 
-  k = i_add(k, 1L, 6891);
+  k = i_add(k, 1L, 6894);
   }
 
   return r;
@@ -11894,7 +11904,7 @@ long u_isWord(long toks, long i, long w) {
 }
 long u_isAssign(long toks, long i) {
 
-  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 7037), (long)(intptr_t)"="));
+  return (u_isIdent(toks, i) && u_isPunct(toks, i_add(i, 1L, 7040), (long)(intptr_t)"="));
   return 0;
 }
 long u_identAt(long toks, long i) {
@@ -11976,27 +11986,27 @@ long u_lex(long src, long files) {
 
   i = 0L;
 
-  line = i_add(i_mul(i_sub(l_len(files), 1L, 7093), 1000000L, 7093), 1L, 7093);
+  line = i_add(i_mul(i_sub(l_len(files), 1L, 7096), 1000000L, 7096), 1L, 7096);
 
   while ((i < n)) {
 
-  c = s_code(s_atc(src, i, 7095));
+  c = s_code(s_atc(src, i, 7098));
 
   if (u_isSpace(c)) {
 
   if ((c == 10L)) {
 
-  line = i_add(line, 1L, 7098);
+  line = i_add(line, 1L, 7101);
   }
 
-  i = i_add(i, 1L, 7100);
+  i = i_add(i, 1L, 7103);
   } else {
 
   if (u_isComment(src, i, n)) {
 
-  while (((i < n) && (!(s_code(s_atc(src, i, 7103)) == 10L)))) {
+  while (((i < n) && (!(s_code(s_atc(src, i, 7106)) == 10L)))) {
 
-  i = i_add(i, 1L, 7104);
+  i = i_add(i, 1L, 7107);
   }
   } else {
 
@@ -12008,27 +12018,27 @@ long u_lex(long src, long files) {
 
   l_push(lines, line);
 
-  line = i_add(line, ((R_Here*)(intptr_t)h)->nl, 7111);
+  line = i_add(line, ((R_Here*)(intptr_t)h)->nl, 7114);
 
   i = ((R_Here*)(intptr_t)h)->upto;
   } else {
 
   if (((c == 34L) || (c == 39L))) {
 
-  j = i_add(i, 1L, 7115);
+  j = i_add(i, 1L, 7118);
 
   s = (long)(intptr_t)"";
 
-  while (((j < n) && (!(s_code(s_atc(src, j, 7117)) == c)))) {
+  while (((j < n) && (!(s_code(s_atc(src, j, 7120)) == c)))) {
 
-  if ((s_code(s_atc(src, j, 7118)) == 10L)) {
+  if ((s_code(s_atc(src, j, 7121)) == 10L)) {
 
   fail(s_concat(u_spot(files, line), (long)(intptr_t)"a text is missing its closing quote"));
   }
 
-  if ((s_code(s_atc(src, j, 7121)) == 92L)) {
+  if ((s_code(s_atc(src, j, 7124)) == 92L)) {
 
-  j = i_add(j, 1L, 7122);
+  j = i_add(j, 1L, 7125);
 
   if ((j == n)) {
 
@@ -12038,10 +12048,10 @@ long u_lex(long src, long files) {
   s = s_concat(s, u_esc(src, j));
   } else {
 
-  s = s_concat(s, s_atc(src, j, 7128));
+  s = s_concat(s, s_atc(src, j, 7131));
   }
 
-  j = i_add(j, 1L, 7130);
+  j = i_add(j, 1L, 7133);
   }
 
   if ((j == n)) {
@@ -12053,7 +12063,7 @@ long u_lex(long src, long files) {
 
   l_push(lines, line);
 
-  i = i_add(j, 1L, 7137);
+  i = i_add(j, 1L, 7140);
   } else {
 
   if (u_isDigit(c)) {
@@ -12062,43 +12072,43 @@ long u_lex(long src, long files) {
 
   num = 0L;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7142))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7145))))) {
 
-  num = i_add(i_mul(num, 10L, 7143), i_sub(s_code(s_atc(src, i, 7143)), 48L, 7143), 7143);
+  num = i_add(i_mul(num, 10L, 7146), i_sub(s_code(s_atc(src, i, 7146)), 48L, 7146), 7146);
 
-  i = i_add(i, 1L, 7144);
+  i = i_add(i, 1L, 7147);
   }
 
-  if ((((i_add(i, 1L, 7148) < n) && (s_code(s_atc(src, i, 7148)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 7148), 7148))))) {
+  if ((((i_add(i, 1L, 7151) < n) && (s_code(s_atc(src, i, 7151)) == 46L)) && u_isDigit(s_code(s_atc(src, i_add(i, 1L, 7151), 7151))))) {
 
-  i = i_add(i, 1L, 7149);
+  i = i_add(i, 1L, 7152);
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7150))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7153))))) {
 
-  i = i_add(i, 1L, 7151);
+  i = i_add(i, 1L, 7154);
   }
 
-  if (((i < n) && ((s_code(s_atc(src, i, 7154)) == 101L) || (s_code(s_atc(src, i, 7154)) == 69L)))) {
+  if (((i < n) && ((s_code(s_atc(src, i, 7157)) == 101L) || (s_code(s_atc(src, i, 7157)) == 69L)))) {
 
-  j = i_add(i, 1L, 7155);
+  j = i_add(i, 1L, 7158);
 
-  if (((j < n) && ((s_code(s_atc(src, j, 7156)) == 43L) || (s_code(s_atc(src, j, 7156)) == 45L)))) {
+  if (((j < n) && ((s_code(s_atc(src, j, 7159)) == 43L) || (s_code(s_atc(src, j, 7159)) == 45L)))) {
 
-  j = i_add(j, 1L, 7157);
+  j = i_add(j, 1L, 7160);
   }
 
-  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 7159))))) {
+  if (((j < n) && u_isDigit(s_code(s_atc(src, j, 7162))))) {
 
   i = j;
 
-  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7161))))) {
+  while (((i < n) && u_isDigit(s_code(s_atc(src, i, 7164))))) {
 
-  i = i_add(i, 1L, 7162);
+  i = i_add(i, 1L, 7165);
   }
   }
   }
 
-  l_push(toks, Float(s_slicec(src, start, i, 7166)));
+  l_push(toks, Float(s_slicec(src, start, i, 7169)));
 
   l_push(lines, line);
   } else {
@@ -12113,12 +12123,12 @@ long u_lex(long src, long files) {
 
   j = i;
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7175))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7178))))) {
 
-  j = i_add(j, 1L, 7176);
+  j = i_add(j, 1L, 7179);
   }
 
-  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 7178), taken)));
+  l_push(toks, Ident(u_safeName(s_slicec(src, i, j, 7181), taken)));
 
   l_push(lines, line);
 
@@ -12127,26 +12137,26 @@ long u_lex(long src, long files) {
 
   if (u_isTwoCharOp(src, i, n)) {
 
-  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 7183), 7183)));
+  l_push(toks, Punct(s_slicec(src, i, i_add(i, 2L, 7186), 7186)));
 
   l_push(lines, line);
 
-  i = i_add(i, 2L, 7185);
+  i = i_add(i, 2L, 7188);
   } else {
 
-  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 7191), 7191) == line)));
+  fol = ((l_len(lines) == 0L) || (!(l_atc(lines, i_sub(l_len(lines), 1L, 7194), 7194) == line)));
 
-  if (((s_code(s_atc(src, i, 7192)) == 40L) && fol)) {
+  if (((s_code(s_atc(src, i, 7195)) == 40L) && fol)) {
 
   l_push(toks, Punct((long)(intptr_t)"s("));
   } else {
 
-  l_push(toks, Punct(s_atc(src, i, 7195)));
+  l_push(toks, Punct(s_atc(src, i, 7198)));
   }
 
   l_push(lines, line);
 
-  i = i_add(i, 1L, 7198);
+  i = i_add(i, 1L, 7201);
   }
   }
   }
@@ -12165,7 +12175,7 @@ long u_lex(long src, long files) {
 }
 long u_isHere(long src, long i, long n) {
 
-  return ((((i_add(i, 2L, 7222) < n) && (s_code(s_atc(src, i, 7222)) == 60L)) && (s_code(s_atc(src, i_add(i, 1L, 7222), 7222)) == 60L)) && u_isAlpha(s_code(s_atc(src, i_add(i, 2L, 7222), 7222))));
+  return ((((i_add(i, 2L, 7225) < n) && (s_code(s_atc(src, i, 7225)) == 60L)) && (s_code(s_atc(src, i_add(i, 1L, 7225), 7225)) == 60L)) && u_isAlpha(s_code(s_atc(src, i_add(i, 2L, 7225), 7225))));
   return 0;
 }
 long u_hereText(long src, long i, long n, long files, long line) {
@@ -12181,28 +12191,28 @@ long u_hereText(long src, long i, long n, long files, long line) {
   long s = 0;
   long r = 0;
 
-  j = i_add(i, 2L, 7226);
+  j = i_add(i, 2L, 7229);
 
-  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7227))))) {
+  while (((j < n) && u_isAlnum(s_code(s_atc(src, j, 7230))))) {
 
-  j = i_add(j, 1L, 7228);
+  j = i_add(j, 1L, 7231);
   }
 
-  word = s_slicec(src, i_add(i, 2L, 7230), j, 7230);
+  word = s_slicec(src, i_add(i, 2L, 7233), j, 7233);
 
-  while ((((j < n) && u_isSpace(s_code(s_atc(src, j, 7231)))) && (!(s_code(s_atc(src, j, 7231)) == 10L)))) {
+  while ((((j < n) && u_isSpace(s_code(s_atc(src, j, 7234)))) && (!(s_code(s_atc(src, j, 7234)) == 10L)))) {
 
-  j = i_add(j, 1L, 7232);
+  j = i_add(j, 1L, 7235);
   }
 
-  if (((j < n) && (!(s_code(s_atc(src, j, 7234)) == 10L)))) {
+  if (((j < n) && (!(s_code(s_atc(src, j, 7237)) == 10L)))) {
 
   fail(s_concat(s_concat(s_concat(u_spot(files, line), (long)(intptr_t)"<<"), word), (long)(intptr_t)" must end its line; the text starts on the next line"));
   }
 
   rows = l_new();
 
-  j = i_add(j, 1L, 7238);
+  j = i_add(j, 1L, 7241);
 
   found = false;
 
@@ -12212,12 +12222,12 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   e = j;
 
-  while (((e < n) && (!(s_code(s_atc(src, e, 7243)) == 10L)))) {
+  while (((e < n) && (!(s_code(s_atc(src, e, 7246)) == 10L)))) {
 
-  e = i_add(e, 1L, 7244);
+  e = i_add(e, 1L, 7247);
   }
 
-  row = s_slicec(src, j, e, 7246);
+  row = s_slicec(src, j, e, 7249);
 
   if (s_eq(s_trim(row), word)) {
 
@@ -12225,18 +12235,18 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   k = 0L;
 
-  while (((k < s_len(row)) && ((s_code(s_atc(row, k, 7250)) == 32L) || (s_code(s_atc(row, k, 7250)) == 9L)))) {
+  while (((k < s_len(row)) && ((s_code(s_atc(row, k, 7253)) == 32L) || (s_code(s_atc(row, k, 7253)) == 9L)))) {
 
-  k = i_add(k, 1L, 7251);
+  k = i_add(k, 1L, 7254);
   }
 
-  indent = s_slicec(row, 0L, k, 7253);
+  indent = s_slicec(row, 0L, k, 7256);
   } else {
 
   l_push(rows, row);
   }
 
-  j = i_add(e, 1L, 7257);
+  j = i_add(e, 1L, 7260);
   }
 
   if ((!found)) {
@@ -12252,22 +12262,22 @@ long u_hereText(long src, long i, long n, long files, long line) {
 
   while ((r < l_len(rows))) {
 
-  row = l_atc(rows, r, 7266);
+  row = l_atc(rows, r, 7269);
 
-  if (((s_len(row) >= w) && s_eq(s_slicec(row, 0L, w, 7267), indent))) {
+  if (((s_len(row) >= w) && s_eq(s_slicec(row, 0L, w, 7270), indent))) {
 
-  s = s_concat(s, s_slicec(row, w, s_len(row), 7268));
+  s = s_concat(s, s_slicec(row, w, s_len(row), 7271));
   } else {
 
   if ((!s_eq(s_trim(row), (long)(intptr_t)""))) {
 
-  fail(s_concat(s_concat(s_concat(s_concat(u_spot(files, i_add(i_add(line, 1L, 7271), r, 7271)), (long)(intptr_t)"this line of the <<"), word), (long)(intptr_t)" text starts left of its end word "), word));
+  fail(s_concat(s_concat(s_concat(s_concat(u_spot(files, i_add(i_add(line, 1L, 7274), r, 7274)), (long)(intptr_t)"this line of the <<"), word), (long)(intptr_t)" text starts left of its end word "), word));
   }
   }
 
   s = s_concat(s, (long)(intptr_t)"\n");
 
-  r = i_add(r, 1L, 7275);
+  r = i_add(r, 1L, 7278);
   }
 
   if ((j > n)) {
@@ -12275,16 +12285,16 @@ long u_hereText(long src, long i, long n, long files, long line) {
   j = n;
   }
 
-  return Here(s, j, i_add(l_len(rows), 2L, 7280));
+  return Here(s, j, i_add(l_len(rows), 2L, 7283));
   return 0;
 }
 long u_esc(long src, long j) {
   long c = 0;
   long r = 0;
 
-  c = s_code(s_atc(src, j, 7284));
+  c = s_code(s_atc(src, j, 7287));
 
-  r = s_atc(src, j, 7285);
+  r = s_atc(src, j, 7288);
 
   if ((c == 110L)) {
 
@@ -12311,7 +12321,7 @@ long u_esc(long src, long j) {
 }
 long u_isComment(long src, long i, long n) {
 
-  return (((i_add(i, 1L, 7296) < n) && (s_code(s_atc(src, i, 7296)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 7296), 7296)) == 47L));
+  return (((i_add(i, 1L, 7299) < n) && (s_code(s_atc(src, i, 7299)) == 47L)) && (s_code(s_atc(src, i_add(i, 1L, 7299), 7299)) == 47L));
   return 0;
 }
 long u_isTwoCharOp(long src, long i, long n) {
@@ -12321,7 +12331,7 @@ long u_isTwoCharOp(long src, long i, long n) {
 }
 long u_twoIs(long src, long i, long n, long a, long b) {
 
-  return (((i_add(i, 1L, 7304) < n) && (s_code(s_atc(src, i, 7304)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 7304), 7304)) == b));
+  return (((i_add(i, 1L, 7307) < n) && (s_code(s_atc(src, i, 7307)) == a)) && (s_code(s_atc(src, i_add(i, 1L, 7307), 7307)) == b));
   return 0;
 }
 long u_isDigit(long c) {
@@ -12346,9 +12356,9 @@ long u_safeName(long s, long taken) {
 
   if ((n > 1L)) {
 
-  c0 = s_code(s_atc(s, 0L, 7329));
+  c0 = s_code(s_atc(s, 0L, 7332));
 
-  c1 = s_code(s_atc(s, 1L, 7330));
+  c1 = s_code(s_atc(s, 1L, 7333));
 
   if (((c0 == 95L) || ((c1 == 95L) && (((((((c0 == 108L) || (c0 == 115L)) || (c0 == 109L)) || (c0 == 105L)) || (c0 == 102L)) || (c0 == 117L)) || (c0 == 84L))))) {
 
@@ -12362,7 +12372,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 3L)) {
 
-  if (s_eq(s_slicec(s, 0L, 4L, 7338), (long)(intptr_t)"cmp_")) {
+  if (s_eq(s_slicec(s, 0L, 4L, 7341), (long)(intptr_t)"cmp_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }
@@ -12370,7 +12380,7 @@ long u_safeName(long s, long taken) {
 
   if ((n > 7L)) {
 
-  if (s_eq(s_slicec(s, 0L, 8L, 7343), (long)(intptr_t)"simpler_")) {
+  if (s_eq(s_slicec(s, 0L, 8L, 7346), (long)(intptr_t)"simpler_")) {
 
   r = s_concat(s, (long)(intptr_t)"_c");
   }

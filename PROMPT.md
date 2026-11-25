@@ -139,7 +139,7 @@ main(sys) {
   anything else stays as it is. For text full of quotes or backslashes (code to patch), write `old = <<END` and end
   it with a line holding `END` alone: the lines between are taken as written, each with its newline, and the end
   word's indent is cut from each line. A character is a one-letter text: `s.at(i)`. A text is counted in letters, never bytes: `"blå".length` is 3. Compare characters as text:
-  `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€"). A text cannot hold the character with number 0: `0.char` is "", so keep such a character in another form (its escape, or a number in a list).
+  `c >= "a" && c <= "z"`. The number of a character is `c.code` and the character of a number is `n.char` (`8364.char` is "€"). A text can hold any character, also the one with number 0 (`0.char`): it counts as one letter and is written out as one 0 byte.
 - Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, `!x` for not, and `-x`. `&&` and `||` stop as soon
   as the answer is known, so `i < n && xs.at(i) == 0` is safe. Int `/` cuts toward zero and `%` takes the
   sign of the left side. `true` and `false` are the two Bool values. Texts compare with `<` by character code.
